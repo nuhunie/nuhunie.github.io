@@ -1,9 +1,9 @@
 /* API 한 파일 라우터 (Cloudflare Pages Functions).  /api/... 로 오는 모든 요청이 여기로 온다.
  *
  * 누구나
- *   GET  /api/public           서비스·배치와 배치별 합계 (주문은 싣지 않는다)
- *   GET  /api/batch-orders?id= 배치 하나의 가린 주문 목록
- *   GET  /api/track?q=         주문번호 또는 아이디로 조회
+ *   GET  /api/public           서비스·배치와 배치별 수량 (주문·이름·금액은 싣지 않는다)
+ *   GET  /api/batch-items?id=  배치 하나의 품목별 수량
+ *   GET  /api/track?q=         주문번호로 내 주문 조회
  *   GET  /api/order?id=        주문 한 건 (결제 화면 불러오기)
  *   POST /api/voucher          쿠폰 확인
  *   POST /api/pay              결제 증빙 제출 → 확인 대기
@@ -17,7 +17,7 @@
  *   POST reset                 예시 데이터로 초기화
  *   GET  log                   활동 기록
  */
-import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, sessionCookie, clearCookie, loadState, seed, toOrder, toPublicOrder, overLimit, recordHit, logAct } from '../../server/lib.js';
+import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, sessionCookie, clearCookie, loadState, seed, toOrder, overLimit, recordHit, logAct } from '../../server/lib.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -33,9 +33,9 @@ export async function onRequest({ request, env, params }) {
     /* ── 누구나 ── */
     if (route === 'GET /public') return json(await loadState(db, false));
 
-    if (route === 'GET /batch-orders') {
-      const rows = await db.prepare('SELECT * FROM orders WHERE batch_id = ? ORDER BY created_at, id LIMIT 1000').bind(url.searchParams.get('id') || '').all();
-      return json({ orders: rows.results.map(toPublicOrder) });
+    if (route === 'GET /batch-items') {
+      const rows = await db.prepare('SELECT item, SUM(qty) AS qty FROM orders WHERE batch_id = ? GROUP BY item ORDER BY qty DESC, item LIMIT 500').bind(url.searchParams.get('id') || '').all();
+      return json({ items: rows.results });
     }
 
     if (route === 'GET /me') return json({ admin: await isAdmin(request, env), configured: configured(env) });
@@ -51,14 +51,13 @@ export async function onRequest({ request, env, params }) {
     if (route === 'POST /logout') return json({ admin: false }, 200, { 'set-cookie': clearCookie });
 
     if (route === 'GET /track') {
-      const q = (url.searchParams.get('q') || '').trim().toLowerCase().replace(/^@/, '');
-      if (q.length < 2 || q.length > 40) return json({ orders: [] });
+      // 주문번호 전체가 맞아야 찾는다. 아이디로는 찾지 않는다: 아이디는 공개된 값이라 남의 주문을 보게 된다.
+      const id = V.orderId(url.searchParams.get('q'));
+      if (!id) return json({ orders: [] });
       if (await overLimit(db, env, request, 'look')) return fail('Too many requests. Try again later.', 429);
       await recordHit(db, request, 'look');
-      // 주문번호도 아이디도 전체가 맞아야 찾는다 (logic.searchOrders와 같은 규칙).
-      // 아이디로 찾은 주문에는 주문번호를 싣지 않는다: 주문번호는 결제·영수증을 여는 열쇠라 본인만 알아야 한다.
-      const rows = await db.prepare('SELECT * FROM orders WHERE lower(id) = ?1 OR lower(buyer) = ?1 ORDER BY created_at, id LIMIT 50').bind(q).all();
-      return json({ orders: rows.results.map(toOrder).map(o => Object.assign(o, { id: o.id.toLowerCase() === q ? o.id : '', buyer: X.maskName(o.buyer), proofName: '' })) });
+      const row = await db.prepare('SELECT * FROM orders WHERE id = ?').bind(id).first();
+      return json({ orders: row ? [Object.assign(toOrder(row), { buyer: X.maskName(row.buyer), proofName: '' })] : [] });
     }
 
     if (route === 'GET /order') {

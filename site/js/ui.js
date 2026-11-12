@@ -47,7 +47,7 @@
   }
   function empty(msg) { return '<p class="empty">' + esc(msg) + '</p>'; }
   function searchForm(q) {
-    return '<form class="search" data-form="track"><input name="q" value="' + esc(q || '') + '" placeholder="' + L('Nomor pesanan atau username', '주문번호 또는 아이디') + '" aria-label="' + L('Cari pesanan', '주문 검색') + '"><button class="btn">' + L('Cari', '조회') + '</button></form>';
+    return '<form class="search" data-form="track"><input name="q" value="' + esc(q || '') + '" placeholder="' + L('Nomor pesanan', '주문번호') + '" aria-label="' + L('Cari pesanan', '주문 검색') + '"><button class="btn">' + L('Cari', '조회') + '</button></form>';
   }
 
   /* ── 홈 ── */
@@ -73,9 +73,8 @@
 
   // 배치 목록의 한 줄. withSvc가 참이면 서비스 이름을 함께 적는다(홈의 진행 중 목록용).
   function batchRow(b, withSvc) {
-    var br = S.recap(b.id);
-    return '<a class="row" href="#/b/' + b.id + '"><div><b>' + esc((withSvc ? LL(S.service(b.svc).name) + ' · ' : '') + batchName(b)) + '</b><small>' + L('Tutup order', '주문 마감') + ' ' + esc(dateLabel(b.closeDate)) + '</small></div>' +
-      stageBadge(b) + '<span class="num">' + br.count + ' ' + L('pesanan', '건') + '</span><span class="num">' + rp(br.total) + '</span><span class="arrow" aria-hidden="true">→</span></a>';
+    return '<a class="row plain" href="#/b/' + b.id + '"><div><b>' + esc((withSvc ? LL(S.service(b.svc).name) + ' · ' : '') + batchName(b)) + '</b><small>' + L('Tutup order', '주문 마감') + ' ' + esc(dateLabel(b.closeDate)) + '</small></div>' +
+      stageBadge(b) + '<span class="arrow" aria-hidden="true">→</span></a>';
   }
 
   /* ── 서비스 → 월별 배치 ── */
@@ -92,7 +91,7 @@
       '<h1>' + esc(LL(s.name)) + '</h1><p class="lead">' + esc(LL(s.desc)) + '</p>' +
       (months.length ? '<div class="tabs">' + tabs + '</div>' +
         '<h2 class="sub">' + L('Rekap bulan ini', '월 집계') + ' · ' + esc(monthLabel(month)) + '</h2>' +
-        '<div class="stats">' + stat(L('Batch', '배치'), r.batches) + stat(L('Sedang berjalan', '진행 중'), r.ongoing) + stat(L('Pesanan', '주문'), r.count) + stat(L('Total pesanan', '주문 금액'), rp(r.total)) + stat(L('Sudah dibayar', '결제 완료 금액'), rp(r.paidTotal)) + '</div>' +
+        '<div class="stats three">' + stat(L('Batch', '배치'), r.batches) + stat(L('Sedang berjalan', '진행 중'), r.ongoing) + stat(L('Jumlah pcs', '수량'), r.pcs) + '</div>' +
         '<h2 class="sub">' + L('Daftar batch', '배치 목록') + '</h2><div class="rows">' + rows + '</div>'
         : empty(L('Belum ada batch.', '아직 배치가 없습니다.')));
   }
@@ -107,23 +106,20 @@
       '<a class="btn" href="#/pay/' + b.id + '">' + L('Konfirmasi pembayaran', '결제 확인하기') + '</a></div>' +
       stepper(GO.STAGES.map(LL), b.stage, b.stage === GO.LAST_STAGE) +
       (b.note ? '<p class="note"><b>' + L('Info', '안내') + '</b> ' + esc(b.note) + '</p>' : '') +
-      '<h2 class="sub">' + L('Rekap batch', '배치 집계') + '</h2>' +
-      '<div class="stats">' + stat(L('Pesanan', '주문'), r.count) + stat(L('Jumlah pcs', '수량'), r.pcs) + stat(L('Total pesanan', '주문 금액'), rp(r.total)) + stat(L('Sudah dibayar', '결제 완료 금액') + ' (' + r.paid + '/' + r.count + ')', rp(r.paidTotal)) + stat(L('Menunggu verifikasi', '확인 대기'), r.pending) + '</div>' +
-      '<div id="batchOut">' + (r.count ? '<p class="hint">' + L('Memuat…', '불러오는 중…') + '</p>' : empty(L('Belum ada pesanan di batch ini.', '이 배치에는 아직 주문이 없습니다.'))) + '</div>';
+      '<div id="batchOut">' + (r.pcs ? '<p class="hint">' + L('Memuat…', '불러오는 중…') + '</p>' : empty(L('Belum ada pesanan di batch ini.', '이 배치에는 아직 주문이 없습니다.'))) + '</div>';
   }
-  // 품목별 집계와 주문 목록은 그 배치의 주문을 받아 온 뒤 채운다
+  // 품목별 수량만 보여 준다. 누가 무엇을 샀는지, 금액, 결제 여부는 고객 화면에 내보내지 않는다.
   function drawBatch(id) {
     var b = S.batch(id);
-    if (!b || !S.recap(id).count) return;
-    S.batchOrders(id).then(function (orders) {
+    if (!b || !S.recap(id).pcs) return;
+    S.batchItems(id).then(function (items) {
       var out = $('#batchOut');
       if (!out || route()[1] !== id) return;
-      var items = X.batchRecap(id, orders).items.map(function (it) { return '<tr><td>' + esc(it.item) + '</td><td class="r">' + it.qty + '</td><td class="r">' + rp(it.total) + '</td></tr>'; }).join('');
-      var ords = orders.map(function (o) {
-        return '<tr><td>' + esc(X.maskName(o.buyer)) + '</td><td>' + esc(o.item) + '</td><td class="r">' + o.qty + '</td><td class="r">' + rp(o.total) + '</td><td>' + payBadge(o.pay) + '</td></tr>';
-      }).join('');
-      out.innerHTML = '<h2 class="sub">' + L('Rekap per item', '품목별 집계') + '</h2><div class="tbl"><table><thead><tr><th>Item</th><th class="r">' + L('Jumlah', '수량') + '</th><th class="r">' + L('Total', '합계') + '</th></tr></thead><tbody>' + items + '</tbody></table></div>' +
-        '<h2 class="sub">' + L('Daftar pesanan', '주문 목록') + '</h2><div class="tbl"><table><thead><tr><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">' + L('Jumlah', '수량') + '</th><th class="r">' + L('Total', '합계') + '</th><th>' + L('Pembayaran', '결제') + '</th></tr></thead><tbody>' + ords + '</tbody></table></div>';
+      var total = items.reduce(function (s, it) { return s + it.qty; }, 0);
+      out.innerHTML = '<h2 class="sub">' + L('Rekap per item', '품목별 집계') + '</h2><div class="tbl"><table><thead><tr><th>Item</th><th class="r">' + L('Jumlah', '수량') + '</th></tr></thead><tbody>' +
+        items.map(function (it) { return '<tr><td>' + esc(it.item) + '</td><td class="r">' + it.qty + '</td></tr>'; }).join('') +
+        '<tr class="sum"><td>' + L('Total', '합계') + '</td><td class="r">' + total + '</td></tr></tbody></table></div>' +
+        '<p class="hint">' + L('Untuk melihat pesanan Anda sendiri, buka Lacak pesanan dan masukkan nomor pesanan.', '내 주문은 주문 조회에서 주문번호로 확인하세요.') + '</p>';
     }, function () { var out = $('#batchOut'); if (out) out.innerHTML = empty(L('Gagal memuat. Coba lagi.', '불러오지 못했습니다. 다시 시도해 주세요.')); });
   }
 
@@ -158,15 +154,15 @@
         stepper(labels, p.cur, p.finished) +
         '<p class="where">' + L('Posisi sekarang', '현재 위치') + ': <b>' + esc(o.pay === 'paid' ? LL(GO.STAGES[b.stage]) : LL(GO.PAY[o.pay])) + '</b> · <a href="#/b/' + b.id + '">' + esc(LL(s.name) + ' / ' + batchName(b)) + '</a></p>' +
         (b.note ? '<p class="note"><b>' + L('Info', '안내') + '</b> ' + esc(b.note) + '</p>' : '') +
-        (!o.id ? '<p class="hint">' + L('Untuk membayar atau melihat bukti, cari dengan nomor pesanan. Lupa nomornya? Buka Lacak pesanan di perangkat yang dipakai saat order, atau hubungi admin.', '결제하거나 영수증을 보려면 주문번호로 조회하세요. 번호를 잊었다면 주문할 때 쓴 기기에서 주문 조회를 열어 보거나 운영자에게 문의하세요.') + '</p>'
-          : o.pay === 'unpaid' || o.pay === 'rejected' ? '<a class="btn" href="#/pay/' + b.id + '/' + o.id + '">' + L('Bayar pesanan ini', '이 주문 결제하기') + '</a>'
+        (o.pay === 'unpaid' || o.pay === 'rejected' ? '<a class="btn" href="#/pay/' + b.id + '/' + o.id + '">' + L('Bayar pesanan ini', '이 주문 결제하기') + '</a>'
           : '<button type="button" class="btn line" data-act="receipt" data-id="' + o.id + '">' + L('Lihat bukti pesanan', '영수증 보기') + '</button>') + '</article>';
     }).join('');
   }
   function vTrack(q) {
     var first = S.db.orders[0];
-    return '<h1>' + L('Lacak pesanan', '주문 조회') + '</h1><p class="lead">' + L('Masukkan nomor pesanan atau username untuk melihat posisi dan status pesanan.', '주문번호나 아이디를 입력하면 주문 위치와 상태를 볼 수 있습니다.') + '</p>' + searchForm(q) +
-      '<div id="trackOut" aria-live="polite">' + (!q && first && first.id ? '<p class="hint">' + L('Contoh', '예시') + ': ' + first.id + ', ' + esc(first.buyer) + '</p>' : '') + '</div>' + (q ? '' : myOrdersHtml());
+    return '<h1>' + L('Lacak pesanan', '주문 조회') + '</h1><p class="lead">' + L('Masukkan nomor pesanan untuk melihat posisi dan status pesanan Anda.', '주문번호를 입력하면 내 주문의 위치와 상태를 볼 수 있습니다.') + '</p>' + searchForm(q) +
+      '<div id="trackOut" aria-live="polite">' + (!q && first && first.id ? '<p class="hint">' + L('Contoh', '예시') + ': ' + first.id + '</p>' : '') + '</div>' + (q ? '' : myOrdersHtml()) +
+      '<p class="hint">' + L('Lupa nomor pesanan? Buka halaman ini di perangkat yang dipakai saat order, atau hubungi admin.', '주문번호를 잊었다면 주문할 때 쓴 기기에서 이 화면을 열거나 운영자에게 문의하세요.') + '</p>';
   }
   // 조회 결과는 저장소에 물어본 뒤 채운다 (서버에서는 주문번호·아이디가 맞는 주문만 돌려준다)
   function drawTrack(q) {
@@ -176,7 +172,7 @@
       if (!out || (route()[1] || '') !== q) return;
       found.forEach(rememberOrder);                 // 주문번호로 찾은 주문은 이 기기에 기억해 둔다
       out.innerHTML = found.length ? '<p class="count">' + found.length + ' ' + L('pesanan ditemukan', '건 찾음') + '</p>' + trackCards(found)
-        : empty(L('Pesanan tidak ditemukan. Periksa lagi nomor pesanan atau username.', '주문을 찾지 못했습니다. 주문번호나 아이디를 다시 확인해 주세요.'));
+        : empty(L('Pesanan tidak ditemukan. Periksa lagi nomor pesanan.', '주문을 찾지 못했습니다. 주문번호를 다시 확인해 주세요.'));
     }, function () {
       var out = $('#trackOut');
       if (out) out.innerHTML = empty(L('Gagal memuat. Coba lagi.', '불러오지 못했습니다. 다시 시도해 주세요.'));
@@ -402,7 +398,9 @@
   function batchOptions(sel) { return S.db.batches.slice().sort(function (a, b) { return a.month < b.month ? 1 : a.month > b.month ? -1 : b.no - a.no; }).map(function (b) { return '<option value="' + b.id + '"' + (b.id === sel ? ' selected' : '') + '>' + esc(LL(S.service(b.svc).name) + ' / ' + batchName(b) + ' (' + b.month + ')') + '</option>'; }).join(''); }
   function aBatch() {
     var rows = S.db.batches.slice().sort(function (a, b) { return a.month < b.month ? 1 : a.month > b.month ? -1 : a.svc < b.svc ? -1 : a.svc > b.svc ? 1 : b.no - a.no; }).map(function (b) {
+      var br = X.batchRecap(b.id, S.db.orders);
       return '<tr><td>' + b.month + '</td><td>' + esc(LL(S.service(b.svc).name)) + '</td><td><a href="' + ROOT + '#/b/' + b.id + '">' + esc(batchName(b)) + '</a></td>' +
+        '<td class="r">' + br.count + '</td><td class="r btotal">' + rp(br.total) + '</td><td class="r">' + rp(br.paidTotal) + '</td>' +
         '<td><select data-bstage="' + b.id + '" aria-label="' + L('Tahap', '단계') + '">' + GO.STAGES.map(function (st, i) { return '<option value="' + i + '"' + (i === b.stage ? ' selected' : '') + '>' + esc(LL(st)) + '</option>'; }).join('') + '</select></td>' +
         '<td><input data-bnote="' + b.id + '" value="' + esc(b.note) + '" placeholder="' + L('Info untuk pelanggan', '고객 안내 문구') + '" aria-label="Info"></td>' +
         '<td><button class="link" data-act="batch-del" data-id="' + b.id + '">' + L('Hapus', '삭제') + '</button></td></tr>';
@@ -416,7 +414,14 @@
       '<div class="field"><label>' + L('Kurs', '환율') + '</label><input name="kurs" type="number" step="any" value="11.5"></div>' +
       '<div class="field span"><label>' + L('Info untuk pelanggan', '고객 안내 문구') + '</label><input name="note"></div>' +
       '<div class="field"><label>&nbsp;</label><button class="btn">' + L('Tambah', '추가') + '</button></div></form><p class="err" id="batchErr" role="alert"></p></div>' +
-      '<h2 class="sub">' + L('Semua batch', '전체 배치') + '</h2><div class="tbl"><table class="edit"><thead><tr><th>' + L('Bulan', '월') + '</th><th>' + L('Layanan', '서비스') + '</th><th>Batch</th><th>' + L('Tahap', '단계') + '</th><th>Info</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+      '<h2 class="sub">' + L('Rekap semua batch', '전체 집계') + '</h2>' + adminTotals() +
+      '<h2 class="sub">' + L('Semua batch', '전체 배치') + '</h2><div class="tbl"><table class="edit"><thead><tr><th>' + L('Bulan', '월') + '</th><th>' + L('Layanan', '서비스') + '</th><th>Batch</th><th class="r">' + L('Pesanan', '주문') + '</th><th class="r">' + L('Total pesanan', '주문 금액') + '</th><th class="r">' + L('Sudah dibayar', '결제 완료 금액') + '</th><th>' + L('Tahap', '단계') + '</th><th>Info</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  }
+  // 금액·결제 현황 집계는 관리자에게만 보인다
+  function adminTotals() {
+    var t = { count: 0, total: 0, paidTotal: 0, pending: 0 };
+    S.db.batches.forEach(function (b) { var r = X.batchRecap(b.id, S.db.orders); t.count += r.count; t.total += r.total; t.paidTotal += r.paidTotal; t.pending += r.pending; });
+    return '<div class="stats">' + stat(L('Batch', '배치'), S.db.batches.length) + stat(L('Pesanan', '주문'), t.count) + stat(L('Total pesanan', '주문 금액'), rp(t.total)) + stat(L('Sudah dibayar', '결제 완료 금액'), rp(t.paidTotal)) + stat(L('Menunggu verifikasi', '확인 대기'), t.pending) + '</div>';
   }
   function aOrder() {
     if (!S.batch(A.batchId)) A.batchId = (S.db.batches.filter(function (b) { return b.stage === 0; })[0] || S.db.batches[0] || {}).id || '';

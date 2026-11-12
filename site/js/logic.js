@@ -87,17 +87,14 @@
 
   /* ── D. 주문 조회 ──────────────────────────────────────────── */
   X.searchOrders = function (orders, q) {
-    q = String(q || '').trim().toLowerCase().replace(/^@/, '');
-    if (q.length < 2) return [];
-    // 주문번호도 아이디도 전체가 맞아야 찾는다. 일부만으로 찾게 두면 남의 주문 목록을 뽑을 수 있다.
-    // 아이디로 찾은 주문에는 주문번호를 싣지 않는다: 주문번호는 결제·영수증을 여는 열쇠다.
+    // 주문번호 전체가 맞아야 찾는다. 주문번호는 본인만 아는 열쇠다.
+    // 아이디로는 찾지 않는다: 아이디는 공개된 값이라 남의 주문을 보게 된다.
+    q = String(q || '').trim().toUpperCase();
     var out = [];
     orders.forEach(function (o) {
-      var byId = o.id.toLowerCase() === q;
-      if (!byId && o.buyer.toLowerCase() !== q) return;
+      if (o.id !== q) return;
       var copy = {}; for (var k in o) copy[k] = o[k];
       copy.buyer = X.maskName(o.buyer); copy.proofName = '';
-      if (!byId) copy.id = '';
       out.push(copy);
     });
     return out;

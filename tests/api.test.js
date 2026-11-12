@@ -52,39 +52,31 @@ test('초기화하면 예시 데이터와 같다', async () => {
   assert.deepEqual(r.json.calcDefaults, seed.calcDefaults);
 });
 
-test('공개 목록에는 주문이 없고 배치별 합계만 있다. 주문은 배치를 열 때 가려진 채로 온다', async () => {
+test('공개 목록에는 배치의 단계와 수량만 있다. 주문·이름·금액·결제 상태는 없다', async () => {
   const r = await call('GET', '/public'), seed = GO.seed();
   assert.equal(r.status, 200);
-  assert.equal(r.json.orders, undefined);
-  assert.equal(r.json.vouchers, undefined);
-  assert.equal(r.json.calcDefaults, undefined);
+  assert.deepEqual(Object.keys(r.json).sort(), ['batches', 'services']);
   const text = JSON.stringify(r.json);
-  seed.orders.forEach(o => assert.ok(!text.includes(o.id), o.id));
-  // 서버가 계산한 합계가 브라우저 계산(logic.batchRecap)과 같다
+  seed.orders.forEach(o => { assert.ok(!text.includes(o.id), o.id); assert.ok(!text.includes('"' + o.buyer + '"'), o.buyer); });
+  assert.doesNotMatch(text, /total|paid|pending|unpaid|buyer|proof/i);
   r.json.batches.forEach(b => {
-    const want = X.batchRecap(b.id, seed.orders), s = b.stats;
-    assert.deepEqual([s.count, s.pcs, s.total, s.paid, s.pending, s.unpaid, s.paidTotal], [want.count, want.pcs, want.total, want.paid, want.pending, want.unpaid, want.paidTotal], b.id);
+    assert.deepEqual(Object.keys(b.stats), ['pcs']);
+    assert.equal(b.stats.pcs, X.batchRecap(b.id, seed.orders).pcs, b.id);
   });
-  const nov = r.json.batches.filter(b => b.svc === 'kr' && b.month === '2026-11');
-  assert.equal(nov.reduce((s, b) => s + b.stats.total, 0), 1734000);
-  const list = (await call('GET', '/batch-orders?id=kr-4')).json.orders;
-  assert.equal(list.length, seed.orders.filter(o => o.batchId === 'kr-4').length);
-  for (const o of list) {
-    assert.deepEqual(Object.keys(o).sort(), ['batchId', 'buyer', 'item', 'pay', 'qty', 'total']);
-    assert.match(o.buyer, /\*/);
-  }
-  assert.equal((await call('GET', '/batch-orders?id=nope')).json.orders.length, 0);
+  // 배치를 열면 품목별 수량만 온다
+  const items = (await call('GET', '/batch-items?id=kr-4')).json.items, want = X.batchRecap('kr-4', seed.orders).items;
+  assert.equal(items.length, want.length);
+  for (const it of items) assert.deepEqual(Object.keys(it).sort(), ['item', 'qty']);
+  assert.equal(items.reduce((s, i) => s + i.qty, 0), want.reduce((s, i) => s + i.qty, 0));
+  assert.equal((await call('GET', '/batch-items?id=nope')).json.items.length, 0);
+  assert.equal((await call('GET', '/batch-orders?id=kr-4')).status, 404);   // 주문 목록을 주던 예전 주소는 없어졌다
 });
-test('조회: 주문번호나 아이디 전체로만 찾는다', async () => {
+test('조회: 주문번호 전체로만 찾는다. 아이디로는 찾지 않는다', async () => {
   const first = GO.seed().orders[0];
   const byId = (await call('GET', '/track?q=' + first.id.toLowerCase())).json.orders;
   assert.equal(byId.length, 1); assert.equal(byId[0].id, first.id); assert.match(byId[0].buyer, /\*/);
-  const byName = (await call('GET', '/track?q=@' + first.buyer)).json.orders;
-  assert.equal(byName.length, GO.seed().orders.filter(o => o.buyer === first.buyer).length);
-  byName.forEach(o => assert.equal(o.id, ''));
-  assert.equal((await call('GET', '/track?q=' + first.buyer.slice(0, 3))).json.orders.length, 0);
-  assert.equal((await call('GET', '/track?q=n')).json.orders.length, 0);
-  assert.equal((await call('GET', "/track?q=' OR 1=1 --")).json.orders.length, 0);
+  for (const q of [first.buyer, '@' + first.buyer, first.buyer.slice(0, 3), 'n', "' OR 1=1 --", first.id.slice(0, -1)])
+    assert.equal((await call('GET', '/track?q=' + encodeURIComponent(q))).json.orders.length, 0, q);
 });
 
 test('결제: 있는 주문은 금액 = 주문 금액 − 쿠폰 + 고유 코드, 두 번 내도 금액이 불어나지 않는다', async () => {

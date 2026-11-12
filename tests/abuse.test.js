@@ -43,10 +43,11 @@ test('주문 훑기: 주문번호 일부만으로는 주문 목록을 뽑을 수
     assert.equal(r.json.orders.length, 0, '"' + q + '" → ' + r.json.orders.length + '건');
   }
 });
-test('주문 훑기: 아이디로 조회하면 상태는 보이지만 주문번호와 전체 이름은 나오지 않는다', async () => {
-  const r = await call('GET', '/track?q=' + seed.orders[0].buyer);
-  assert.ok(r.json.orders.length >= 1);
-  for (const o of r.json.orders) { assert.equal(o.id, ''); assert.match(o.buyer, /\*/); assert.equal(o.proofName, ''); }
+test('주문 훑기: 아이디로는 남의 주문을 볼 수 없다', async () => {
+  for (const q of [seed.orders[0].buyer, '@' + seed.orders[0].buyer]) {
+    const r = await call('GET', '/track?q=' + encodeURIComponent(q));
+    assert.equal(r.json.orders.length, 0, q);
+  }
 });
 test('주문 훑기: 주문번호로 한 건을 불러와도 전체 이름은 나오지 않는다', async () => {
   const r = await call('GET', '/order?id=' + seed.orders[0].id);
@@ -101,10 +102,10 @@ test('심는 글: 스크립트가 든 값은 글자 그대로 저장되고 JSON�
   assert.equal(await login(), 200);
   const evil = '<img src=x onerror="window.__pwned=1">';
   assert.equal((await call('POST', '/admin/order', { id: PFX + '-' + X.orderCode(930001), batchId: 'kr-5', buyer: 'evil', item: evil, qty: 1, total: 1000 })).status, 200);
-  const pub = await call('GET', '/batch-orders?id=kr-5');
+  const pub = await call('GET', '/batch-items?id=kr-5');
   assert.match(pub.headers.get('content-type'), /application\/json/);
   assert.equal(pub.headers.get('x-content-type-options'), 'nosniff');
-  assert.ok(pub.json.orders.some(o => o.item === evil));
+  assert.ok(pub.json.items.some(o => o.item === evil));
 });
 
 test('보안 헤더: 화면과 API 응답에 붙어 있다', async () => {

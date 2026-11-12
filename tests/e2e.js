@@ -31,12 +31,13 @@ window.runE2E = async function () {
   $('.svc[href="#/s/kr"]').click(); await wait(80);
   const nov = S.batchesOf('kr', '2026-11'), rec = X.monthRecap(nov, S.db.orders);
   check('서비스: 월 탭과 배치 목록이 나온다', $$('.tabs a').length === 2 && $$('.rows .row').length === nov.length);
-  check('서비스: 월 집계의 주문 금액이 저장소 합과 같다', num($$('.stat b')[3].textContent) === rec.total, $$('.stat b')[3].textContent);
-  check('서비스: 결제 완료 금액이 따로 나온다', num($$('.stat b')[4].textContent) === rec.paidTotal, $$('.stat b')[4].textContent);
+  check('서비스: 월 집계에 수량이 나온다', num($$('.stat b')[2].textContent) === rec.pcs, $$('.stat b')[2].textContent);
+  check('서비스: 고객 화면에 금액이 없다', !/Rp\s?\d/.test($('#app').innerText), $('#app').innerText.match(/Rp\s?[\d.]+/));
 
   $('.row[href="#/b/kr-5"]').click(); await wait(80);
   check('배치: 단계 표시 6칸, 현재 칸 1개', $$('.steps li').length === 6 && $$('.steps li.cur').length === 1);
   check('배치: 주문번호가 공개 화면에 보이지 않는다', !S.ordersOf('kr-5').some(o => $('#app').innerText.includes(o.id)));
+  check('배치: 이름·금액·결제 상태 없이 품목별 수량만 나온다', $$('#batchOut table').length === 1 && !/Rp\s?\d/.test($('#app').innerText) && !$('#batchOut .badge') && !S.ordersOf('kr-5').some(o => $('#app').innerText.includes(X.maskName(o.buyer))));
 
   $('#app a.btn[href="#/pay/kr-5"]').click(); await wait(80);
   check('결제: 배치가 미리 선택되어 있다', $('[data-pay=batchId]').value === 'kr-5');
@@ -126,9 +127,11 @@ window.runE2E = async function () {
   const csv = (await blob.text()).replace(/^﻿/, '').split('\r\n'), col = csv[0].split(',').indexOf('total_idr');
   const csvSum = csv.slice(1).reduce((s, l) => s + Number(l.split(',')[col]), 0);
   check('CSV: 행 수와 금액 합이 저장소와 같다', csv.length === S.db.orders.length + 1 && csvSum === total(), csvSum + ' vs ' + total());
-  let screenSum = 0;
-  for (const s of S.db.services) for (const m of S.monthsOf(s.id)) { await go('#/s/' + s.id + '/' + m); screenSum += num($$('.stat b')[3].textContent); }
-  check('화면: 모든 월 집계의 합이 CSV 합과 같다', screenSum === csvSum, screenSum + ' vs ' + csvSum);
+  await go('#/admin/batch');
+  const screenSum = $$('td.btotal').reduce((s, td) => s + num(td.textContent), 0);
+  check('관리자 화면: 배치별 주문 금액의 합이 CSV 합과 같다', screenSum === csvSum, screenSum + ' vs ' + csvSum);
+  await go('#/track/' + S.db.orders[0].buyer);
+  check('조회: 아이디로는 찾지 못한다', $$('.card').length === 0);
 
   S.reset(); await go('#/');
   const failed = out.filter(r => !r.ok);

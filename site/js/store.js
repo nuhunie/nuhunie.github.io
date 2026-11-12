@@ -93,25 +93,22 @@
       return Object.keys(seen).sort().reverse();
     },
     ordersOf: function (batchId) { return db.orders.filter(function (o) { return o.batchId === batchId; }); },
-    /* 배치 집계. 서버의 공개 데이터에는 주문이 없고 배치마다 합계(stats)가 붙어 온다. 그 밖에는 가진 주문으로 계산한다. */
+    /* 고객 화면용 배치 집계: 수량만. (금액·주문 수·결제 현황은 관리자 화면에서 logic.batchRecap 으로 계산한다)
+     * 서버의 공개 데이터에는 주문이 없고 배치마다 수량(stats.pcs)이 붙어 온다. */
     recap: function (batchId) {
       var b = find(db.batches, batchId);
-      return b && b.stats ? b.stats : X.batchRecap(batchId, db.orders);
+      return { pcs: b && b.stats ? b.stats.pcs : X.batchRecap(batchId, db.orders).pcs };
     },
     monthRecap: function (list) {
-      var self = this, r = { batches: list.length, ongoing: 0, count: 0, pcs: 0, total: 0, paidTotal: 0 };
-      list.forEach(function (b) {
-        if (b.stage < GO.LAST_STAGE) r.ongoing++;
-        var br = self.recap(b.id);
-        r.count += br.count; r.pcs += br.pcs; r.total += br.total; r.paidTotal += br.paidTotal;
-      });
+      var self = this, r = { batches: list.length, ongoing: 0, pcs: 0 };
+      list.forEach(function (b) { if (b.stage < GO.LAST_STAGE) r.ongoing++; r.pcs += self.recap(b.id).pcs; });
       return r;
     },
-    /* 배치 하나의 주문 목록 (Promise). 공개 화면에서는 배치를 열 때 서버에서 그 배치 것만 받아 온다. */
-    batchOrders: function (batchId) {
+    /* 배치 하나의 품목별 수량 [{ item, qty }] (Promise). 누가 무엇을 샀는지는 담지 않는다. */
+    batchItems: function (batchId) {
       var b = find(db.batches, batchId);
-      if (mode === 'server' && b && b.stats) return api('GET', '/batch-orders?id=' + encodeURIComponent(batchId)).then(function (r) { return r.orders; });
-      return Promise.resolve(this.ordersOf(batchId));
+      if (mode === 'server' && b && b.stats) return api('GET', '/batch-items?id=' + encodeURIComponent(batchId)).then(function (r) { return r.items; });
+      return Promise.resolve(X.batchRecap(batchId, db.orders).items.map(function (it) { return { item: it.item, qty: it.qty }; }));
     },
     /* 관리자 활동 기록 (server에서만). local이면 null */
     fetchLog: function () {

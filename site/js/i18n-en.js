@@ -248,6 +248,14 @@ GO.EN = {
   'Hapus pesanan': 'Order deleted',
   'Simpan rumus kalkulator': 'Calculator formula saved',
 
+  // 공개 범위를 줄이면서 추가된 문구
+  'Nomor pesanan': 'Order number',
+  'Masukkan nomor pesanan untuk melihat posisi dan status pesanan Anda.': 'Enter your order number to see where your order is and its status.',
+  'Lupa nomor pesanan? Buka halaman ini di perangkat yang dipakai saat order, atau hubungi admin.': 'Forgot your order number? Open this page on the device you ordered from, or contact the admin.',
+  'Pesanan tidak ditemukan. Periksa lagi nomor pesanan.': 'No order found. Check the order number again.',
+  'Untuk melihat pesanan Anda sendiri, buka Lacak pesanan dan masukkan nomor pesanan.': 'To see your own order, open Track order and enter your order number.',
+  'Rekap semua batch': 'All batches recap',
+
   // 배색·이동
   'Ke atas': 'Back to top',
   'Ke bawah': 'Go to bottom'

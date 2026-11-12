@@ -93,8 +93,6 @@ export async function recordHit(db, request, kind) {
 export const toService = r => ({ id: r.id, name: [r.name_id, r.name_ko], desc: [r.desc_id, r.desc_ko], cur: r.cur });
 export const toBatch = r => ({ id: r.id, svc: r.svc, no: r.no, title: r.title, month: r.month, stage: r.stage, closeDate: r.close_date, kurs: r.kurs, note: r.note });
 export const toOrder = r => ({ id: r.id, batchId: r.batch_id, buyer: r.buyer, item: r.item, qty: r.qty, base: r.base, total: r.total, pay: r.pay, method: r.method, proofName: r.proof_name, createdAt: r.created_at });
-// 공개 화면용: 주문번호·증빙을 빼고 이름을 가린다
-export const toPublicOrder = r => ({ batchId: r.batch_id, buyer: X.maskName(r.buyer), item: r.item, qty: r.qty, total: r.total, pay: r.pay });
 
 /* ── 예시 데이터 넣기 (처음 실행할 때와 관리자의 "초기화") ── */
 export async function seed(db) {
@@ -119,12 +117,11 @@ export async function loadState(db, admin) {
   const state = { services: services.map(toService) };
 
   if (!admin) {
-    // 공개 화면에는 주문을 싣지 않는다. 배치마다 합계만 계산해 보낸다 (주문이 아무리 쌓여도 크기가 같다).
-    // 주문 목록은 고객이 배치를 열 때 /api/batch-orders 로 그 배치 것만 받아 간다.
-    const sums = {};
-    (await db.prepare("SELECT batch_id, COUNT(*) AS n, SUM(qty) AS pcs, SUM(total) AS total, SUM(pay = 'paid') AS paid, SUM(pay = 'pending') AS pending, SUM(CASE WHEN pay = 'paid' THEN total ELSE 0 END) AS paid_total FROM orders GROUP BY batch_id").all()).results
-      .forEach(r => { sums[r.batch_id] = { count: r.n, pcs: r.pcs, total: r.total, paid: r.paid, pending: r.pending, unpaid: r.n - r.paid - r.pending, paidTotal: r.paid_total, items: [] }; });
-    state.batches = batches.map(r => Object.assign(toBatch(r), { stats: sums[r.id] || { count: 0, pcs: 0, total: 0, paid: 0, pending: 0, unpaid: 0, paidTotal: 0, items: [] } }));
+    // 공개 화면에는 배치의 단계와 수량만 보낸다. 주문, 이름, 금액, 결제 상태는 싣지 않는다.
+    // 품목별 수량은 고객이 배치를 열 때 /api/batch-items 로 받아 간다. 자기 주문은 주문번호로만 본다.
+    const pcs = {};
+    (await db.prepare('SELECT batch_id, SUM(qty) AS pcs FROM orders GROUP BY batch_id').all()).results.forEach(r => { pcs[r.batch_id] = r.pcs; });
+    state.batches = batches.map(r => Object.assign(toBatch(r), { stats: { pcs: pcs[r.id] || 0 } }));
     return state;
   }
 
