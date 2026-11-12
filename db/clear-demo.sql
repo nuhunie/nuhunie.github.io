@@ -5,5 +5,7 @@ DELETE FROM order_flags;
 DELETE FROM orders;
 DELETE FROM batches;
 DELETE FROM vouchers;
+DELETE FROM voucher_limits;
+DELETE FROM voucher_uses;
 DELETE FROM hits;
 DELETE FROM audit;

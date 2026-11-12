@@ -43,6 +43,18 @@ CREATE TABLE IF NOT EXISTS vouchers (
   off INTEGER NOT NULL
 );
 
+-- 쿠폰 사용 한도. 없거나 0이면 한도 없음. (vouchers 표는 바꿀 수 없어 곁표로 둔다)
+CREATE TABLE IF NOT EXISTS voucher_limits (
+  code TEXT PRIMARY KEY,
+  max_uses INTEGER NOT NULL DEFAULT 0
+);
+-- 어떤 주문이 어떤 쿠폰을 썼는지. 셀 때는 지워진 주문과 반려된 주문은 세지 않는다.
+CREATE TABLE IF NOT EXISTS voucher_uses (
+  order_id TEXT PRIMARY KEY,
+  code TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS voucher_uses_code ON voucher_uses (code);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL                       -- JSON

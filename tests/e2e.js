@@ -93,6 +93,46 @@ window.runE2E = async function () {
   check('결제: 없는 주문번호로 열면 찾을 수 없다고 알린다', !!$('.note.warn') && !$('form[data-form=pay]'));
 
   /* ── 운영자 여정 ── */
+  // 가게 설정: 서비스·쿠폰
+  await go('#/admin/shop');
+  const sf = $('form[data-form=svc]');
+  sf.id.value = 'cn'; sf.nameId.value = 'Jastip China'; sf.nameKo.value = '중국 구매대행'; sf.descId.value = 'Barang China'; sf.descKo.value = '중국 상품'; sf.cur.value = 'IDR';
+  sf.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })); await wait(60);
+  check('가게 설정: 서비스를 더하면 표와 배치 양식에 나온다', !!S.service('cn') && !!$('[data-svc="cn"]'));
+  type('[data-svc="cn"][data-f="nameId"]', 'Jastip Tiongkok'); await wait(20);
+  const svcSave = () => $('[data-act=svc-save][data-id="cn"]');
+  check('가게 설정: 서비스 이름을 고쳐도 저장 전에는 반영되지 않는다', S.service('cn').name[0] === 'Jastip China' && !svcSave().disabled);
+  svcSave().click(); await wait(60);
+  check('가게 설정: 저장하면 반영된다', S.service('cn').name[0] === 'Jastip Tiongkok' && svcSave().disabled);
+  await go('#/');
+  check('가게 설정: 고객 첫 화면에 새 서비스가 보인다', $('#app').innerText.includes('Jastip Tiongkok'));
+  await go('#/admin/shop');
+  const realConfirm = window.confirm; window.confirm = () => true;
+  $('[data-act=svc-del][data-id="kr"]').click(); await wait(40);
+  check('가게 설정: 배치가 있는 서비스는 지우지 않는다', !!S.service('kr') && $('#svcDelErr').textContent.length > 0);
+  $('[data-act=svc-del][data-id="cn"]').click(); await wait(40);
+  check('가게 설정: 배치가 없는 서비스는 지운다', !S.service('cn'));
+  const vf = $('form[data-form=voucher]');
+  vf.code.value = 'satu1'; vf.off.value = '2000'; vf.max.value = '1';
+  vf.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })); await wait(60);
+  check('가게 설정: 쿠폰을 더하면 대문자 코드로 표에 나온다', S.db.vouchers.some(v => v.code === 'SATU1' && v.max === 1) && $('#app').innerText.includes('SATU1'));
+  await go('#/pay/kr-5');
+  type('[data-pay=buyer]', 'kupon'); type('[data-pay=item]', 'Album'); type('[data-pay=base]', '30000');
+  type('[data-pay=voucher]', 'satu1'); $('[data-act=pay-voucher]').click(); await wait(40);
+  $('form[data-form=pay] .btn.block').click(); await wait(120);
+  const vo = S.db.orders[S.db.orders.length - 1];
+  check('쿠폰: 한도 안에서는 할인된다', vo.voucher === 'SATU1' && vo.total === 28000 + X.uniqueCode(vo.id), JSON.stringify(vo));
+  await go('#/pay/kr-5');
+  type('[data-pay=buyer]', 'kupon2'); type('[data-pay=item]', 'Album'); type('[data-pay=base]', '30000');
+  type('[data-pay=voucher]', 'satu1'); $('[data-act=pay-voucher]').click(); await wait(40);
+  check('쿠폰: 한도를 다 쓰면 적용되지 않고 알린다', !/Voucher/.test($('#payOut').innerText) &&/habis|한도|used up/i.test($('#vMsg').textContent), $('#vMsg').textContent);
+  await go('#/admin/shop');
+  $('[data-act=voucher-del][data-id="SATU1"]').click(); await wait(40);
+  window.confirm = realConfirm;
+  check('가게 설정: 쿠폰을 지우면 표에서 빠지고 쓴 주문 금액은 그대로다', !S.db.vouchers.some(v => v.code === 'SATU1') && S.order(vo.id).total === 28000 + X.uniqueCode(vo.id));
+  check('가게 설정: 내려받기 단추 4개가 있다', ['export', 'export-batches', 'export-vouchers', 'export-backup'].every(a => !!$('[data-act="' + a + '"]')));
+  S.removeOrder(vo.id);
+
   await go('#/admin/batch');
   const f = $('form[data-form=batch]');
   f.svc.value = 'kr'; f.no.value = '9'; f.title.value = 'Uji Coba'; f.month.value = '2026-11'; f.closeDate.value = '2026-11-30'; f.kurs.value = '11.5'; f.note.value = 'Catatan uji';
@@ -112,6 +152,12 @@ window.runE2E = async function () {
   check('주문 입력: 글에 적힌 배치 번호가 고른 배치와 다르면 알린다', !!$('#batchMismatch') && $('#batchMismatch').textContent.includes('Batch 4'));
   type('[data-admin=text]', 'Batch 9\n@uji / Album / 10k'); $('[data-act=classify]').click(); await wait(120);
   check('주문 입력: 배치 번호가 같으면 알림이 없다', !$('#batchMismatch'));
+  type('[data-admin=text]', 'uji / album / 2pcs / 50k'); $('[data-act=classify]').click(); await wait(120);
+  const lineTotal = () => num($('[data-row="0"][data-f="total"]').value);
+  check('주문 입력: 표시 없는 가격은 기본으로 개당(수량을 곱함)', lineTotal() === 100000, lineTotal());
+  type('[data-admin=priceMode]', 'total'); await wait(40);
+  check('주문 입력: 합계로 고르면 곱하지 않는다', lineTotal() === 50000, lineTotal());
+  type('[data-admin=priceMode]', 'each'); await wait(40);
   type('[data-admin=text]', '@nadya / Photocard random 1 pc / 2pcs / Rp 25.000\ndinda - album mini - 285k\nrara, acrylic stand, x1, ¥2000\nbaris tanpa harga');
   $('[data-act=classify]').click(); await wait(120);
   check('주문 입력: 4줄이 4행으로 나뉜다', $$('table.edit tbody tr').length >= 4 && $$('[data-row]').length === 16, $$('[data-row]').length);

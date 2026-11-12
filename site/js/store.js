@@ -59,6 +59,16 @@
   }
 
   function voucherOf(code) { code = String(code || '').trim().toUpperCase(); return db.vouchers.filter(function (x) { return x.code === code; })[0] || null; }
+  // 목업판: 이 쿠폰을 쓴 주문 수 (반려된 주문과 except 주문은 빼고). 서버판은 서버가 센다.
+  function voucherUsed(code, except) { return db.orders.filter(function (o) { return o.voucher === code && o.pay !== 'rejected' && o.id !== except; }).length; }
+  // 목업판: 쓸 수 있는 쿠폰이면 그 쿠폰, 코드를 안 적었으면 null. 없거나 다 쓴 쿠폰이면 오류를 던진다.
+  function usableVoucher(code, except) {
+    if (!String(code || '').trim()) return null;
+    var v = voucherOf(code);
+    if (!v) throw new Error('Voucher not found.');
+    if (!X.voucherLeft(v, voucherUsed(v.code, except))) throw new Error('This voucher has been used up.');
+    return v;
+  }
 
   GO.store = {
     get db() { return db; },
@@ -147,7 +157,7 @@
     },
     checkVoucher: function (code) {
       code = String(code || '').trim().toUpperCase();
-      if (mode === 'local') return Promise.resolve(db.vouchers.filter(function (v) { return v.code === code; })[0] || null);
+      if (mode === 'local') { try { return Promise.resolve(usableVoucher(code)); } catch (e) { return Promise.resolve(null); } }
       return api('POST', '/voucher', { code: code }).then(function (v) { return v; }, function () { return null; });
     },
     /* 고객이 새 주문을 접수한다(결제 전). p = { batchId, buyer, item, qty, base, voucher } → 저장된 주문 (Promise)
@@ -155,26 +165,29 @@
     createOrder: function (p) {
       if (mode === 'server') return api('POST', '/order', p).then(function (r) { return r.order; });
       purgeLocal();
-      var v = voucherOf(p.voucher), pb = find(db.batches, p.batchId), base = Math.round(Number(p.base)), id, total, i;
+      var v, pb = find(db.batches, p.batchId), base = Math.round(Number(p.base)), id, total, i;
+      try { v = usableVoucher(p.voucher); } catch (e) { return Promise.reject(e); }
       if (!pb || !(base > 0)) return Promise.reject(new Error('Check the order fields.'));
       for (i = 0; i < 8; i++) {                    // 결제 전·확인 대기 주문과 금액이 겹치지 않는 번호를 고른다
         id = this.newOrderId(); total = X.payable(base, v ? v.off : 0, id);
         if (!db.orders.some(function (o) { return o.total === total && (o.pay === 'unpaid' || o.pay === 'pending'); })) break;
       }
       var o = { id: id, self: 1, late: pb.stage >= 1 ? pb.stage : 0, batchId: pb.id, buyer: String(p.buyer).trim().replace(/^@/, ''), item: String(p.item).trim(),
-        qty: Math.max(1, Math.round(Number(p.qty)) || 1), base: base, total: total, pay: 'unpaid', method: '', proofName: '', createdAt: new Date().toISOString() };
+        qty: Math.max(1, Math.round(Number(p.qty)) || 1), base: base, total: total, pay: 'unpaid', method: '', proofName: '', createdAt: new Date().toISOString(), voucher: v ? v.code : '' };
       db.orders.push(o); save();
       return Promise.resolve(o);
     },
     /* 접수된 주문의 결제 증빙을 낸다. p = { orderId, voucher, method, proofName } → 저장된 주문 (Promise) */
     submitPayment: function (p) {
       if (mode === 'server') return api('POST', '/pay', p).then(function (r) { return pull().catch(function () {}).then(function () { return r.order; }); });
-      var o = this.order(p.orderId), v = voucherOf(p.voucher);
+      var o = this.order(p.orderId), v = null;
       if (!o) return Promise.reject(new Error('Order not found.'));
+      if (!o.self) { try { v = usableVoucher(p.voucher, o.id); } catch (e) { return Promise.reject(e); } }
       if (o.pay !== 'unpaid' && o.pay !== 'rejected') return Promise.reject(new Error('This order has already been submitted.'));
       var base = o.base || o.total;
       // 고객이 접수한 주문(self)은 접수할 때 금액이 정해졌다. 운영자가 넣은 주문은 여기서 쿠폰과 고유 코드를 붙인다.
       Object.assign(o, { base: base, total: o.self ? o.total : X.payable(base, v ? v.off : 0, o.id), pay: 'pending', method: p.method, proofName: p.proofName });
+      if (!o.self) o.voucher = v ? v.code : '';
       save();
       return Promise.resolve(o);
     },
@@ -224,6 +237,40 @@
       db.batches = db.batches.filter(function (b) { return b.id !== id; });
       db.orders = db.orders.filter(function (o) { return o.batchId !== id; });
       save(); push('DELETE', '/admin/batch/' + encodeURIComponent(id));
+    },
+    /* 쿠폰: { code, off, max }. 같은 코드가 있으면 null */
+    voucherUses: function (v) { return mode === 'server' ? (v.used || 0) : voucherUsed(v.code); },
+    addVoucher: function (v) {
+      v = { code: String(v.code || '').trim().toUpperCase(), off: Math.round(Number(v.off)), max: Math.max(0, Math.round(Number(v.max)) || 0), used: 0 };
+      if (voucherOf(v.code)) return null;
+      db.vouchers.push(v); save();
+      push('POST', '/admin/voucher', { code: v.code, off: v.off, max: v.max });
+      return v;
+    },
+    removeVoucher: function (code) {
+      db.vouchers = db.vouchers.filter(function (v) { return v.code !== code; });
+      db.orders.forEach(function (o) { if (o.voucher === code) o.voucher = ''; });   // 같은 코드를 다시 만들면 0부터 센다(서버와 같게)
+      save(); push('DELETE', '/admin/voucher/' + encodeURIComponent(code));
+    },
+    /* 서비스: { id, name: [id, ko], desc: [id, ko], cur } */
+    addService: function (s) {
+      if (find(db.services, s.id)) return null;
+      db.services.push(s); save();
+      push('POST', '/admin/service', { id: s.id, nameId: s.name[0], nameKo: s.name[1], descId: s.desc[0], descKo: s.desc[1], cur: s.cur });
+      return s;
+    },
+    updateService: function (id, s) {
+      var cur = find(db.services, id); if (!cur) return null;
+      Object.assign(cur, { name: s.name, desc: s.desc, cur: s.cur }); save();
+      push('PATCH', '/admin/service/' + encodeURIComponent(id), { nameId: s.name[0], nameKo: s.name[1], descId: s.desc[0], descKo: s.desc[1], cur: s.cur });
+      return cur;
+    },
+    // 배치가 남아 있으면 지우지 않고 false
+    removeService: function (id) {
+      if (db.batches.some(function (b) { return b.svc === id; })) return false;
+      db.services = db.services.filter(function (s) { return s.id !== id; }); save();
+      push('DELETE', '/admin/service/' + encodeURIComponent(id));
+      return true;
     },
     setCalcDefaults: function (c) {
       db.calcDefaults = JSON.parse(JSON.stringify(c)); save();

@@ -172,6 +172,63 @@ test('주문 접수: 같은 가격의 주문 여러 건이 서로 다른 결제 
   await nap(WINDOW_MS);
 });
 
+test('쿠폰: 운영자가 만들고 지우며, 사용 한도를 넘으면 받지 않는다', async () => {
+  await nap(WINDOW_MS);                                    // 새 주문 횟수 제한이 풀린 뒤에 시작한다
+  for (const bad of [{ code: 'x', off: 1000 }, { code: 'OK1', off: 0 }, { code: 'OK1', off: 1000, max: -1 }, { code: 'OK1', off: '1e3' }, { code: 12345, off: 1000 }])
+    assert.equal((await admin('POST', '/admin/voucher', bad)).status, 400, JSON.stringify(bad));
+  assert.equal((await admin('POST', '/admin/voucher', { code: 'uji1x', off: 3000, max: 1 })).status, 200);
+  assert.equal((await admin('POST', '/admin/voucher', { code: 'UJI1X', off: 3000 })).status, 409);       // 같은 코드
+  const st = (await admin('GET', '/admin/state')).json.vouchers.find(v => v.code === 'UJI1X');
+  assert.deepEqual([st.off, st.max, st.used], [3000, 1, 0]);
+  assert.equal((await call('POST', '/voucher', { code: 'uji1x' })).json.off, 3000);
+  const first = await call('POST', '/order', { batchId: 'kr-5', buyer: 'kupon1', item: 'Album', qty: 1, base: 40000, voucher: 'uji1x' });
+  assert.equal(first.status, 200);
+  assert.equal(first.json.order.total, 37000 + X.uniqueCode(first.json.order.id));
+  assert.equal((await admin('GET', '/admin/state')).json.vouchers.find(v => v.code === 'UJI1X').used, 1);
+  // 한도(1번)를 다 썼다: 확인도, 새 주문도 받지 않는다
+  assert.equal((await call('POST', '/voucher', { code: 'UJI1X' })).status, 409);
+  const second = await call('POST', '/order', { batchId: 'kr-5', buyer: 'kupon2', item: 'Album', qty: 1, base: 40000, voucher: 'UJI1X' });
+  assert.equal(second.status, 409);
+  assert.equal(second.json.error, 'This voucher has been used up.');
+  // 쓴 주문이 반려되면 다시 쓸 수 있다
+  assert.equal((await call('POST', '/pay', { orderId: first.json.order.id, method: 'QRIS', proofName: 'k.jpg' })).status, 200);
+  assert.equal((await admin('PATCH', '/admin/order/' + first.json.order.id, { pay: 'rejected' })).status, 200);
+  assert.equal((await call('POST', '/voucher', { code: 'UJI1X' })).status, 200);
+  // 운영자가 넣은 주문도 결제할 때 한도를 센다
+  const op = (await admin('GET', '/admin/state')).json.orders.find(o => o.pay === 'unpaid' && !o.self);
+  assert.equal((await call('POST', '/pay', { orderId: op.id, method: 'QRIS', proofName: 'k2.jpg', voucher: 'uji1x' })).status, 200);
+  assert.equal((await call('POST', '/voucher', { code: 'UJI1X' })).status, 409);
+  // 지우면 쓸 수 없고, 이미 쓴 주문의 금액은 그대로다
+  assert.equal((await admin('DELETE', '/admin/voucher/uji1x')).status, 200);
+  assert.equal((await admin('DELETE', '/admin/voucher/UJI1X')).status, 404);
+  assert.equal((await call('POST', '/voucher', { code: 'UJI1X' })).status, 404);
+  assert.equal((await call('GET', '/order?id=' + op.id)).json.order.total, op.base - 3000 + X.uniqueCode(op.id));
+  const log = (await admin('GET', '/admin/log')).json.log.map(l => l.action);
+  assert.ok(log.includes('voucher.add') && log.includes('voucher.delete'));
+  await nap(WINDOW_MS);
+});
+
+test('서비스: 운영자가 더하고 고치고, 배치가 없을 때만 지운다. 고객 화면에 바로 나온다', async () => {
+  const s = { id: 'cn', nameId: 'Jastip China', nameKo: '중국 구매대행', descId: 'Barang dari China', descKo: '중국 상품', cur: 'IDR' };
+  for (const bad of [{ id: 'C' }, { id: '9ab' }, { id: 'toolongcode1' }, { nameId: '' }, { nameKo: 5 }, { cur: 'EUR' }, { descId: 'd'.repeat(200) }])
+    assert.equal((await admin('POST', '/admin/service', Object.assign({}, s, bad))).status, 400, JSON.stringify(bad));
+  assert.equal((await admin('POST', '/admin/service', s)).status, 200);
+  assert.equal((await admin('POST', '/admin/service', s)).status, 409);
+  let pub = (await call('GET', '/public')).json.services;
+  assert.deepEqual(pub[pub.length - 1], { id: 'cn', name: ['Jastip China', '중국 구매대행'], desc: ['Barang dari China', '중국 상품'], cur: 'IDR' });
+  assert.equal((await admin('PATCH', '/admin/service/cn', Object.assign({}, s, { nameId: 'Jastip Tiongkok', cur: 'KRW' }))).status, 200);
+  assert.equal((await admin('PATCH', '/admin/service/zz', s)).status, 404);
+  pub = (await call('GET', '/public')).json.services;
+  assert.deepEqual([pub.find(x => x.id === 'cn').name[0], pub.find(x => x.id === 'cn').cur], ['Jastip Tiongkok', 'KRW']);
+  // 배치가 있으면 지우지 않는다
+  assert.equal((await admin('POST', '/admin/batch', { svc: 'cn', no: 1, title: 'Uji', month: '2026-11', closeDate: '', kurs: 1, note: '' })).status, 200);
+  assert.equal((await admin('DELETE', '/admin/service/cn')).status, 409);
+  assert.equal((await admin('DELETE', '/admin/batch/cn-1')).status, 200);
+  assert.equal((await admin('DELETE', '/admin/service/cn')).status, 200);
+  assert.equal((await admin('DELETE', '/admin/service/cn')).status, 404);
+  assert.ok(!(await call('GET', '/public')).json.services.some(x => x.id === 'cn'));
+});
+
 test('세션: 서명이 맞아도 만료 시각이 지난 쿠키는 거절한다', async () => {
   // 실제 쿠키(번호.만료.서명)에서 번호를 가져와, 만료만 과거로 바꾸고 올바르게 다시 서명한다
   const crypto = require('crypto');

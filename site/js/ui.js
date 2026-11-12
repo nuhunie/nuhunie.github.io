@@ -30,6 +30,12 @@
     'Too many requests. Try again later.': MANY,
     'Too many attempts. Try again later.': MANY,
     'Voucher not found.': ['Kode voucher tidak ditemukan.', '쿠폰 코드를 찾을 수 없습니다.'],
+    'This voucher has been used up.': ['Voucher ini sudah habis dipakai.', '이 쿠폰은 사용 한도를 다 썼습니다.'],
+    'That voucher code already exists.': ['Kode voucher itu sudah ada.', '같은 쿠폰 코드가 이미 있습니다.'],
+    'Check the voucher fields.': ['Periksa kembali data voucher.', '쿠폰 내용을 다시 확인해 주세요.'],
+    'That service code already exists.': ['Kode layanan itu sudah ada.', '같은 서비스 코드가 이미 있습니다.'],
+    'Check the service fields.': ['Periksa kembali data layanan.', '서비스 내용을 다시 확인해 주세요.'],
+    'This service still has batches.': ['Layanan ini masih punya batch. Hapus batch-nya dulu.', '이 서비스에 배치가 남아 있습니다. 배치를 먼저 지워 주세요.'],
     'Order not found.': ['Nomor pesanan tidak ditemukan.', '주문번호를 찾을 수 없습니다.'],
     'Batch not found.': ['Batch tidak ditemukan.', '배치를 찾을 수 없습니다.'],
     'Service not found.': ['Layanan tidak ditemukan.', '서비스를 찾을 수 없습니다.'],
@@ -546,7 +552,7 @@
   }
 
   /* ── 관리자 ── */
-  var A = { batchId: '', text: '', rows: null, engine: '', q: '', edit: {}, saved: '' };
+  var A = { batchId: '', text: '', rows: null, engine: '', q: '', edit: {}, saved: '', priceMode: 'each' };
   /* 표에서 고친 값은 "저장"을 누르기 전까지 A.edit 에만 둔다 (열쇠: 'b:배치' 또는 'o:주문').
    * 화면을 다시 그려도 남아 있고, 저장을 눌러야 서버로 가서 고객 화면에 반영된다. */
   function batchDraft(b) { return A.edit['b:' + b.id] || { stage: b.stage, note: b.note }; }
@@ -555,10 +561,13 @@
   // 다른 곳에서 이미 같은 값이 됐거나 지워진 항목의 고친 값은 버린다
   function pruneEdits() {
     Object.keys(A.edit).forEach(function (key) {
-      var id = key.slice(2), d = A.edit[key], b = key[0] === 'b' && S.batch(id), o = key[0] === 'o' && S.order(id);
-      if (!(b || o) || (b && d.stage === b.stage && d.note === b.note) || (o && d.pay === o.pay)) delete A.edit[key];
+      var id = key.slice(2), d = A.edit[key], b = key[0] === 'b' && S.batch(id), o = key[0] === 'o' && S.order(id), s = key[0] === 's' && S.service(id);
+      if (!(b || o || s) || (b && d.stage === b.stage && d.note === b.note) || (o && d.pay === o.pay) || (s && svcSame(s, d))) delete A.edit[key];
     });
   }
+  // 서비스 표: 저장된 값과 화면 값 (열쇠 's:서비스')
+  function svcFields(s) { return { nameId: s.name[0], nameKo: s.name[1], descId: s.desc[0], descKo: s.desc[1], cur: s.cur }; }
+  function svcSame(s, d) { var f = svcFields(s); return Object.keys(f).every(function (k) { return f[k] === d[k]; }); }
   function saveCell(act, id, key) {
     return '<button class="btn sm' + (A.edit[key] ? '' : ' line') + '" data-act="' + act + '" data-id="' + id + '"' + (A.edit[key] ? '' : ' disabled') + '>' + L('Simpan', '저장') + '</button>' +
       (A.saved === key ? '<span class="rowsaved" role="status">' + L('Tersimpan', '저장됨') + '</span>' : '');
@@ -578,6 +587,10 @@
     } else if ((k = t.getAttribute('data-opay'))) {
       var o = S.order(k); if (!o) return;
       d = { pay: t.value }; key = 'o:' + k; dirty = d.pay !== o.pay;
+    } else if ((k = t.getAttribute('data-svc'))) {
+      var s = S.service(k); if (!s) return;
+      d = {}; tr.querySelectorAll('[data-svc]').forEach(function (x) { d[x.getAttribute('data-f')] = x.value.trim(); });
+      key = 's:' + k; dirty = !svcSame(s, d);
     } else return;
     if (dirty) A.edit[key] = d; else delete A.edit[key];
     tr.classList.toggle('dirty', dirty);
@@ -591,13 +604,13 @@
   function vAdmin(tab) {
     if (!S.isAdmin) return vLogin();
     tab = tab || 'guide';
-    var tabs = [['guide', L('Panduan', '사용 안내')], ['batch', L('Batch', '배치')], ['order', L('Input pesanan', '주문 입력')], ['pay', L('Verifikasi pembayaran', '결제 확인')], ['calc', L('Kalkulator', '계산기')], ['log', L('Riwayat', '활동 기록')]];
+    var tabs = [['guide', L('Panduan', '사용 안내')], ['batch', L('Batch', '배치')], ['order', L('Input pesanan', '주문 입력')], ['pay', L('Verifikasi pembayaran', '결제 확인')], ['calc', L('Kalkulator', '계산기')], ['shop', L('Pengaturan toko', '가게 설정')], ['log', L('Riwayat', '활동 기록')]];
     var pendingN = S.db.orders.filter(function (o) { return o.pay === 'pending'; }).length;
     return '<div class="head"><div><h1>' + L('Admin', '관리자') + '</h1><p class="lead">' + L('Data yang diisi di sini langsung tampil di halaman pelanggan.', '여기서 입력한 내용이 고객 화면에 바로 나타납니다.') + '</p></div><div class="btns"><button class="btn" data-act="export">' + L('Unduh CSV pesanan', '주문 CSV 내려받기') + '</button>' + (S.canReset ? '<button class="btn line" data-act="reset">' + L('Reset data contoh', '예시 데이터로 초기화') + '</button>' : '') + (S.mode === 'server' ? '<button class="btn line" data-act="logout">' + L('Keluar', '로그아웃') + '</button>' : '') + '</div></div>' +
       '<p class="note">' + (S.mode === 'server' ? L('Masuk sebagai admin. Perubahan tersimpan di server dan terlihat di semua perangkat.', '관리자로 로그인했습니다. 변경 내용은 서버에 저장되어 모든 기기에서 보입니다.') : L('Mockup: belum ada login admin dan data hanya tersimpan di browser ini.', '목업: 관리자 로그인이 아직 없고, 데이터는 이 브라우저에만 저장됩니다.')) + '</p>' +
       '<div class="tabs">' + tabs.map(function (t) { return '<a class="' + (t[0] === tab ? 'on' : '') + '" href="#/admin/' + t[0] + '">' + esc(t[1]) + (t[0] === 'pay' && pendingN ? ' <i class="dot">' + pendingN + '</i>' : '') + '</a>'; }).join('') + '</div>' +
       (pruneEdits(), '<p class="note unsaved" id="unsaved" role="status"' + (unsavedText() ? '' : ' hidden') + '>' + unsavedText() + '</p>') +
-      ({ guide: aGuide, batch: aBatch, order: aOrder, pay: aPay, calc: vCalc, log: aLog }[tab] || aGuide)();
+      ({ guide: aGuide, batch: aBatch, order: aOrder, pay: aPay, calc: vCalc, shop: aShop, log: aLog }[tab] || aGuide)();
   }
   function vLogin() {
     return '<div class="login"><h1>' + L('Admin', '관리자') + '</h1><p class="lead">' + L('Masuk untuk mengelola batch, pesanan, dan pembayaran.', '배치·주문·결제를 관리하려면 로그인하세요.') + '</p>' +
@@ -615,8 +628,51 @@
     ];
     return '<ol class="how">' + g.map(function (x, i) {
       return '<li><em>' + (i + 1) + '</em><div><b>' + esc(x[0]) + '</b><p>' + esc(x[1]) + '</p>' + (x[2] ? '<a href="#/admin/' + x[2] + '">' + L('Buka', '열기') + ' →</a>' : '<a href="#/admin/calc">' + L('Buka', '열기') + ' →</a>') + '</div></li>';
-    }).join('') + '</ol><p class="hint">' + L('Voucher contoh', '예시 쿠폰') + ': ' + S.db.vouchers.map(function (v) { return v.code + ' (−' + rp(v.off) + ')'; }).join(', ') + '</p>';
+    }).join('') + '</ol><p class="hint">Voucher: ' + (S.db.vouchers.map(function (v) { return v.code + ' (−' + rp(v.off) + ')'; }).join(', ') || '-') + ' · <a href="#/admin/shop">' + L('Pengaturan toko', '가게 설정') + ' →</a></p>';
   }
+  /* 가게 설정 탭: 서비스 종류, 쿠폰, 백업 */
+  function aShop() {
+    var curOpts = function (sel) { return Object.keys(GO.CURRENCIES).map(function (c) { return '<option value="' + c + '"' + (c === sel ? ' selected' : '') + '>' + c + '</option>'; }).join(''); };
+    var svcRows = S.db.services.map(function (s) {
+      var key = 's:' + s.id, d = A.edit[key] || svcFields(s);
+      function inp(f, max) { return '<td><input data-svc="' + s.id + '" data-f="' + f + '" value="' + esc(d[f]) + '" maxlength="' + max + '" aria-label="' + f + '"></td>'; }
+      return '<tr' + (A.edit[key] ? ' class="dirty"' : '') + '><td><b>' + esc(s.id) + '</b></td>' + inp('nameId', GO.LIMITS.svcName) + inp('nameKo', GO.LIMITS.svcName) + inp('descId', GO.LIMITS.svcDesc) + inp('descKo', GO.LIMITS.svcDesc) +
+        '<td><select data-svc="' + s.id + '" data-f="cur" aria-label="cur">' + curOpts(d.cur) + '</select></td>' +
+        '<td class="acts">' + saveCell('svc-save', s.id, key) + '<button class="link" data-act="svc-del" data-id="' + s.id + '">' + L('Hapus', '삭제') + '</button></td></tr>';
+    }).join('');
+    var vRows = S.db.vouchers.map(function (v) {
+      var used = S.voucherUses(v);
+      return '<tr><td><b>' + esc(v.code) + '</b></td><td class="r">−' + rp(v.off) + '</td><td class="r">' + used + ' / ' + (v.max ? v.max : L('tanpa batas', '무제한')) + (v.max && used >= v.max ? ' <span class="badge">' + L('Habis', '다 씀') + '</span>' : '') + '</td>' +
+        '<td><button class="link" data-act="voucher-del" data-id="' + esc(v.code) + '">' + L('Hapus', '삭제') + '</button></td></tr>';
+    }).join('');
+    return '<div class="panel"><h2>' + L('Layanan', '서비스') + '</h2><p class="lead">' + L('Nama dan keterangan tampil di halaman pelanggan. Layanan yang masih punya batch tidak bisa dihapus.', '이름과 설명은 고객 화면에 나옵니다. 배치가 남아 있는 서비스는 지울 수 없습니다.') + '</p>' +
+      '<div class="tbl"><table class="edit"><thead><tr><th>' + L('Kode', '코드') + '</th><th>' + L('Nama (ID)', '이름 (인도네시아어)') + '</th><th>' + L('Nama (KO)', '이름 (한국어)') + '</th><th>' + L('Keterangan (ID)', '설명 (인도네시아어)') + '</th><th>' + L('Keterangan (KO)', '설명 (한국어)') + '</th><th>' + L('Mata uang', '통화') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' + svcRows + '</tbody></table></div>' +
+      '<p class="err" id="svcDelErr" role="alert"></p>' +
+      '<h3 class="sub">' + L('Tambah layanan', '서비스 추가') + '</h3><form data-form="svc" class="grid3">' +
+      '<div class="field"><label>' + L('Kode', '코드') + ' (a-z, 2–10)</label><input name="id" required pattern="[a-zA-Z][a-zA-Z0-9]{1,9}" placeholder="cn"></div>' +
+      '<div class="field"><label>' + L('Nama (ID)', '이름 (인도네시아어)') + '</label><input name="nameId" required maxlength="' + GO.LIMITS.svcName + '"></div>' +
+      '<div class="field"><label>' + L('Nama (KO)', '이름 (한국어)') + '</label><input name="nameKo" required maxlength="' + GO.LIMITS.svcName + '"></div>' +
+      '<div class="field"><label>' + L('Keterangan (ID)', '설명 (인도네시아어)') + '</label><input name="descId" maxlength="' + GO.LIMITS.svcDesc + '"></div>' +
+      '<div class="field"><label>' + L('Keterangan (KO)', '설명 (한국어)') + '</label><input name="descKo" maxlength="' + GO.LIMITS.svcDesc + '"></div>' +
+      '<div class="field"><label>' + L('Mata uang', '통화') + '</label><select name="cur">' + curOpts('IDR') + '</select></div>' +
+      '<div class="field"><label>&nbsp;</label><button class="btn">' + L('Tambah', '추가') + '</button></div></form><p class="err" id="svcErr" role="alert"></p></div>' +
+
+      '<div class="panel"><h2>Voucher</h2><p class="lead">' + L('Batas pakai dihitung dari pesanan yang memakai voucher ini (pesanan yang ditolak atau dihapus tidak dihitung). Kosongkan untuk tanpa batas.', '사용 한도는 이 쿠폰을 쓴 주문 수로 셉니다(반려되거나 지워진 주문은 세지 않음). 비워 두면 무제한입니다.') + '</p>' +
+      (vRows ? '<div class="tbl"><table class="edit"><thead><tr><th>' + L('Kode', '코드') + '</th><th class="r">' + L('Potongan', '할인') + '</th><th class="r">' + L('Terpakai / batas', '사용 / 한도') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' + vRows + '</tbody></table></div>' : empty(L('Belum ada voucher.', '쿠폰이 없습니다.'))) +
+      '<h3 class="sub">' + L('Tambah voucher', '쿠폰 추가') + '</h3><form data-form="voucher" class="grid3">' +
+      '<div class="field"><label>' + L('Kode', '코드') + ' (A-Z, 0-9)</label><input name="code" required pattern="[A-Za-z0-9_\-]{3,30}" maxlength="' + GO.LIMITS.voucher + '" placeholder="NUH10K"></div>' +
+      '<div class="field"><label>' + L('Potongan (Rp)', '할인 (Rp)') + '</label><input name="off" type="number" min="1" max="' + GO.LIMITS.amount + '" required></div>' +
+      '<div class="field"><label>' + L('Batas pakai', '사용 한도') + '</label><input name="max" type="number" min="0" max="' + GO.LIMITS.voucherUses + '" placeholder="' + L('tanpa batas', '무제한') + '"></div>' +
+      '<div class="field"><label>&nbsp;</label><button class="btn">' + L('Tambah', '추가') + '</button></div></form><p class="err" id="voucherErr" role="alert"></p></div>' +
+
+      '<div class="panel"><h2>' + L('Unduh data', '자료 내려받기') + '</h2><p class="lead">' + L('CSV bisa dibuka di Excel atau Google Sheets. Cadangan lengkap (JSON) berisi semua data untuk disimpan; belum ada fitur memulihkan dari file ini.', 'CSV는 엑셀이나 구글 시트에서 열립니다. 전체 백업(JSON)은 모든 자료를 보관용으로 담습니다. 이 파일로 되살리는 기능은 아직 없습니다.') + '</p>' +
+      '<div class="btns"><button class="btn line" data-act="export">' + L('Pesanan (CSV)', '주문 (CSV)') + '</button><button class="btn line" data-act="export-batches">' + L('Batch (CSV)', '배치 (CSV)') + '</button><button class="btn line" data-act="export-vouchers">Voucher (CSV)</button><button class="btn line" data-act="export-backup">' + L('Cadangan lengkap (JSON)', '전체 백업 (JSON)') + '</button></div></div>';
+  }
+  function download(name, text, type) {
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([text], { type: type })); a.download = name; a.click();
+  }
+  function stamp() { return X.shopDate(new Date().toISOString()); }
   function svcOptions(sel) { return S.db.services.map(function (s) { return '<option value="' + s.id + '"' + (s.id === sel ? ' selected' : '') + '>' + esc(LL(s.name)) + '</option>'; }).join(''); }
   function batchOptions(sel) { return S.db.batches.slice().sort(function (a, b) { return a.month < b.month ? 1 : a.month > b.month ? -1 : b.no - a.no; }).map(function (b) { return '<option value="' + b.id + '"' + (b.id === sel ? ' selected' : '') + '>' + esc(LL(S.service(b.svc).name) + ' / ' + batchName(b) + ' (' + b.month + ')') + '</option>'; }).join(''); }
   function aBatch() {
@@ -659,7 +715,7 @@
         (A.rows.length ? '<div class="tbl"><table class="edit"><thead><tr><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th>' + L('Jumlah', '수량') + '</th><th>' + L('Harga asli', '원래 가격') + '</th><th>Total (Rp)</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' +
           A.rows.map(function (r, i) {
             function cell(f, type) { return '<td class="' + (r.missing.indexOf(f) >= 0 || (f === 'total' && !r.total) ? 'miss' : '') + '"><input ' + (type ? 'type="number" ' : '') + 'data-row="' + i + '" data-f="' + f + '" value="' + esc(r[f] == null ? '' : r[f]) + '" aria-label="' + f + '"></td>'; }
-            return '<tr>' + cell('buyer') + cell('item') + cell('qty', 1) + '<td class="src">' + (r.price != null ? esc((GO.CURRENCIES[r.cur] || {}).sym + ' ' + r.price.toLocaleString('id-ID')) : '-') + '</td>' + cell('total', 1) + '<td><button class="link" data-act="row-del" data-id="' + i + '">' + L('Hapus', '삭제') + '</button></td></tr>';
+            return '<tr>' + cell('buyer') + cell('item') + cell('qty', 1) + '<td class="src">' + (r.price != null ? esc((GO.CURRENCIES[r.cur] || {}).sym + ' ' + r.price.toLocaleString('id-ID')) + ' <small>' + ((r.priceIs || A.priceMode) === 'total' ? L('total', '합계') : '/pcs') + '</small>' : '-') + '</td>' + cell('total', 1) + '<td><button class="link" data-act="row-del" data-id="' + i + '">' + L('Hapus', '삭제') + '</button></td></tr>';
           }).join('') + '</tbody></table></div>' +
           '<p class="hint">' + L('Kolom bertanda merah belum terbaca. Isi dulu sebelum menyimpan. Harga mata uang asing dihitung dengan kurs batch dan rumus default kalkulator.', '빨간 칸은 읽지 못한 항목입니다. 채운 뒤 저장하세요. 외화 가격은 배치 환율과 계산기 기본 수식으로 환산했습니다.') + '</p>' +
           '<p class="err" id="rowErr" role="alert"></p><button class="btn" data-act="rows-save">' + L('Simpan', '저장') + ' ' + A.rows.length + ' ' + L('pesanan', '건') + '</button>'
@@ -676,6 +732,10 @@
       '<div class="panel"><h2>' + L('Tempel daftar order', '주문 목록 붙여 넣기') + '</h2>' +
       '<p class="lead">' + L('Satu baris = satu pesanan. Urutan bebas: sistem mengenali pembeli, item, jumlah, dan harga.', '한 줄에 주문 하나. 순서는 자유이며 구매자·품목·수량·가격을 알아서 구분합니다.') + '</p>' +
       '<div class="field"><label>' + L('Masuk ke batch', '넣을 배치') + '</label><select data-admin="batchId">' + batchOptions(A.batchId) + '</select></div>' +
+      '<div class="field"><label>' + L('Harga tanpa keterangan dibaca sebagai', '표시 없는 가격은') + '</label><select data-admin="priceMode">' +
+        '<option value="each"' + (A.priceMode !== 'total' ? ' selected' : '') + '>' + L('harga per pcs (dikali jumlah)', '개당 가격 (수량을 곱함)') + '</option>' +
+        '<option value="total"' + (A.priceMode === 'total' ? ' selected' : '') + '>' + L('harga total (tidak dikali)', '합계 금액 (곱하지 않음)') + '</option></select>' +
+        '<small>' + L('Tanda di teks diutamakan: "@25k", "25k/pcs" = per pcs, "total 50k" = total.', '글에 적힌 표시가 먼저입니다: "@25k", "25k/pcs" = 개당, "total 50k" = 합계.') + '</small></div>' +
       '<div class="field"><label>' + L('Teks order', '주문 글') + '</label><textarea rows="7" data-admin="text" placeholder="' + esc(sample) + '">' + esc(A.text) + '</textarea></div>' +
       '<div class="btns"><button class="btn" data-act="classify">' + L('Pisahkan otomatis', '자동으로 분류') + '</button><button class="btn line" data-act="sample">' + L('Isi contoh', '예시 채우기') + '</button></div></div>' + prev +
       '<h2 class="sub">' + L('Pesanan di batch ini', '이 배치의 주문') + '</h2>' + (list ? '<div class="tbl"><table class="edit"><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">' + L('Jumlah', '수량') + '</th><th class="r">Total</th><th>' + L('Pembayaran', '결제') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' + list + '</tbody></table></div>' : empty(L('Belum ada pesanan.', '아직 주문이 없습니다.')));
@@ -695,7 +755,9 @@
     login: ['Masuk', '로그인'], reset: ['Reset data', '데이터 초기화'],
     'batch.add': ['Tambah batch', '배치 추가'], 'batch.update': ['Ubah batch', '배치 변경'], 'batch.delete': ['Hapus batch', '배치 삭제'],
     'order.add': ['Tambah pesanan', '주문 추가'], 'order.pay': ['Ubah status bayar', '결제 상태 변경'], 'order.delete': ['Hapus pesanan', '주문 삭제'], 'order.expire': ['Pesanan kedaluwarsa dihapus', '기한 지난 접수 자동 삭제'],
-    calc: ['Simpan rumus kalkulator', '계산기 수식 저장']
+    calc: ['Simpan rumus kalkulator', '계산기 수식 저장'],
+    'voucher.add': ['Tambah voucher', '쿠폰 추가'], 'voucher.delete': ['Hapus voucher', '쿠폰 삭제'],
+    'service.add': ['Tambah layanan', '서비스 추가'], 'service.update': ['Ubah layanan', '서비스 변경'], 'service.delete': ['Hapus layanan', '서비스 삭제']
   };
   function aLog() { return '<div id="logOut"><p class="hint">' + L('Memuat…', '불러오는 중…') + '</p></div>'; }
   function drawLog() {
@@ -709,11 +771,12 @@
   }
   function rowTotal(r, batch) {
     if (r.price == null) return '';
-    if (r.cur === 'IDR') return r.price * r.qty;
+    var unit = X.lineUnitPrice(r, A.priceMode);                 // 개당 가격 (글이나 화면에서 고른 기준에 따라)
+    if (r.cur === 'IDR') return Math.round(unit * r.qty);
     var d = S.db.calcDefaults;
     // 배치의 통화와 같으면 배치 환율, 다르면 그 통화의 기본 환율
     var kurs = S.service(batch.svc).cur === r.cur ? batch.kurs : GO.CURRENCIES[r.cur].kurs;
-    return X.calcPrice({ price: r.price, qty: r.qty, kurs: kurs, feeGo: d.feeGo, feeCo: d.feeCo, tax: d.tax, extra: 0 }).total;
+    return X.calcPrice({ price: unit, qty: r.qty, kurs: kurs, feeGo: d.feeGo, feeCo: d.feeCo, tax: d.tax, extra: 0 }).total;
   }
   // 고객이 접수만 하고 아직 결제하지 않은 주문. 사이트는 고객에게 먼저 연락할 수 없으므로, 운영자가 보고 채팅으로 알릴 수 있게 센다.
   function waitingNote() {
@@ -860,6 +923,16 @@
         $('#loginErr').textContent = err.status === 401 ? L('Kata sandi salah.', '비밀번호가 맞지 않습니다.') : L('Gagal masuk. Coba lagi.', '로그인하지 못했습니다. 다시 시도해 주세요.');
       });
     }
+    else if (f === 'svc') {
+      var sf = e.target, sid = sf.id.value.trim().toLowerCase();
+      if (!/^[a-z][a-z0-9]{1,9}$/.test(sid)) { $('#svcErr').textContent = L('Kode: 2–10 huruf kecil/angka, diawali huruf.', '코드는 영문 소문자로 시작하는 2~10자(영문·숫자)입니다.'); return; }
+      var ns = S.addService({ id: sid, name: [sf.nameId.value.trim(), sf.nameKo.value.trim()], desc: [sf.descId.value.trim(), sf.descKo.value.trim()], cur: sf.cur.value });
+      if (!ns) $('#svcErr').textContent = errText({ message: 'That service code already exists.' }); else render();
+    }
+    else if (f === 'voucher') {
+      var vf = e.target, nv = S.addVoucher({ code: vf.code.value, off: vf.off.value, max: vf.max.value });
+      if (!nv) $('#voucherErr').textContent = errText({ message: 'That voucher code already exists.' }); else render();
+    }
     else if (f === 'batch') {
       var d = e.target, b = S.addBatch({ svc: d.svc.value, no: +d.no.value, title: d.title.value.trim(), month: d.month.value, stage: 0, closeDate: d.closeDate.value, kurs: +d.kurs.value || 1, note: d.note.value.trim() });
       if (!b) $('#batchErr').textContent = L('Nomor batch itu sudah ada di layanan ini.', '이 서비스에 같은 번호의 배치가 이미 있습니다.'); else render();
@@ -890,7 +963,7 @@
       S.checkVoucher(P.voucher).then(function (v) {
         if (!P) return;
         P.off = v ? v.off : 0; saveDraft();
-        $('#vMsg').textContent = v ? L('Voucher aktif', '쿠폰 적용됨') + ': −' + rp(v.off) : L('Kode voucher tidak ditemukan.', '쿠폰 코드를 찾을 수 없습니다.');
+        $('#vMsg').textContent = v ? L('Voucher aktif', '쿠폰 적용됨') + ': −' + rp(v.off) : L('Kode voucher tidak ditemukan atau sudah habis.', '쿠폰 코드를 찾을 수 없거나 사용 한도를 다 썼습니다.');
         drawPay();
       });
     }
@@ -923,6 +996,21 @@
         render();
       });
     }
+    else if (act === 'svc-save') {
+      var sd = A.edit['s:' + id];
+      if (sd) {
+        if (!sd.nameId || !sd.nameKo) { GO.onStoreError({ message: 'Check the service fields.' }); return; }
+        S.updateService(id, { name: [sd.nameId, sd.nameKo], desc: [sd.descId, sd.descKo], cur: sd.cur }); saved('s:' + id);
+      }
+    }
+    else if (act === 'svc-del') {
+      if (!confirm(L('Hapus layanan ini?', '이 서비스를 삭제할까요?'))) return;
+      if (S.removeService(id)) render(); else $('#svcDelErr').textContent = L('Layanan ini masih punya batch. Hapus batch-nya dulu.', '이 서비스에 배치가 남아 있습니다. 배치를 먼저 지워 주세요.');
+    }
+    else if (act === 'voucher-del') { if (confirm(L('Hapus voucher ini? Pesanan yang sudah memakainya tidak berubah.', '이 쿠폰을 삭제할까요? 이미 쓴 주문의 금액은 바뀌지 않습니다.'))) { S.removeVoucher(id); render(); } }
+    else if (act === 'export-batches') download(GO.BRAND.name.toLowerCase() + '-batches-' + stamp() + '.csv', '\ufeff' + X.toCSV(X.batchRows(S.db)), 'text/csv;charset=utf-8');
+    else if (act === 'export-vouchers') download(GO.BRAND.name.toLowerCase() + '-vouchers-' + stamp() + '.csv', '\ufeff' + X.toCSV(X.voucherRows({ vouchers: S.db.vouchers.map(function (v) { return Object.assign({}, v, { used: S.voucherUses(v) }); }) })), 'text/csv;charset=utf-8');
+    else if (act === 'export-backup') download(GO.BRAND.name.toLowerCase() + '-backup-' + stamp() + '.json', JSON.stringify(X.backup(S.db), null, 1), 'application/json');
     else if (act === 'row-del') { A.rows.splice(+id, 1); render(); }
     else if (act === 'rows-save') {
       var bad = A.rows.filter(function (r) { return !String(r.buyer).trim() || !String(r.item).trim() || !(Number(r.total) > 0); }).length;
@@ -948,6 +1036,7 @@
     } else if ((k = t.getAttribute('data-admin'))) {
       A[k] = t.value;
       if (k === 'batchId') { A.rows = null; render(); }
+      if (k === 'priceMode' && A.rows) { var pb = S.batch(A.batchId); A.rows.forEach(function (r) { r.total = rowTotal(r, pb); }); render(); }
       if (k === 'q') drawFind();
     } else if (t.hasAttribute('data-row')) {
       var r = A.rows[+t.getAttribute('data-row')], f = t.getAttribute('data-f');
@@ -958,7 +1047,7 @@
   document.addEventListener('change', function (e) {
     draftRow(e.target);                         // 바로 저장하지 않는다. 저장 버튼을 눌러야 반영된다
   });
-  document.addEventListener('input', function (e) { if (e.target.hasAttribute('data-bnote')) draftRow(e.target); });
+  document.addEventListener('input', function (e) { if (e.target.hasAttribute('data-bnote') || e.target.hasAttribute('data-svc')) draftRow(e.target); });
   // 저장하지 않은 변경이 있는데 창을 닫거나 새로 고치려 하면 브라우저가 한 번 묻는다
   window.addEventListener('beforeunload', function (e) { if (Object.keys(A.edit).length) { e.preventDefault(); e.returnValue = ''; } });
   document.addEventListener('keydown', function (e) { var m = $('.modal'); if (e.key === 'Escape' && m) m.remove(); });

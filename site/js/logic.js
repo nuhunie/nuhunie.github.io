@@ -246,7 +246,8 @@
   var QTY_RULES = [/(\d+)\s*(?:pcs|pc|buah|ea|개)\b/i, /\bx\s*(\d+)\b/i, /\b(\d+)\s*x\b/i];
 
   X.classifyLine = function (line) {
-    var r = { buyer: '', item: '', qty: null, price: null, cur: null, batchNo: null, raw: line, missing: [] };
+    // priceIs: 가격이 개당('each')인지 합계('total')인지 글에 적혀 있을 때만 채운다. 없으면 null(화면의 기본값을 따른다)
+    var r = { buyer: '', item: '', qty: null, price: null, cur: null, priceIs: null, batchNo: null, raw: line, missing: [] };
     var s = line.trim().replace(/^(\d+[.)]|[-•*])\s+/, '');
     var m, i;
 
@@ -254,7 +255,14 @@
 
     for (i = 0; i < PRICE_RULES.length && r.price === null; i++) {
       if ((m = s.match(PRICE_RULES[i].re))) {
-        r.price = num(m[1], m[2]); r.cur = PRICE_RULES[i].cur; s = s.replace(m[0], ' ');
+        r.price = num(m[1], m[2]); r.cur = PRICE_RULES[i].cur;
+        // 가격이 개당인지 합계인지 적혀 있으면 읽는다: "@25k", "25k/pcs", "25k per pcs" → 개당, "total 50k" → 합계
+        var before = s.slice(0, m.index), after = s.slice(m.index + m[0].length), e;
+        if ((e = before.match(/@\s*$/))) { r.priceIs = 'each'; before = before.slice(0, e.index); }
+        else if ((e = before.match(/\b(?:total|ttl|tot)\s*:?\s*$/i))) { r.priceIs = 'total'; before = before.slice(0, e.index); }
+        if ((e = after.match(/^\s*(?:\/\s*(?:pcs|pc|ea|biji|buah)|per\s*(?:pcs|pc|biji|buah)|each|satuan)\b/i))) { r.priceIs = 'each'; after = after.slice(e[0].length); }
+        else if ((e = after.match(/^\s*(?:total|ttl)\b/i))) { r.priceIs = 'total'; after = after.slice(e[0].length); }
+        s = before + ' ' + after;
       }
     }
     if ((m = s.match(/@([\w.]+)/))) { r.buyer = m[1]; s = s.replace(m[0], ' '); }
@@ -267,6 +275,18 @@
       if (q) r.qty = +(q[1] || q[2]);
       return !q;
     });
+    // 품목 칸 안에 섞인 수량: "2x album", "album 2pcs", "album x2". 이름 속의 "random 1 pc" 는 건드리지 않도록
+    // 뒤에 붙는 "N pcs" 는 2 이상만 수량으로 본다.
+    if (r.qty === null && parts.length > 1) {
+      parts = parts.map(function (p) {
+        if (r.qty !== null) return p;
+        var a = p.match(/^(\d+)\s*x\s+(\S.*)$/i), b = p.match(/^(\S.*?)\s+x\s*(\d+)$/i), c = p.match(/^(\S.*?)\s+(\d+)\s*(?:pcs|pc|buah|ea|개)$/i);
+        if (a && +a[1] >= 1) { r.qty = +a[1]; return a[2].trim(); }
+        if (b && +b[2] >= 1) { r.qty = +b[2]; return b[1].trim(); }
+        if (c && +c[2] >= 2) { r.qty = +c[2]; return c[1].trim(); }
+        return p;
+      });
+    }
     // 구분자 없이 한 덩어리로 쓴 줄이면 글 안에서 수량 표현을 찾는다
     if (r.qty === null && parts.length === 1) {
       for (i = 0; i < QTY_RULES.length && r.qty === null; i++) {
@@ -300,6 +320,34 @@
     if (!r.item) r.missing.push('item');
     if (r.price === null) r.missing.push('price');
     return r;
+  };
+
+  // 붙여 넣은 줄의 합계 금액(원래 통화 기준). 가격이 개당이면 수량을 곱하고, 합계면 그대로 쓴다.
+  // 글에 표시가 없으면 화면에서 고른 기본값(fallback: 'each' | 'total')을 따른다.
+  X.lineUnitPrice = function (r, fallback) {
+    if (r.price == null) return null;
+    var each = (r.priceIs || fallback || 'each') === 'each';
+    return each ? r.price : r.price / Math.max(1, r.qty || 1);
+  };
+  // 쿠폰을 더 쓸 수 있는가. max 가 없거나 0이면 한도 없음.
+  X.voucherLeft = function (v, used) { return !v.max || (used || 0) < v.max; };
+
+  /* ── 백업: 관리자가 내려받는 표와 전체 자료 ── */
+  X.batchRows = function (db) {
+    var rows = [['batch_id', 'service', 'no', 'title', 'month', 'stage', 'close_date', 'kurs', 'note', 'orders', 'pcs', 'total_idr', 'paid_idr']];
+    db.batches.forEach(function (b) {
+      var r = X.batchRecap(b.id, db.orders), s = db.services.filter(function (x) { return x.id === b.svc; })[0];
+      rows.push([b.id, s ? s.name[0] : b.svc, b.no, b.title, b.month, GO.STAGES[b.stage] ? GO.STAGES[b.stage][0] : b.stage, b.closeDate, b.kurs, b.note, r.count, r.pcs, r.total, r.paidTotal]);
+    });
+    return rows;
+  };
+  X.voucherRows = function (db) {
+    return [['code', 'discount_idr', 'max_uses', 'used']].concat(db.vouchers.map(function (v) { return [v.code, v.off, v.max || '', v.used || 0]; }));
+  };
+  // 전체 자료를 한 파일로. 다시 불러오는 기능은 아직 없다(보관용).
+  X.backup = function (db, now) {
+    return { app: GO.BRAND.name, version: 1, exportedAt: new Date(now == null ? Date.now() : now).toISOString(),
+      services: db.services, batches: db.batches, orders: db.orders, vouchers: db.vouchers, calcDefaults: db.calcDefaults };
   };
 
   X.classifyText = function (text) {

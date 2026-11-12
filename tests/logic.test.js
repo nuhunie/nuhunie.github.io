@@ -206,6 +206,43 @@ test('결제 금액과 주문번호: 화면과 서버가 같은 규칙을 쓴다
   assert.equal(X.payable(50000, 5000, id), 45000 + X.uniqueCode(id));
   assert.equal(X.payable(3000, 5000, id), X.uniqueCode(id));       // 쿠폰이 금액보다 커도 0 아래로 내려가지 않는다
 });
+test('자동 분류: 품목 칸 안에 섞인 수량과 개당 표시를 떼어 낸다', () => {
+  const pick = r => ({ buyer: r.buyer, item: r.item, qty: r.qty, price: r.price, priceIs: r.priceIs });
+  assert.deepEqual(pick(X.classifyLine('sasa / album 2pcs / 500k')), { buyer: 'sasa', item: 'album', qty: 2, price: 500000, priceIs: null });
+  assert.deepEqual(pick(X.classifyLine('sasa / 2x album seventeen / 500k')), { buyer: 'sasa', item: 'album seventeen', qty: 2, price: 500000, priceIs: null });
+  assert.deepEqual(pick(X.classifyLine('sasa / album / 25k/pcs')), { buyer: 'sasa', item: 'album', qty: 1, price: 25000, priceIs: 'each' });
+  assert.deepEqual(pick(X.classifyLine('sasa / album 3pcs @25k')), { buyer: 'sasa', item: 'album', qty: 3, price: 25000, priceIs: 'each' });
+  assert.deepEqual(pick(X.classifyLine('sasa / album x3 / total 75k')), { buyer: 'sasa', item: 'album', qty: 3, price: 75000, priceIs: 'total' });
+  assert.deepEqual(pick(X.classifyLine('sasa / album / 2pcs / 50k per pcs')), { buyer: 'sasa', item: 'album', qty: 2, price: 50000, priceIs: 'each' });
+  // 이름 속의 "1 pc" 는 수량으로 떼지 않는다
+  assert.equal(X.classifyLine('nadya / Photocard random 1 pc / Rp 25.000').item, 'Photocard random 1 pc');
+});
+test('자동 분류: 가격이 개당인지 합계인지에 따라 줄 금액이 달라진다', () => {
+  const r = X.classifyLine('sasa / album / 2pcs / 500k');
+  assert.equal(X.lineUnitPrice(r, 'each'), 500000);           // 기본: 개당 → 화면이 수량을 곱한다
+  assert.equal(X.lineUnitPrice(r, 'total'), 250000);          // 합계로 고르면 개당은 나눈 값
+  assert.equal(X.lineUnitPrice(X.classifyLine('sasa / album / 2pcs / total 500k'), 'each'), 250000);   // 글의 표시가 먼저
+  assert.equal(X.lineUnitPrice(X.classifyLine('sasa / album / 2pcs / @250k'), 'total'), 250000);
+  assert.equal(X.lineUnitPrice({ price: null }, 'each'), null);
+});
+test('쿠폰 한도: 한도가 없거나 0이면 무제한, 있으면 그 수까지', () => {
+  assert.equal(X.voucherLeft({ code: 'A', off: 1 }, 999), true);
+  assert.equal(X.voucherLeft({ code: 'A', off: 1, max: 0 }, 999), true);
+  assert.equal(X.voucherLeft({ code: 'A', off: 1, max: 2 }, 1), true);
+  assert.equal(X.voucherLeft({ code: 'A', off: 1, max: 2 }, 2), false);
+});
+test('백업: 배치·쿠폰 표와 전체 자료', () => {
+  const s = GO.seed(), rows = X.batchRows(s);
+  assert.equal(rows.length, s.batches.length + 1);
+  const kr4 = rows.find(r => r[0] === 'kr-4'), rec = X.batchRecap('kr-4', s.orders);
+  assert.deepEqual([kr4[9], kr4[10], kr4[11], kr4[12]], [rec.count, rec.pcs, rec.total, rec.paidTotal]);
+  assert.deepEqual(X.voucherRows({ vouchers: [{ code: 'A1', off: 5000, max: 3, used: 1 }, { code: 'B2', off: 1000 }] }), [['code', 'discount_idr', 'max_uses', 'used'], ['A1', 5000, 3, 1], ['B2', 1000, '', 0]]);
+  const b = X.backup(s, Date.UTC(2026, 10, 12));
+  assert.equal(b.exportedAt, '2026-11-12T00:00:00.000Z');
+  assert.equal(b.orders.length, s.orders.length);
+  for (const k of ['services', 'batches', 'orders', 'vouchers', 'calcDefaults']) assert.ok(b[k], k);
+  assert.deepEqual(JSON.parse(JSON.stringify(b)).batches, s.batches);
+});
 test('자동 분류: 가격이 없으면 빠진 칸으로 표시한다', () => {
   assert.deepEqual(X.classifyLine('halo kak').missing, ['price']);
 });
@@ -263,5 +300,5 @@ test('입금 기한: 기한 안 → 기한 지남(유예) → 지울 때', () =>
   assert.ok(GO.PURGE_HOURS > GO.PAY_HOURS, '지우는 시각은 기한보다 뒤여야 한다(유예)');
 });
 test('입력 한도는 한 곳(GO.LIMITS)에 있다', () => {
-  assert.deepEqual(GO.LIMITS, { buyer: 40, item: 120, proof: 200, qty: 999, amount: 1e9 });
+  assert.deepEqual(GO.LIMITS, { buyer: 40, item: 120, proof: 200, qty: 999, amount: 1e9, voucher: 30, voucherUses: 100000, svcName: 40, svcDesc: 120 });
 });
