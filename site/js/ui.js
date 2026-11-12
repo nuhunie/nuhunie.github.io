@@ -870,9 +870,16 @@
       L('Lihat di daftar pesanan tiap batch.', '배치별 주문 목록에서 볼 수 있습니다.') + '</p>' : '';
   }
   function aPay() {
+    // 확인 대기 / 결제 완료 / 반려: 승인하거나 반려한 결제도 여기서 다시 본다(입금자, 증빙 사진, 쿠폰)
+    var view = A.payView || 'pending';
+    var seg = '<div class="seg" id="payView">' + ['pending', 'paid', 'rejected'].map(function (v) {
+      var n = S.db.orders.filter(function (o) { return o.pay === v; }).length;
+      return '<button type="button" class="' + (v === view ? 'on' : '') + '" data-act="pay-view" data-id="' + v + '">' + esc(LL(GO.PAY[v])) + ' ' + n + '</button>';
+    }).join('') + '</div>';
+    if (view !== 'pending') return waitingNote() + seg + donePay(view);
     var list = S.db.orders.filter(function (o) { return o.pay === 'pending'; });
     var dup = X.duplicateTotals(S.db.orders);
-    return waitingNote() + (list.length ? (Object.keys(dup).length ? '<p class="note warn"><b>' + L('Perhatian', '주의') + '</b> ' + L('Ada pesanan dengan nominal yang sama. Cocokkan dengan bukti dan nama sebelum menyetujui.', '결제 금액이 같은 주문이 있습니다. 승인하기 전에 증빙과 이름을 대조하세요.') + '</p>' : '') + '<div class="tbl"><table><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>Batch</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">Total</th><th>' + L('Bukti', '증빙') + '</th><th>' + L('Nama pengirim', '입금자 이름') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' +
+    return waitingNote() + seg + (list.length ? (Object.keys(dup).length ? '<p class="note warn"><b>' + L('Perhatian', '주의') + '</b> ' + L('Ada pesanan dengan nominal yang sama. Cocokkan dengan bukti dan nama sebelum menyetujui.', '결제 금액이 같은 주문이 있습니다. 승인하기 전에 증빙과 이름을 대조하세요.') + '</p>' : '') + '<div class="tbl"><table><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>Batch</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">Total</th><th>' + L('Bukti', '증빙') + '</th><th>' + L('Nama pengirim', '입금자 이름') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' +
       list.map(function (o) {
         var b = S.batch(o.batchId);
         return '<tr><td>' + o.id + '</td><td class="wrap">' + esc(batchName(b)) + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td class="wrap">' + esc(o.item) + '</td><td class="r">' + rp(o.total) + (dup[o.total] ? ' <span class="badge pay-rejected">' + L('Nominal sama', '금액 같음') + '</span>' : '') + '</td><td class="wrap">' + (o.photo ? '<button type="button" class="link" data-act="proof-view" data-id="' + o.id + '">' + L('Lihat foto', '사진 보기') + '</button>' : esc(o.proofName || '-')) + '<small class="vby">' + esc(o.method || '') + '</small></td>' +
@@ -883,6 +890,19 @@
       : empty(L('Tidak ada pembayaran yang menunggu verifikasi.', '확인을 기다리는 결제가 없습니다.')));
   }
 
+  // 처리한 결제(결제 완료·반려) 목록. 접수 시각이 최근인 것부터. 상태를 되돌리는 것은 주문 입력 화면에서 한다.
+  function donePay(view) {
+    var list = S.db.orders.filter(function (o) { return o.pay === view; }).sort(function (a, b) { return a.createdAt < b.createdAt ? 1 : a.createdAt > b.createdAt ? -1 : 0; });
+    if (!list.length) return empty(view === 'paid' ? L('Belum ada pembayaran yang disetujui.', '승인한 결제가 아직 없습니다.') : L('Tidak ada pembayaran yang ditolak.', '반려한 결제가 없습니다.'));
+    return '<div class="tbl" id="donePay"><table><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>Batch</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">Total</th><th>' + L('Bukti', '증빙') + '</th><th>' + L('Nama pengirim', '입금자 이름') + '</th></tr></thead><tbody>' +
+      list.map(function (o) {
+        var b = S.batch(o.batchId);
+        return '<tr data-done="' + o.id + '"><td>' + o.id + selfBadge(o) + '</td><td class="wrap">' + esc(b ? batchName(b) : '-') + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td class="wrap">' + esc(o.item) + '</td><td class="r">' + rp(o.total) + '</td>' +
+          '<td class="wrap">' + (o.photo ? '<button type="button" class="link" data-act="proof-view" data-id="' + o.id + '">' + L('Lihat foto', '사진 보기') + '</button>' : esc(o.proofName || '-')) + '<small class="vby">' + esc(o.method || '') + '</small></td>' +
+          '<td class="wrap">' + esc(o.payer || '-') + (o.voucher ? '<small class="vby">Voucher ' + esc(o.voucher) + '</small>' : '') + '</td></tr>';
+      }).join('') + '</tbody></table></div>' +
+      '<p class="hint">' + L('Urut dari pesanan terbaru. Untuk mengubah status, buka', '최근 접수한 주문부터 보여 줍니다. 상태를 바꾸려면') + ' <a href="#/admin/order">' + L('Input pesanan', '주문 입력') + '</a>.</p>';
+  }
   // 같은 입금자가 같은 쿠폰을 이미 썼으면 승인 화면의 그 줄에 알린다 (자동으로 막지는 않는다: 운영자가 판단한다)
   function payerWarn(id) {
     var w = document.querySelector('[data-payerwarn="' + id + '"]'), inp = document.querySelector('[data-payer="' + id + '"]');
@@ -1123,6 +1143,7 @@
       pm.innerHTML = '<div class="receipt photo"><button class="x" data-act="modal-close" aria-label="' + L('Tutup', '닫기') + '">×</button><b>' + esc(id) + '</b><img src="/api/admin/proof/' + encodeURIComponent(id) + '" alt="' + L('Bukti pembayaran', '결제 증빙') + '"></div>';
       document.body.appendChild(pm); pm.querySelector('.x').focus();
     }
+    else if (act === 'pay-view') { A.payView = id; render(); }
     else if (act === 'vnote-save') { var vn = A.edit['v:' + id]; if (vn) { S.setVoucherNote(id, vn.note); saved('v:' + id); } }
     else if (act === 'sample') { A.text = $('[data-admin="text"]').getAttribute('placeholder'); A.rows = null; render(); }
     else if (act === 'classify') {

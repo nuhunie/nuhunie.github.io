@@ -179,6 +179,9 @@ window.runE2E = async function () {
   check('승인: 처음 쓰는 입금자는 경고가 없다', $('[data-payerwarn="' + pa.id + '"]').hidden);
   $('[data-act=pay-ok][data-id="' + pa.id + '"]').click(); await wait(60);
   check('승인: 입금자 이름이 주문에 남는다', S.order(pa.id).pay === 'paid' && S.order(pa.id).payer === 'SITI AMINAH');
+  $('[data-act=pay-view][data-id=paid]').click(); await wait(40);
+  check('결제 확인: 승인한 결제는 "결제 완료" 보기에서 입금자·쿠폰과 함께 다시 보인다', !!$('#donePay tr[data-done="' + pa.id + '"]') && $('#donePay tr[data-done="' + pa.id + '"]').innerText.includes('SITI AMINAH') && !$('[data-act=pay-ok]'));
+  $('[data-act=pay-view][data-id=pending]').click(); await wait(40);
   type('[data-payer="' + pb.id + '"]', ' siti  aminah. ');
   check('승인: 같은 입금자가 같은 쿠폰을 또 쓰면 그 줄에 알린다', !$('[data-payerwarn="' + pb.id + '"]').hidden && $('[data-payerwarn="' + pb.id + '"]').textContent.includes(pa.id), $('[data-payerwarn="' + pb.id + '"]').textContent);
   let asked = false; window.confirm = () => { asked = true; return false; };
