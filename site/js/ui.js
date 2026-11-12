@@ -402,7 +402,48 @@
   }
 
   /* ── 관리자 ── */
-  var A = { batchId: '', text: '', rows: null, engine: '', q: '' };
+  var A = { batchId: '', text: '', rows: null, engine: '', q: '', edit: {}, saved: '' };
+  /* 표에서 고친 값은 "저장"을 누르기 전까지 A.edit 에만 둔다 (열쇠: 'b:배치' 또는 'o:주문').
+   * 화면을 다시 그려도 남아 있고, 저장을 눌러야 서버로 가서 고객 화면에 반영된다. */
+  function batchDraft(b) { return A.edit['b:' + b.id] || { stage: b.stage, note: b.note }; }
+  // 단계만 바꾸고 안내문은 예전 글 그대로일 때: 고객에게 단계와 맞지 않는 안내가 보일 수 있다
+  function noteStale(b, d) { return d.stage !== b.stage && d.note === b.note && !!b.note; }
+  // 다른 곳에서 이미 같은 값이 됐거나 지워진 항목의 고친 값은 버린다
+  function pruneEdits() {
+    Object.keys(A.edit).forEach(function (key) {
+      var id = key.slice(2), d = A.edit[key], b = key[0] === 'b' && S.batch(id), o = key[0] === 'o' && S.order(id);
+      if (!(b || o) || (b && d.stage === b.stage && d.note === b.note) || (o && d.pay === o.pay)) delete A.edit[key];
+    });
+  }
+  function saveCell(act, id, key) {
+    return '<button class="btn sm' + (A.edit[key] ? '' : ' line') + '" data-act="' + act + '" data-id="' + id + '"' + (A.edit[key] ? '' : ' disabled') + '>' + L('Simpan', '저장') + '</button>' +
+      (A.saved === key ? '<span class="rowsaved" role="status">' + L('Tersimpan', '저장됨') + '</span>' : '');
+  }
+  function unsavedText() {
+    var n = Object.keys(A.edit).length;
+    return n ? L('Ada perubahan yang belum disimpan', '저장하지 않은 변경이 있습니다') + ': ' + n + '. ' + L('Tekan Simpan di baris yang ditandai agar tampil di halaman pelanggan.', '표시된 줄의 저장을 눌러야 고객 화면에 반영됩니다.') : '';
+  }
+  // 표의 칸을 고칠 때마다: 저장된 값과 다르면 그 줄을 "저장 전"으로 표시한다. 화면은 다시 그리지 않는다.
+  function draftRow(t) {
+    var tr = t.closest('tr'), k, key, d, dirty;
+    if ((k = t.getAttribute('data-bstage') || t.getAttribute('data-bnote'))) {
+      var b = S.batch(k); if (!b) return;
+      d = { stage: +tr.querySelector('[data-bstage]').value, note: tr.querySelector('[data-bnote]').value.trim() };
+      key = 'b:' + k; dirty = d.stage !== b.stage || d.note !== b.note;
+      tr.querySelector('.rowwarn').hidden = !noteStale(b, d);
+    } else if ((k = t.getAttribute('data-opay'))) {
+      var o = S.order(k); if (!o) return;
+      d = { pay: t.value }; key = 'o:' + k; dirty = d.pay !== o.pay;
+    } else return;
+    if (dirty) A.edit[key] = d; else delete A.edit[key];
+    tr.classList.toggle('dirty', dirty);
+    var sb = tr.querySelector('[data-act$="-save"]'); sb.disabled = !dirty; sb.classList.toggle('line', !dirty);   // 고칠 것이 생기면 버튼이 진해진다
+    var u = $('#unsaved'); if (u) { u.textContent = unsavedText(); u.hidden = !u.textContent; }
+  }
+  function saved(key) {
+    delete A.edit[key]; A.saved = key; render();
+    setTimeout(function () { A.saved = ''; var e = $('.rowsaved'); if (e) e.remove(); }, 2500);
+  }
   function vAdmin(tab) {
     if (!S.isAdmin) return vLogin();
     tab = tab || 'guide';
@@ -411,6 +452,7 @@
     return '<div class="head"><div><h1>' + L('Admin', '관리자') + '</h1><p class="lead">' + L('Data yang diisi di sini langsung tampil di halaman pelanggan.', '여기서 입력한 내용이 고객 화면에 바로 나타납니다.') + '</p></div><div class="btns"><button class="btn" data-act="export">' + L('Unduh CSV pesanan', '주문 CSV 내려받기') + '</button>' + (S.canReset ? '<button class="btn line" data-act="reset">' + L('Reset data contoh', '예시 데이터로 초기화') + '</button>' : '') + (S.mode === 'server' ? '<button class="btn line" data-act="logout">' + L('Keluar', '로그아웃') + '</button>' : '') + '</div></div>' +
       '<p class="note">' + (S.mode === 'server' ? L('Masuk sebagai admin. Perubahan tersimpan di server dan terlihat di semua perangkat.', '관리자로 로그인했습니다. 변경 내용은 서버에 저장되어 모든 기기에서 보입니다.') : L('Mockup: belum ada login admin dan data hanya tersimpan di browser ini.', '목업: 관리자 로그인이 아직 없고, 데이터는 이 브라우저에만 저장됩니다.')) + '</p>' +
       '<div class="tabs">' + tabs.map(function (t) { return '<a class="' + (t[0] === tab ? 'on' : '') + '" href="#/admin/' + t[0] + '">' + esc(t[1]) + (t[0] === 'pay' && pendingN ? ' <i class="dot">' + pendingN + '</i>' : '') + '</a>'; }).join('') + '</div>' +
+      (pruneEdits(), '<p class="note unsaved" id="unsaved" role="status"' + (unsavedText() ? '' : ' hidden') + '>' + unsavedText() + '</p>') +
       ({ guide: aGuide, batch: aBatch, order: aOrder, pay: aPay, calc: vCalc, log: aLog }[tab] || aGuide)();
   }
   function vLogin() {
@@ -435,12 +477,13 @@
   function batchOptions(sel) { return S.db.batches.slice().sort(function (a, b) { return a.month < b.month ? 1 : a.month > b.month ? -1 : b.no - a.no; }).map(function (b) { return '<option value="' + b.id + '"' + (b.id === sel ? ' selected' : '') + '>' + esc(LL(S.service(b.svc).name) + ' / ' + batchName(b) + ' (' + b.month + ')') + '</option>'; }).join(''); }
   function aBatch() {
     var rows = S.db.batches.slice().sort(function (a, b) { return a.month < b.month ? 1 : a.month > b.month ? -1 : a.svc < b.svc ? -1 : a.svc > b.svc ? 1 : b.no - a.no; }).map(function (b) {
-      var br = X.batchRecap(b.id, S.db.orders);
-      return '<tr><td>' + b.month + '</td><td>' + esc(LL(S.service(b.svc).name)) + '</td><td><a href="' + ROOT + '#/b/' + b.id + '">' + esc(batchName(b)) + '</a></td>' +
+      var br = X.batchRecap(b.id, S.db.orders), d = batchDraft(b), key = 'b:' + b.id;
+      return '<tr' + (A.edit[key] ? ' class="dirty"' : '') + '><td>' + b.month + '</td><td>' + esc(LL(S.service(b.svc).name)) + '</td><td><a href="' + ROOT + '#/b/' + b.id + '">' + esc(batchName(b)) + '</a></td>' +
         '<td class="r">' + br.count + '</td><td class="r btotal">' + rp(br.total) + '</td><td class="r">' + rp(br.paidTotal) + '</td>' +
-        '<td><select data-bstage="' + b.id + '" aria-label="' + L('Tahap', '단계') + '">' + GO.STAGES.map(function (st, i) { return '<option value="' + i + '"' + (i === b.stage ? ' selected' : '') + '>' + esc(LL(st)) + '</option>'; }).join('') + '</select></td>' +
-        '<td><input data-bnote="' + b.id + '" value="' + esc(b.note) + '" placeholder="' + L('Info untuk pelanggan', '고객 안내 문구') + '" aria-label="Info"></td>' +
-        '<td><button class="link" data-act="batch-del" data-id="' + b.id + '">' + L('Hapus', '삭제') + '</button></td></tr>';
+        '<td><select data-bstage="' + b.id + '" aria-label="' + L('Tahap', '단계') + '">' + GO.STAGES.map(function (st, i) { return '<option value="' + i + '"' + (i === d.stage ? ' selected' : '') + '>' + esc(LL(st)) + '</option>'; }).join('') + '</select></td>' +
+        '<td><input data-bnote="' + b.id + '" value="' + esc(d.note) + '" placeholder="' + L('Info untuk pelanggan', '고객 안내 문구') + '" aria-label="Info">' +
+        '<small class="rowwarn"' + (noteStale(b, d) ? '' : ' hidden') + '>' + L('Tahap diubah. Periksa juga info ini.', '단계를 바꿨습니다. 안내문도 확인하세요.') + '</small></td>' +
+        '<td class="acts">' + saveCell('batch-save', b.id, key) + '<button class="link" data-act="batch-del" data-id="' + b.id + '">' + L('Hapus', '삭제') + '</button></td></tr>';
     }).join('');
     return '<div class="panel"><h2>' + L('Tambah batch', '배치 추가') + '</h2><form data-form="batch" class="grid3">' +
       '<div class="field"><label>' + L('Layanan', '서비스') + '</label><select name="svc">' + svcOptions() + '</select></div>' +
@@ -452,7 +495,7 @@
       '<div class="field span"><label>' + L('Info untuk pelanggan', '고객 안내 문구') + '</label><input name="note"></div>' +
       '<div class="field"><label>&nbsp;</label><button class="btn">' + L('Tambah', '추가') + '</button></div></form><p class="err" id="batchErr" role="alert"></p></div>' +
       '<h2 class="sub">' + L('Rekap semua batch', '전체 집계') + '</h2>' + adminTotals() +
-      '<h2 class="sub">' + L('Semua batch', '전체 배치') + '</h2><div class="tbl"><table class="edit"><thead><tr><th>' + L('Bulan', '월') + '</th><th>' + L('Layanan', '서비스') + '</th><th>Batch</th><th class="r">' + L('Pesanan', '주문') + '</th><th class="r">' + L('Total pesanan', '주문 금액') + '</th><th class="r">' + L('Sudah dibayar', '결제 완료 금액') + '</th><th>' + L('Tahap', '단계') + '</th><th>Info</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+      '<h2 class="sub">' + L('Semua batch', '전체 배치') + '</h2><p class="hint">' + L('Setelah mengubah tahap atau info, tekan Simpan.', '단계나 안내문을 바꾼 뒤 저장을 누르세요.') + '</p><div class="tbl"><table class="edit"><thead><tr><th>' + L('Bulan', '월') + '</th><th>' + L('Layanan', '서비스') + '</th><th>Batch</th><th class="r">' + L('Pesanan', '주문') + '</th><th class="r">' + L('Total pesanan', '주문 금액') + '</th><th class="r">' + L('Sudah dibayar', '결제 완료 금액') + '</th><th>' + L('Tahap', '단계') + '</th><th>Info</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
   // 금액·결제 현황 집계는 관리자에게만 보인다
   function adminTotals() {
@@ -476,9 +519,10 @@
           : empty(L('Tidak ada baris yang bisa dibaca.', '읽을 수 있는 줄이 없습니다.')));
     }
     var list = S.ordersOf(A.batchId).map(function (o) {
-      return '<tr><td>' + o.id + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + o.qty + '</td><td class="r">' + rp(o.total) + '</td>' +
-        '<td><select data-opay="' + o.id + '" aria-label="' + L('Pembayaran', '결제') + '">' + Object.keys(GO.PAY).map(function (k) { return '<option value="' + k + '"' + (k === o.pay ? ' selected' : '') + '>' + esc(LL(GO.PAY[k])) + '</option>'; }).join('') + '</select></td>' +
-        '<td><button class="link" data-act="order-del" data-id="' + o.id + '">' + L('Hapus', '삭제') + '</button></td></tr>';
+      var key = 'o:' + o.id, pay = A.edit[key] ? A.edit[key].pay : o.pay;
+      return '<tr' + (A.edit[key] ? ' class="dirty"' : '') + '><td>' + o.id + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + o.qty + '</td><td class="r">' + rp(o.total) + '</td>' +
+        '<td><select data-opay="' + o.id + '" aria-label="' + L('Pembayaran', '결제') + '">' + Object.keys(GO.PAY).map(function (k) { return '<option value="' + k + '"' + (k === pay ? ' selected' : '') + '>' + esc(LL(GO.PAY[k])) + '</option>'; }).join('') + '</select></td>' +
+        '<td class="acts">' + saveCell('order-save', o.id, key) + '<button class="link" data-act="order-del" data-id="' + o.id + '">' + L('Hapus', '삭제') + '</button></td></tr>';
     }).join('');
     return '<div class="panel find"><h2>' + L('Cari pesanan', '주문 찾기') + '</h2><p class="lead">' + L('Untuk pelanggan yang lupa nomor pesanan: cari dengan nama atau sebagian nomor.', '주문번호를 잊은 고객을 위해: 이름이나 번호 일부로 찾습니다.') + '</p>' +
       '<div class="field"><label>' + L('Nama atau nomor pesanan', '이름 또는 주문번호') + '</label><input data-admin="q" value="' + esc(A.q) + '" autocomplete="off"></div><div id="adminFind"></div></div>' +
@@ -655,6 +699,8 @@
     else if (act === 'export') exportOrders();
     else if (act === 'reset') { if (confirm(L('Semua data kembali ke contoh awal. Lanjutkan?', '모든 데이터가 처음 예시로 돌아갑니다. 계속할까요?'))) { S.reset().then(function () { A.rows = null; C = null; render(); }); } }
     else if (act === 'logout') S.logout().then(render);
+    else if (act === 'batch-save') { var bd = A.edit['b:' + id]; if (bd) { S.updateBatch(id, { stage: bd.stage, note: bd.note }); saved('b:' + id); } }
+    else if (act === 'order-save') { var od = A.edit['o:' + id]; if (od) { S.updateOrder(id, { pay: od.pay }); saved('o:' + id); } }
     else if (act === 'batch-del') { if (confirm(L('Hapus batch ini beserta pesanannya?', '이 배치와 그 안의 주문을 삭제할까요?'))) { S.removeBatch(id); render(); } }
     else if (act === 'order-del') { if (confirm(L('Hapus pesanan ini?', '이 주문을 삭제할까요?'))) { S.removeOrder(id); render(); } }
     else if (act === 'pay-ok') { S.updateOrder(id, { pay: 'paid' }); render(); }
@@ -700,11 +746,11 @@
     }
   });
   document.addEventListener('change', function (e) {
-    var t = e.target, k;
-    if ((k = t.getAttribute('data-bstage'))) S.updateBatch(k, { stage: +t.value });
-    else if ((k = t.getAttribute('data-bnote'))) S.updateBatch(k, { note: t.value.trim() });
-    else if ((k = t.getAttribute('data-opay'))) S.updateOrder(k, { pay: t.value });
+    draftRow(e.target);                         // 바로 저장하지 않는다. 저장 버튼을 눌러야 반영된다
   });
+  document.addEventListener('input', function (e) { if (e.target.hasAttribute('data-bnote')) draftRow(e.target); });
+  // 저장하지 않은 변경이 있는데 창을 닫거나 새로 고치려 하면 브라우저가 한 번 묻는다
+  window.addEventListener('beforeunload', function (e) { if (Object.keys(A.edit).length) { e.preventDefault(); e.returnValue = ''; } });
   document.addEventListener('keydown', function (e) { var m = $('.modal'); if (e.key === 'Escape' && m) m.remove(); });
   // 화면을 옮길 때마다 서버 내용을 다시 읽는다. 무언가 입력하는 중이면 화면을 다시 그리지 않는다.
   function typing() { var a = document.activeElement; return !!(a && a.closest && a.closest('#app') && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)); }

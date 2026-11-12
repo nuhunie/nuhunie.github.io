@@ -115,7 +115,17 @@ window.runE2E = async function () {
   check('조회: 반려된 주문은 다시 결제할 수 있다', !!$('.card a.btn[href^="#/pay/"]'));
 
   await go('#/admin/batch');
+  const stage0 = S.batch('kr-5').stage;
   type('[data-bstage="kr-5"]', '3', 'change'); await wait(40);
+  const saveBtn = () => $('[data-act=batch-save][data-id="kr-5"]');
+  check('배치: 단계를 바꿔도 저장을 누르기 전에는 반영되지 않는다', S.batch('kr-5').stage === stage0 && !saveBtn().disabled && !$('#unsaved').hidden, S.batch('kr-5').stage);
+  check('배치: 단계를 바꾸면 안내문을 확인하라고 알린다', !saveBtn().closest('tr').querySelector('.rowwarn').hidden);
+  await go('#/admin/order'); await go('#/admin/batch');
+  check('배치: 다른 탭에 다녀와도 저장 전 값이 남아 있다', $('[data-bstage="kr-5"]').value === '3' && !saveBtn().disabled);
+  type('[data-bnote="kr-5"]', 'Barang sudah dibeli.'); await wait(20);
+  check('배치: 안내문을 고치면 알림이 사라진다', saveBtn().closest('tr').querySelector('.rowwarn').hidden);
+  saveBtn().click(); await wait(60);
+  check('배치: 저장을 누르면 반영되고 버튼이 다시 잠긴다', S.batch('kr-5').stage === 3 && S.batch('kr-5').note === 'Barang sudah dibeli.' && saveBtn().disabled && $('#unsaved').hidden);
   await go('#/track/' + o1.id);
   const lis = $$('.card .steps li');
   check('조회: 단계를 바꾸면 고객 화면의 현재 칸이 따라 바뀐다', S.batch('kr-5').stage === 3 && lis[3].classList.contains('cur') && lis[2].classList.contains('done') && $('.where b').textContent === GO.STAGES[3][0], $('.where b').textContent);
