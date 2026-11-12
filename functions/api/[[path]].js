@@ -18,7 +18,7 @@
  *   POST reset                 예시 데이터로 초기화 (ALLOW_RESET=1 인 곳에서만. 배포판에는 꺼져 있다)
  *   GET  log                   활동 기록
  */
-import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, startSession, endSession, clearCookie, loadState, seed, toOrder, overLimit, recordHit, logAct, canReset, weakPassword, ORDER_SELECT, PUBLIC_ORDERS, withDeadline, expired, purgeExpired } from '../../server/lib.js';
+import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, startSession, endSession, clearCookie, loadState, seed, toOrder, overLimit, recordHit, logAct, canReset, weakPassword, ORDER_SELECT, PUBLIC_ORDERS, withDeadline, expired, purgeExpired, canUnpay } from '../../server/lib.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const PUBLIC_CACHE_SEC = 60;      // 서버 쪽에 저장해 두는 시간. 내용이 바뀌면 바로 지운다
@@ -251,6 +251,11 @@ export async function onRequest({ request, env, params }) {
     if (sub === 'PATCH /order') {
       const pay = V.oneOf(b.pay, PAY);
       if (!pay) return fail('Bad payment status.');
+      if (pay === 'unpaid') {
+        // 증빙을 낸 적 없는 고객 접수가 지울 때를 넘겼으면 미결제로 되돌리지 않는다: 되돌리는 순간 자동으로 지워진다. 반려하거나 삭제하게 한다.
+        const row = await db.prepare(ORDER_SELECT + ' WHERE o.id = ?').bind(id).first();
+        if (row && !canUnpay(toOrder(row), env)) return fail('This order is past its payment deadline. Reject or delete it instead.', 409);
+      }
       const r = await db.prepare('UPDATE orders SET pay = ? WHERE id = ?').bind(pay, id).run();
       if (!r.meta.changes) return fail('Order not found.', 404);
       await logAct(db, request, 'order.pay', id + ' ' + pay);

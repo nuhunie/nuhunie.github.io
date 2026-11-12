@@ -239,6 +239,18 @@ test('입금 기한: 고객이 접수한 결제 전 주문에만 있고, 접수 
   assert.equal(X.payBy(o, 1), '2026-11-12T04:00:00.000Z');                 // 시간을 바꿔 줄 수 있다(검사용)
   assert.equal(X.payBy(null), '');
 });
+test('입금 기한: 되돌리는 순간 지워질 접수는 미결제로 되돌릴 수 없다', () => {
+  const at = '2026-11-12T03:00:00.000Z', t = Date.parse(at), h = 3600000;
+  const noProof = { self: 1, pay: 'paid', createdAt: at, proofName: '' };          // 증빙 없이 운영자가 결제 완료로 바꾼 고객 접수
+  assert.equal(X.canUnpay(noProof, t + 47 * h), true, '지울 때 전에는 되돌릴 수 있다(남은 시간 안에 증빙을 내면 된다)');
+  assert.equal(X.canUnpay(noProof, t + 48 * h), false, '지울 때를 넘겼으면 되돌리는 순간 지워지므로 막는다');
+  assert.equal(X.canUnpay(Object.assign({}, noProof, { pay: 'rejected' }), t + 100 * h), false);
+  assert.equal(X.canUnpay(Object.assign({}, noProof, { proofName: 'bukti.jpg' }), t + 100 * h), true, '증빙을 낸 적 있는 주문은 언제든 되돌릴 수 있다');
+  assert.equal(X.canUnpay(Object.assign({}, noProof, { self: 0 }), t + 100 * h), true, '운영자가 넣은 주문은 언제든 되돌릴 수 있다');
+  assert.equal(X.canUnpay(noProof, t + 1.5 * h, 1, 2), true); assert.equal(X.canUnpay(noProof, t + 2 * h, 1, 2), false);   // 시간을 바꿔 줄 수 있다(검사용)
+  assert.equal(noProof.pay, 'paid', '넘겨받은 주문을 바꾸지 않는다');
+  assert.equal(X.canUnpay(null), false);
+});
 test('입금 기한: 기한 안 → 기한 지남(유예) → 지울 때', () => {
   const at = '2026-11-12T03:00:00.000Z', t = Date.parse(at), h = 3600000, o = { self: 1, pay: 'unpaid', createdAt: at };
   assert.equal(X.payState(o, t + 23.9 * h), 'open');

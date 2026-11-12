@@ -223,6 +223,15 @@ window.runE2E = async function () {
   check('기한: 증빙을 낸 주문은 운영자가 미결제로 되돌려도 지워지지 않고 기한 안내도 없다', !!S.order(od4.id) && $$('.card').length === 1 && !$('.card [data-deadline]'));
   await go('#/pay/kr-5/' + od4.id); await wait(80);
   check('기한: 되돌린 주문의 결제 화면은 금액을 그대로 보여 준다', !$('[data-deadline]') && !!$('#payOut .total'));
+  // 증빙 없이 운영자가 결제 완료로 바꾼 접수를 접수 48시간 뒤에 미결제로 되돌리려 하면: 되돌리는 순간 지워지므로 막고 이유를 알린다
+  const od7 = await S.createOrder({ batchId: 'kr-5', buyer: 'tanpa_bukti', item: 'Uji tanpa bukti', qty: 1, base: 45000, voucher: '' });
+  Object.assign(S.order(od7.id), { pay: 'paid', createdAt: new Date(Date.now() - (GO.PURGE_HOURS + 1) * 3600000).toISOString() });
+  await go('#/admin/order'); type('[data-admin=batchId]', 'kr-5'); await wait(40);
+  const sel7 = $('[data-opay="' + od7.id + '"]'), al = window.alert; let said = '';
+  window.alert = m => { said = String(m); };
+  type(sel7, 'unpaid', 'change'); await wait(20); $('[data-act=order-save][data-id="' + od7.id + '"]').click(); await wait(60);
+  window.alert = al;
+  check('관리자: 되돌리는 순간 지워질 접수는 미결제로 되돌리지 못하고 이유를 알린다', !!S.order(od7.id) && S.order(od7.id).pay === 'paid' && /Batas bayar/.test(said) && $('[data-opay="' + od7.id + '"]').value === 'paid', said + ' / ' + (S.order(od7.id) || {}).pay);
   try { localStorage.removeItem('nuh-my-orders'); } catch (e) {}
   const keep = S.db.batches.slice(); S.db.batches.length = 0;
   await go('#/'); await go('#/pay'); await wait(60);

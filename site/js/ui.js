@@ -49,6 +49,7 @@
     'Admin sign-in required.': ['Sesi admin berakhir. Silakan masuk lagi.', '관리자 로그인이 끝났습니다. 다시 로그인해 주세요.'],
     'Reset is disabled here.': ['Reset dimatikan di sini.', '여기서는 초기화가 꺼져 있습니다.'],
     'This order has expired.': ['Pesanan ini dibatalkan otomatis karena belum dibayar sampai batas waktu. Silakan buat pesanan baru.', '이 접수는 기한까지 결제되지 않아 자동으로 취소되었습니다. 새로 접수해 주세요.'],
+    'This order is past its payment deadline. Reject or delete it instead.': ['Batas bayar pesanan ini sudah lewat, jadi tidak bisa dikembalikan ke "Belum bayar". Tolak atau hapus pesanan ini.', '입금 기한이 지난 접수라 미결제로 되돌릴 수 없습니다. 반려하거나 삭제해 주세요.'],
     'Server error.': ['Terjadi kesalahan di server. Coba lagi.', '서버에 문제가 생겼습니다. 다시 시도해 주세요.']
   };
   var STATUS_MSG = { 404: ['Tidak ditemukan.', '찾을 수 없습니다.'], 409: ['Sudah berubah. Muat ulang halaman.', '내용이 이미 바뀌었습니다. 새로 고쳐 주세요.'], 429: MANY, 500: SERVER_MSG['Server error.'] };
@@ -902,7 +903,13 @@
     else if (act === 'reset') { if (confirm(L('Semua data kembali ke contoh awal. Lanjutkan?', '모든 데이터가 처음 예시로 돌아갑니다. 계속할까요?'))) { S.reset().then(function () { A.rows = null; C = null; render(); }); } }
     else if (act === 'logout') S.logout().then(render);
     else if (act === 'batch-save') { var bd = A.edit['b:' + id]; if (bd) { S.updateBatch(id, { stage: bd.stage, note: bd.note }); saved('b:' + id); } }
-    else if (act === 'order-save') { var od = A.edit['o:' + id]; if (od) { S.updateOrder(id, { pay: od.pay }); saved('o:' + id); } }
+    else if (act === 'order-save') {
+      var od = A.edit['o:' + id], cur = S.order(id);
+      if (od && od.pay === 'unpaid' && cur && cur.pay !== 'unpaid' && !X.canUnpay(cur)) {
+        // 되돌리는 순간 자동으로 지워질 접수: 막고 이유를 알린다(서버도 같은 이유로 거절한다)
+        delete A.edit['o:' + id]; GO.onStoreError({ message: 'This order is past its payment deadline. Reject or delete it instead.' });
+      } else if (od) { S.updateOrder(id, { pay: od.pay }); saved('o:' + id); }
+    }
     else if (act === 'batch-del') { if (confirm(L('Hapus batch ini beserta pesanannya?', '이 배치와 그 안의 주문을 삭제할까요?'))) { S.removeBatch(id); render(); } }
     else if (act === 'order-del') { if (confirm(L('Hapus pesanan ini?', '이 주문을 삭제할까요?'))) { S.removeOrder(id); render(); } }
     else if (act === 'pay-ok') { S.updateOrder(id, { pay: 'paid' }); render(); }

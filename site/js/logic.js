@@ -200,6 +200,13 @@
     if (n >= Date.parse(o.createdAt) + (purgeHours || GO.PURGE_HOURS) * 3600000) return 'gone';
     return n >= Date.parse(by) ? 'overdue' : 'open';
   };
+  // 운영자가 이 주문을 미결제로 되돌려도 되는가. 고객이 접수하고 증빙을 낸 적 없는 주문이 지울 때를 넘겼으면 안 된다:
+  // 미결제가 되는 순간 "기한이 지난 결제 전 접수"가 되어 곧바로 지워진다. 그런 주문은 반려하거나 삭제한다. (2026-11-12 사용자 결정)
+  X.canUnpay = function (o, now, payHours, purgeHours) {
+    if (!o) return false;
+    var as = {}; for (var k in o) as[k] = o[k]; as.pay = 'unpaid';
+    return X.payState(as, now, payHours, purgeHours) !== 'gone';
+  };
 
   X.maskName = function (n) {
     n = String(n || '');

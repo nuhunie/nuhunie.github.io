@@ -352,6 +352,7 @@ GO.EN = {
   'Belum dibayar.': 'Not paid yet.',
   'Bayar dan unggah bukti sebelum': 'Pay and upload your proof before',
   'Setelah itu pesanan dibatalkan otomatis.': 'After that the order is cancelled automatically.',
+  'Batas bayar pesanan ini sudah lewat, jadi tidak bisa dikembalikan ke "Belum bayar". Tolak atau hapus pesanan ini.': 'This order is past its payment deadline, so it cannot be set back to "Unpaid". Reject or delete it instead.',
   'Pesanan ini dibatalkan otomatis karena belum dibayar sampai batas waktu. Silakan buat pesanan baru.': 'This order was cancelled automatically because it was not paid by the deadline. Please create a new order.',
   'Belum ada batch yang bisa dipesan.': 'There is no batch open for orders yet.',
   'Ada pesanan yang belum dibayar': 'You have an unpaid order',

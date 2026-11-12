@@ -83,6 +83,12 @@ test('입금 기한: 서버는 data.js 의 시간을 쓰고, 검사용 환경값
   assert.equal(expired(Object.assign(o(49), { self: 0 }), {}), false);             // 운영자가 넣은 주문은 지우지 않는다
   assert.equal(expired(o(1), Object.assign({ PURGE_SEC: '1800' }, T)), true);
   assert.equal(expired(o(1), { PURGE_SEC: '1800' }), false);
+  // 되돌리는 순간 지워질 접수(증빙 없이 승인했다가 접수 48시간 뒤에 되돌리는 경우)는 미결제로 되돌리지 않는다
+  const { canUnpay } = await import('../server/lib.js');
+  assert.equal(canUnpay(Object.assign(o(49), { pay: 'paid', proofName: '' }), {}), false);
+  assert.equal(canUnpay(Object.assign(o(47), { pay: 'paid', proofName: '' }), {}), true);
+  assert.equal(canUnpay(Object.assign(o(49), { pay: 'paid', proofName: 'bukti.jpg' }), {}), true);
+  assert.equal(canUnpay(Object.assign(o(1), { pay: 'paid', proofName: '' }), Object.assign({ PURGE_SEC: '1800' }, T)), false);
   assert.equal(withDeadline(o(1), {}).payBy, new Date(now - 3600000 + 24 * 3600000).toISOString());
   assert.equal(withDeadline(Object.assign(o(1), { pay: 'paid' }), {}).payBy, '');
 });

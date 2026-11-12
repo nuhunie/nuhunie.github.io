@@ -199,6 +199,8 @@
     },
     updateOrder: function (id, patch) {
       var o = find(db.orders, id);
+      // 되돌리는 순간 지워질 접수는 미결제로 바꾸지 않는다(logic.js 의 canUnpay). 화면이 먼저 막고 이유를 알린다; 여기는 마지막 안전판이다.
+      if (o && patch && patch.pay === 'unpaid' && o.pay !== 'unpaid' && !X.canUnpay(o)) return o;
       if (o) { Object.assign(o, patch); save(); push('PATCH', '/admin/order/' + encodeURIComponent(id), { pay: o.pay }); }
       return o;
     },

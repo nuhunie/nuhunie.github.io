@@ -157,6 +157,8 @@ export const purgeHours = env => (testSec(env, 'PURGE_SEC') || GO.PURGE_HOURS * 
 export const withDeadline = (o, env) => Object.assign(o, { payBy: X.payBy(o, payHours(env)) });
 // 지울 때가 된 접수인가 (접수 뒤 PURGE_HOURS 가 지나도록 결제 전)
 export const expired = (o, env, now) => X.payState(o, now, payHours(env), purgeHours(env)) === 'gone';
+// 운영자가 미결제로 되돌려도 되는 주문인가 (되돌리는 순간 지워질 접수는 안 된다. 규칙은 logic.js 의 canUnpay)
+export const canUnpay = (o, env, now) => X.canUnpay(o, now, payHours(env), purgeHours(env));
 // 지울 때가 된 접수를 지우고 그 주문번호들을 돌려준다. 지우는 순간에도 결제 전인지 다시 본다(그 사이 증빙을 냈을 수 있다).
 // 증빙을 한 번이라도 낸 주문(proof_name 이 있음)은 지우지 않는다: 운영자가 미결제로 되돌린 주문이 사라지면 안 된다. (logic.js 의 payBy 와 같은 조건)
 export async function purgeExpired(db, env) {
