@@ -12,7 +12,7 @@
 (function (GO) {
   var KEY = 'jastip-mockup-v4';
   var X = GO.logic;
-  var db, mode = 'local', admin = false, loginReady = true;
+  var db, mode = 'local', admin = false, loginReady = true, canReset = true, lastPull = 0;
 
   /* ── local ── */
   function loadLocal() {
@@ -41,7 +41,7 @@
   function setState(s) {
     db = { services: s.services, batches: s.batches, orders: s.orders || [], vouchers: s.vouchers || [], calcDefaults: s.calcDefaults || (db && db.calcDefaults) || GO.seed().calcDefaults };
   }
-  function pull() { return api('GET', admin ? '/admin/state' : '/public').then(setState); }
+  function pull() { return api('GET', admin ? '/admin/state' : '/public').then(function (s) { lastPull = Date.now(); setState(s); }); }
   // 관리자 쓰기를 서버에 보낸다. 실패하면 서버 내용을 다시 읽어 화면을 되돌린다.
   function push(method, path, data) {
     if (mode !== 'server') return;
@@ -56,14 +56,15 @@
     get mode() { return mode; },
     get isAdmin() { return mode === 'local' || admin; },
     get loginReady() { return loginReady; },
+    get canReset() { return canReset; },          // 예시 데이터 초기화: 목업판과 내 컴퓨터에서만
 
     /* 처음 한 번: 서버가 있는지 확인하고 데이터를 읽는다 */
     init: function () {
       return api('GET', '/public').then(function (s) {
         if (!s || !s.services) throw new Error('no api');
-        mode = 'server'; setState(s);
+        mode = 'server'; setState(s); lastPull = Date.now();
         return api('GET', '/me').then(function (me) {
-          admin = !!me.admin; loginReady = !!me.configured;
+          admin = !!me.admin; loginReady = !!me.configured; canReset = !!me.canReset;
           if (admin) return pull();
         }).catch(function () {});
       }).catch(function () { mode = 'local'; loadLocal(); });
@@ -71,6 +72,7 @@
     /* 서버 내용을 다시 읽는다. 바뀐 것이 있으면 true */
     refresh: function () {
       if (mode !== 'server') return Promise.resolve(false);
+      if (Date.now() - lastPull < 15000) return Promise.resolve(false);   // 화면을 옮길 때마다 서버를 부르지 않는다
       var before = JSON.stringify(db);
       return pull().then(function () { return JSON.stringify(db) !== before; }).catch(function () { return false; });
     },
@@ -139,6 +141,11 @@
       code = String(code || '').trim().toUpperCase();
       if (mode === 'local') return Promise.resolve(db.vouchers.filter(function (v) { return v.code === code; })[0] || null);
       return api('POST', '/voucher', { code: code }).then(function (v) { return v; }, function () { return null; });
+    },
+    /* 이 결제 금액을 확인 대기 중인 다른 주문이 쓰고 있지 않은지 (Promise<boolean>). 확인하지 못하면 true */
+    amountFree: function (total) {
+      if (mode === 'local') return Promise.resolve(!db.orders.some(function (o) { return o.pay === 'pending' && o.total === total; }));
+      return api('POST', '/amount-check', { total: total }).then(function (r) { return r.free !== false; }, function () { return true; });
     },
     /* p = { orderId | id, batchId, buyer, item, qty, base, voucher, method, proofName }  →  저장된 주문 */
     submitPayment: function (p) {

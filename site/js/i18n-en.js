@@ -256,6 +256,11 @@ GO.EN = {
   'Untuk melihat pesanan Anda sendiri, buka Lacak pesanan dan masukkan nomor pesanan.': 'To see your own order, open Track order and enter your order number.',
   'Rekap semua batch': 'All batches recap',
 
+  // 금액 겹침 경고
+  'Perhatian': 'Attention',
+  'Ada pesanan dengan nominal yang sama. Cocokkan dengan bukti dan nama sebelum menyetujui.': 'Some orders have the same amount. Match them against the proof and the name before approving.',
+  'Nominal sama': 'Same amount',
+
   // 배색·이동
   'Ke atas': 'Back to top',
   'Ke bawah': 'Go to bottom'

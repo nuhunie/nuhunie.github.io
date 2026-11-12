@@ -1,5 +1,6 @@
 # Cloudflare Pages가 화면 파일에 붙이는 보안 헤더 (API 응답의 헤더는 server/lib.js에서 붙인다)
 /*
+  Strict-Transport-Security: max-age=31536000; includeSubDomains
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin

@@ -41,6 +41,7 @@ window.runE2E = async function () {
 
   $('#app a.btn[href="#/pay/kr-5"]').click(); await wait(80);
   check('결제: 배치가 미리 선택되어 있다', $('[data-pay=batchId]').value === 'kr-5');
+  check('결제: 완료된 배치는 고를 수 없다', !$$('[data-pay=batchId] option').some(o => S.batch(o.value).stage === GO.LAST_STAGE));
   const o1 = S.db.orders[0], base1 = o1.total;
   type('#payLookup', 'TIDAK-ADA'); $('[data-act=pay-lookup]').click(); await wait(60);
   check('결제: 없는 주문번호는 안내가 나온다', $('#lookupMsg').className === 'err');
@@ -61,7 +62,7 @@ window.runE2E = async function () {
   await go('#/pay/kr-5');
   const before = S.db.orders.length;
   type('[data-pay=buyer]', '@tester'); type('[data-pay=item]', 'Keyring uji'); type('[data-pay=base]', '50000');
-  type('[data-pay=voucher]', 'go5000'); $('[data-act=pay-voucher]').click(); await wait(40);
+  type('[data-pay=voucher]', 'nuh5000'); $('[data-act=pay-voucher]').click(); await wait(40);
   const shown = num($('#payOut .total b').textContent);
   attach(); $('form[data-form=pay] .btn.block').click(); await wait(120);
   const o2 = S.db.orders[S.db.orders.length - 1];

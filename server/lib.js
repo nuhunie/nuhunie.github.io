@@ -39,8 +39,11 @@ export const V = {
 };
 export const PAY = Object.keys(GO.PAY);
 
-/* ── 관리자 세션: 서명한 쿠키. 서버에 세션을 저장하지 않는다 ──
- *   쿠키 값 = 만료시각.서명,  서명 = HMAC-SHA256(SESSION_SECRET, "admin." + 만료시각) */
+/* ── 관리자 로그인 ──
+ * 로그인하면 무작위 번호를 sessions 표에 넣고, 쿠키에는 "번호.만료시각.서명"을 담는다.
+ *   서명 = HMAC-SHA256(SESSION_SECRET, "admin." + 번호 + "." + 만료시각)
+ * 요청마다 ① 서명이 맞는지 ② 만료 시각이 지나지 않았는지 ③ 그 번호가 표에 남아 있는지를 본다.
+ * 로그아웃하면 표에서 지우므로, 같은 쿠키를 다시 보내도 통하지 않는다. */
 const SESSION_HOURS = 12;
 async function sign(secret, message) {
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
@@ -59,32 +62,64 @@ export async function passwordOk(env, given) {
   // 두 값을 같은 열쇠로 서명한 뒤 비교한다 (길이가 달라도 비교 시간이 같다)
   return sameText(await sign(env.SESSION_SECRET, 'pw.' + given), await sign(env.SESSION_SECRET, 'pw.' + env.ADMIN_PASSWORD));
 }
-export async function sessionCookie(env, request) {
-  const exp = Date.now() + SESSION_HOURS * 3600 * 1000;
+function readSession(request) {
+  const m = (request.headers.get('cookie') || '').match(/(?:^|;\s*)sid=([0-9a-f]{32})\.(\d+)\.([0-9a-f]{64})/);
+  return m ? { id: m[1], exp: Number(m[2]), sig: m[3] } : null;
+}
+export async function startSession(db, env, request) {
+  const now = Date.now(), exp = now + SESSION_HOURS * 3600 * 1000;
+  const id = [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join('');
+  await db.batch([
+    db.prepare('DELETE FROM sessions WHERE exp < ?').bind(now),             // 지난 로그인 정리
+    db.prepare('INSERT INTO sessions (id, exp) VALUES (?, ?)').bind(id, exp)
+  ]);
   const secure = new URL(request.url).protocol === 'https:' ? '; Secure' : '';
-  return 'sid=' + exp + '.' + (await sign(env.SESSION_SECRET, 'admin.' + exp)) + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + SESSION_HOURS * 3600 + secure;
+  return 'sid=' + id + '.' + exp + '.' + (await sign(env.SESSION_SECRET, 'admin.' + id + '.' + exp)) + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + SESSION_HOURS * 3600 + secure;
+}
+export async function endSession(db, request) {
+  const s = readSession(request);
+  if (s) await db.prepare('DELETE FROM sessions WHERE id = ?').bind(s.id).run();
 }
 export const clearCookie = 'sid=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0';
 export async function isAdmin(request, env) {
   if (!configured(env)) return false;
-  const m = (request.headers.get('cookie') || '').match(/(?:^|;\s*)sid=(\d+)\.([0-9a-f]{64})/);
-  if (!m || Number(m[1]) < Date.now()) return false;
-  return sameText(m[2], await sign(env.SESSION_SECRET, 'admin.' + m[1]));
+  const s = readSession(request);
+  if (!s || s.exp < Date.now()) return false;                                                              // ② 만료
+  if (!sameText(s.sig, await sign(env.SESSION_SECRET, 'admin.' + s.id + '.' + s.exp))) return false;       // ① 서명
+  return !!(await env.DB.prepare('SELECT 1 FROM sessions WHERE id = ? AND exp > ?').bind(s.id, Date.now()).first());   // ③ 아직 살아 있는 로그인인지
 }
 
-/* ── 횟수 제한: 같은 곳(ip)에서 같은 일을 너무 자주 하면 막는다 ──
- *   kind: [허용 횟수, 기간(초)].  RATE_WINDOW_SEC가 있으면 기간을 그 값으로 바꾼다(검사용). */
-const LIMITS = { login: [5, 900], pay: [10, 3600], look: [60, 60] };
-const ipOf = request => request.headers.get('cf-connecting-ip') || 'local';
+/* ── 횟수 제한: 같은 곳에서 같은 일을 너무 자주 하면 막는다 ──
+ *   kind: [허용 횟수, 기간(초)].  RATE_WINDOW_SEC가 있으면 기간을 그 값으로 바꾼다(검사용).
+ *   login     한 곳에서 틀린 비밀번호
+ *   loginAll  어디서든 합친 틀린 비밀번호 (주소를 바꿔 가며 시도하는 것을 막는다)
+ *   pay       한 곳에서 새 주문 제출
+ *   look      한 곳에서 틀린 조회 (없는 주문번호, 없는 쿠폰). 맞는 조회는 세지 않는다 */
+const LIMITS = { login: [5, 900], loginAll: [40, 900], pay: [10, 3600], look: [20, 600] };
+const ipOf = request => (request.headers.get('cf-connecting-ip') || 'local').trim().toLowerCase();
+// 세는 단위. IPv6는 한 사람이 /64 대역을 통째로 받아 끝자리를 마음대로 바꿀 수 있으므로 앞 64비트로 묶는다.
+export function ipKey(request) {
+  const ip = ipOf(request);
+  if (ip.indexOf(':') < 0) return ip;
+  const halves = ip.split('::');
+  let head = halves[0] ? halves[0].split(':') : [];
+  if (halves.length > 1) {
+    const tail = halves[1] ? halves[1].split(':') : [];
+    head = head.concat(Array(Math.max(0, 8 - head.length - tail.length)).fill('0'), tail);
+  }
+  return head.slice(0, 4).map(h => h.replace(/^0+(?=.)/, '')).join(':') + '::/64';
+}
 export async function overLimit(db, env, request, kind) {
-  const max = LIMITS[kind][0], windowMs = (Number(env.RATE_WINDOW_SEC) || LIMITS[kind][1]) * 1000;
-  const row = await db.prepare('SELECT COUNT(*) AS n FROM hits WHERE kind = ? AND ip = ? AND at > ?').bind(kind, ipOf(request), Date.now() - windowMs).first();
+  const max = LIMITS[kind][0], since = Date.now() - (Number(env.RATE_WINDOW_SEC) || LIMITS[kind][1]) * 1000;
+  const row = kind === 'loginAll'
+    ? await db.prepare("SELECT COUNT(*) AS n FROM hits WHERE kind = 'login' AND at > ?").bind(since).first()
+    : await db.prepare('SELECT COUNT(*) AS n FROM hits WHERE kind = ? AND ip = ? AND at > ?').bind(kind, ipKey(request), since).first();
   return row.n >= max;
 }
 export async function recordHit(db, request, kind) {
   const now = Date.now();
   await db.batch([
-    db.prepare('INSERT INTO hits (kind, ip, at) VALUES (?,?,?)').bind(kind, ipOf(request), now),
+    db.prepare('INSERT INTO hits (kind, ip, at) VALUES (?,?,?)').bind(kind, ipKey(request), now),
     db.prepare('DELETE FROM hits WHERE at < ?').bind(now - 86400000)
   ]);
 }

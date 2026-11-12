@@ -38,10 +38,10 @@ test('가격: 빈 값·0 수량은 0과 1개로 처리해 NaN이 나오지 않�
   assert.ok(Number.isFinite(r.total));
 });
 
-test('고유 코드: 1~99 범위이고 같은 주문번호면 항상 같다', () => {
+test('고유 코드: 1~999 범위이고 같은 주문번호면 항상 같다', () => {
   for (let i = 0; i < 500; i++) {
     const id = 'NUH-' + (100000 + i * 37), c = X.uniqueCode(id);
-    assert.ok(c >= 1 && c <= 99, id + ' → ' + c);
+    assert.ok(c >= 1 && c <= 999, id + ' → ' + c);
     assert.equal(c, X.uniqueCode(id));
   }
 });
@@ -57,6 +57,20 @@ test('주문번호: 머리글자-8자리, 헷갈리는 글자가 없고, 예시 
   const many = new Set();
   for (let i = 0; i < 5000; i++) many.add(X.orderCode(i));
   assert.equal(many.size, 5000);
+});
+
+test('고유 코드: 99개가 아니라 999개에 고르게 퍼진다 (같은 가격 주문끼리 금액이 덜 겹치도록)', () => {
+  const seen = new Set();
+  for (let i = 0; i < 20000; i++) seen.add(X.uniqueCode(GO.BRAND.orderPrefix + '-' + X.orderCode(i)));
+  assert.ok(seen.size > 900, '서로 다른 코드가 ' + seen.size + '개뿐');
+});
+test('금액 겹침: 확인 대기 중인 주문끼리 결제 금액이 같으면 찾아낸다', () => {
+  const orders = [
+    { id: 'A', pay: 'pending', total: 285056 }, { id: 'B', pay: 'pending', total: 285056 },
+    { id: 'C', pay: 'pending', total: 100001 }, { id: 'D', pay: 'paid', total: 100001 }, { id: 'E', pay: 'unpaid', total: 285056 }
+  ];
+  assert.deepEqual(X.duplicateTotals(orders), { 285056: 2 });   // 결제 완료·미결제는 세지 않는다
+  assert.deepEqual(X.duplicateTotals([]), {});
 });
 
 test('집계: 예시 데이터의 Korea 11월 합계', () => {

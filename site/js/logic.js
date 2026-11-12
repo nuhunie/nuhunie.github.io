@@ -36,11 +36,20 @@
     return { qty: qty, conv: conv, feeGo: feeGo, feeCo: feeCo, tax: tax, extra: extra, total: total, perPcs: Math.round(total / qty) };
   };
 
-  /* ── B. 고유 코드: 주문번호에서 1~99를 뽑아 입금액에 더한다 ── */
+  /* ── B. 고유 코드: 주문번호에서 1~999를 뽑아 입금액에 더한다 ──
+   * 같은 가격의 주문이 여러 건이어도 입금액 끝자리로 구분하기 위한 값이다.
+   * 99가지로는 같은 가격 주문 12건이면 절반 확률로 겹쳐서 999가지로 쓴다. */
   X.uniqueCode = function (orderId) {
     var h = 0;
-    for (var i = 0; i < orderId.length; i++) h = (h * 31 + orderId.charCodeAt(i)) % 9973;
-    return (h % 99) + 1;
+    for (var i = 0; i < orderId.length; i++) h = (h * 31 + orderId.charCodeAt(i)) % 1000003;
+    return (h % 999) + 1;
+  };
+  // 확인 대기 중인 주문 가운데 결제 금액이 같은 것들: { 금액: 건수 }. 운영자가 입금을 구분하기 어려운 경우다.
+  X.duplicateTotals = function (orders) {
+    var n = {}, out = {};
+    orders.forEach(function (o) { if (o.pay === 'pending') n[o.total] = (n[o.total] || 0) + 1; });
+    Object.keys(n).forEach(function (k) { if (n[k] > 1) out[k] = n[k]; });
+    return out;
   };
 
   /* ── B2. 주문번호: 머리글자-8자리 ──

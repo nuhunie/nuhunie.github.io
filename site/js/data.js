@@ -87,7 +87,7 @@ GO.seed = function () {
     services: services,
     batches: batches,
     orders: orders,
-    vouchers: [{ code: 'GO5000', off: 5000 }],
+    vouchers: [{ code: 'NUH5000', off: 5000 }],
     calcDefaults: {
       cur: 'JPY', kurs: 110, price: 2000, qty: 1,
       feeGo: { mode: 'pct', val: 10 },

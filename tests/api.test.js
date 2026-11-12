@@ -15,6 +15,7 @@ if (!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(BASE)) throw new Error('�
 // 시험용 관리자 비밀번호는 .dev.vars에서 읽는다 (내 컴퓨터 전용 값)
 const vars = Object.fromEntries(fs.readFileSync(path.join(__dirname, '..', '.dev.vars'), 'utf8').split(/\r?\n/).filter(l => l && l[0] !== '#').map(l => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
 
+const STARTED = new Date().toISOString();
 let cookie = '';
 async function call(method, p, body, withCookie) {
   const res = await fetch(BASE + '/api' + p, { method, headers: Object.assign(body ? { 'content-type': 'application/json' } : {}, withCookie && cookie ? { cookie } : {}), body: body ? JSON.stringify(body) : undefined });
@@ -32,14 +33,14 @@ test('로그인 전에는 관리자 API가 모두 막혀 있다', async () => {
 test('틀린 비밀번호, 위조한 쿠키로는 들어갈 수 없다', async () => {
   assert.equal((await call('POST', '/login', { password: 'wrong' })).status, 401);
   assert.equal((await call('POST', '/login', {})).status, 401);
-  cookie = 'sid=' + (Date.now() + 1e7) + '.' + 'a'.repeat(64);
+  cookie = 'sid=' + 'b'.repeat(32) + '.' + (Date.now() + 1e7) + '.' + 'a'.repeat(64);
   assert.equal((await admin('GET', '/admin/state')).status, 401);
   cookie = '';
 });
 test('맞는 비밀번호로 로그인하면 HttpOnly 쿠키를 받는다', async () => {
   const r = await call('POST', '/login', { password: vars.ADMIN_PASSWORD });
   assert.equal(r.status, 200);
-  assert.match(r.set, /^sid=\d+\.[0-9a-f]{64};/);
+  assert.match(r.set, /^sid=[0-9a-f]{32}\.\d+\.[0-9a-f]{64};/);
   assert.match(r.set, /HttpOnly/); assert.match(r.set, /SameSite=Strict/);
   cookie = r.set.split(';')[0];
   assert.equal((await admin('GET', '/me')).json.admin, true);
@@ -84,10 +85,15 @@ test('결제: 있는 주문은 금액 = 주문 금액 − 쿠폰 + 고유 코드
   assert.equal((await call('GET', '/order?id=' + o.id)).json.order.total, o.total);
   assert.equal((await call('POST', '/pay', { orderId: o.id, method: 'QRIS' })).status, 400);                 // 증빙 없음
   assert.equal((await call('POST', '/pay', { orderId: o.id, method: 'QRIS', proofName: 'a.jpg', voucher: 'NOPE' })).status, 400);
-  const r = await call('POST', '/pay', { orderId: o.id, method: 'QRIS', proofName: 'a.jpg', voucher: 'go5000' });
+  const r = await call('POST', '/pay', { orderId: o.id, method: 'QRIS', proofName: 'a.jpg', voucher: 'nuh5000', base: 1, total: 1, buyer: 'hacker' });
   assert.equal(r.status, 200);
-  assert.equal(r.json.order.total, o.total - 5000 + X.uniqueCode(o.id));
+  assert.equal(r.json.order.total, o.total - 5000 + X.uniqueCode(o.id));   // 고객이 보낸 base·total은 쓰지 않는다
   assert.equal(r.json.order.pay, 'pending');
+  assert.match(r.json.order.buyer, /\*/);                                   // 응답에도 전체 이름을 싣지 않는다
+  assert.notEqual(r.json.order.buyer, 'hacker');
+  // 방금 확인 대기가 된 금액은 다른 주문이 쓸 수 없다고 알려 준다
+  assert.equal((await call('POST', '/amount-check', { total: r.json.order.total })).json.free, false);
+  assert.equal((await call('POST', '/amount-check', { total: r.json.order.total + 1 })).json.free, true);
   assert.equal((await call('POST', '/pay', { orderId: o.id, method: 'QRIS', proofName: 'b.jpg' })).status, 409);  // 이미 제출함
   await admin('PATCH', '/admin/order/' + o.id, { pay: 'rejected' });
   const again = await call('POST', '/pay', { orderId: o.id, method: 'Transfer bank', proofName: 'c.jpg' });
@@ -107,6 +113,29 @@ test('결제: 새 주문은 서버가 금액을 계산하고, 잘못된 입력�
   assert.equal(r.json.order.buyer, 'tester');   // 방금 만든 새 주문은 입력한 이름 그대로 돌려준다
   assert.equal((await call('POST', '/pay', good)).status, 409);                             // 같은 주문번호
   assert.equal((await call('POST', '/pay', Object.assign({}, good, { id: GO.BRAND.orderPrefix + '-' + X.orderCode(777002), batchId: 'kr-1' }))).status, 409);  // 완료된 배치
+});
+
+test('결제: 쿠폰이 금액보다 커도 음수가 되지 않는다', async () => {
+  const id = GO.BRAND.orderPrefix + '-' + X.orderCode(777003);
+  const r = await call('POST', '/pay', { id, batchId: 'kr-5', buyer: 'kecil', item: 'Stiker', qty: 1, base: 3000, voucher: 'NUH5000', method: 'QRIS', proofName: 'p.jpg' });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.order.total, X.uniqueCode(id));
+  assert.ok(r.json.order.total >= 1);
+});
+test('세션: 서명이 맞아도 만료 시각이 지난 쿠키는 거절한다', async () => {
+  // 실제 쿠키(번호.만료.서명)에서 번호를 가져와, 만료만 과거로 바꾸고 올바르게 다시 서명한다
+  const crypto = require('crypto');
+  const [sid, exp] = cookie.replace(/^sid=/, '').split('.');
+  const signed = e => 'sid=' + sid + '.' + e + '.' + crypto.createHmac('sha256', vars.SESSION_SECRET).update('admin.' + sid + '.' + e).digest('hex');
+  const keep = cookie;
+  cookie = signed(exp);
+  assert.equal((await admin('GET', '/admin/state')).status, 200, '다시 서명한 쿠키가 통해야 이 검사가 의미가 있다');
+  cookie = signed(Date.now() - 1000);
+  assert.equal((await admin('GET', '/admin/state')).status, 401);
+  cookie = keep;
+});
+test('잘못된 주소 형식은 서버 오류가 아니라 잘못된 요청으로 답한다', async () => {
+  assert.equal((await admin('DELETE', '/admin/order/%E0%A4%A')).status, 400);
 });
 
 test('관리자: 배치 추가·단계 변경이 공개 화면에 반영된다', async () => {
@@ -129,6 +158,10 @@ test('관리자: 주문 추가·결제 승인·삭제', async () => {
   const st = (await admin('GET', '/admin/state')).json;
   assert.equal(st.orders.find(o => o.id === id).pay, 'paid');
   assert.equal(st.orders.find(o => o.id === id).buyer, 'dinda');          // 관리자는 전체 이름을 본다
+  const id2 = GO.BRAND.orderPrefix + '-' + X.orderCode(888002);
+  assert.equal((await admin('POST', '/admin/order', { id: id2, batchId: 'kr-9', buyer: 'rara', item: 'Keyring', qty: 1, total: 50000 })).status, 200);
+  assert.equal((await admin('DELETE', '/admin/order/' + id2)).status, 200);
+  assert.equal((await admin('GET', '/admin/state')).json.orders.some(o => o.id === id2), false);
   assert.equal((await admin('DELETE', '/admin/batch/kr-9')).status, 200); // 배치를 지우면 그 주문도 지워진다
   assert.equal((await admin('GET', '/admin/state')).json.orders.some(o => o.id === id), false);
 });
@@ -139,16 +172,20 @@ test('관리자: 계산기 기본 수식 저장', async () => {
   assert.equal((await admin('PUT', '/admin/calc', Object.assign({}, c, { feeGo: { mode: 'x', val: 1 } }))).status, 400);
 });
 test('관리자: 한 일이 활동 기록에 남는다', async () => {
-  const log = (await admin('GET', '/admin/log')).json.log;
+  // 이번 실행에서 남긴 기록만 본다 (예전 실행의 기록이 남아 있어 통과하는 일을 막는다)
+  const log = (await admin('GET', '/admin/log')).json.log.filter(x => x.at >= STARTED);
   const actions = log.map(x => x.action);
-  for (const a of ['login', 'reset', 'batch.add', 'batch.update', 'batch.delete', 'order.add', 'order.pay', 'calc']) assert.ok(actions.includes(a), a + ' 기록 없음');
+  for (const a of ['login', 'reset', 'batch.add', 'batch.update', 'batch.delete', 'order.add', 'order.pay', 'order.delete', 'calc']) assert.ok(actions.includes(a), a + ' 기록 없음');
   assert.ok(log[0].at && typeof log[0].ip === 'string');
   assert.ok(new Date(log[0].at) >= new Date(log[log.length - 1].at));   // 최근 것이 위
 });
-test('로그아웃하면 다시 막힌다. 끝으로 예시 데이터로 되돌린다', async () => {
+test('로그아웃하면 같은 쿠키를 다시 써도 막힌다. 끝으로 예시 데이터로 되돌린다', async () => {
+  assert.equal((await call('GET', '/me')).json.canReset, true);              // 내 컴퓨터에서만 초기화가 켜져 있다
   assert.equal((await admin('POST', '/admin/reset')).status, 200);
   const out = await admin('POST', '/logout');
   assert.match(out.set, /Max-Age=0/);
-  cookie = '';
+  // 쿠키를 지우지 않고 그대로 다시 보낸다: 서버가 그 로그인을 끊었어야 한다
   assert.equal((await admin('GET', '/admin/state')).status, 401);
+  assert.equal((await admin('PATCH', '/admin/batch/kr-5', { stage: 1 })).status, 401);
+  cookie = '';
 });

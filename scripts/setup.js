@@ -10,7 +10,8 @@ let vars = fs.existsSync(varsFile) ? fs.readFileSync(varsFile, 'utf8') : '# 내 
 const need = {
   ADMIN_PASSWORD: () => crypto.randomBytes(9).toString('base64url'),
   SESSION_SECRET: () => crypto.randomBytes(32).toString('hex'),
-  RATE_WINDOW_SEC: () => '6'                       // 횟수 제한 기간을 짧게 (검사가 빨리 끝나도록)
+  RATE_WINDOW_SEC: () => '6',                      // 횟수 제한 기간을 짧게 (검사가 빨리 끝나도록)
+  ALLOW_RESET: () => '1'                           // 예시 데이터 초기화 허용 (검사가 쓴다. 배포판에는 넣지 않는다)
 };
 let added = [];
 for (const key of Object.keys(need)) {

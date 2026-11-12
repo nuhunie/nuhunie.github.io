@@ -19,7 +19,7 @@ const seed = GO.seed();
 let cookie = '';
 async function call(method, p, body, opt) {
   const res = await fetch(BASE + (opt && opt.raw ? '' : '/api') + p, {
-    method, headers: Object.assign(body ? { 'content-type': 'application/json' } : {}, cookie ? { cookie } : {}),
+    method, headers: Object.assign(body ? { 'content-type': 'application/json' } : {}, cookie ? { cookie } : {}, opt && opt.ip ? { 'cf-connecting-ip': opt.ip } : {}),
     body: body ? (typeof body === 'string' ? body : JSON.stringify(body)) : undefined
   });
   return { status: res.status, headers: res.headers, json: await res.clone().json().catch(() => ({})), set: res.headers.get('set-cookie') };
@@ -55,6 +55,9 @@ test('주문 훑기: 주문번호로 한 건을 불러와도 전체 이름은 �
   assert.match(r.json.order.buyer, /\*/);
   assert.equal(r.json.order.proofName, '');
 });
+test('주문 훑기: 맞는 주문번호 조회는 횟수 제한에 걸리지 않는다 (틀린 번호만 센다)', async () => {
+  for (let i = 0; i < 30; i++) assert.equal((await call('GET', '/order?id=' + seed.orders[0].id)).status, 200, i + '번째');
+});
 test('주문 훑기: 주문번호를 빠르게 연달아 넣어 보면 막힌다', async () => {
   let blocked = 0;
   for (let i = 0; i < 80; i++) if ((await call('GET', '/order?id=' + PFX + '-' + X.orderCode(500000 + i))).status === 429) blocked++;
@@ -70,6 +73,27 @@ test('무차별 대입: 틀린 비밀번호가 이어지면 잠기고, 잠긴 �
   await sleep(WINDOW);
   assert.equal(await login(), 200, '기다린 뒤에는 다시 로그인된다');
   cookie = '';
+});
+
+test('무차별 대입: IPv6 주소 끝자리만 바꿔 가며 시도해도 잠긴다', async () => {
+  const codes = [];
+  for (let i = 0; i < 12; i++) codes.push((await call('POST', '/login', { password: 'guess-' + i }, { ip: '2001:db8:abcd:12::' + (i + 1).toString(16) })).status);
+  assert.ok(codes.includes(429), '같은 /64 안에서 12번 틀려도 잠기지 않았다: ' + codes.join(','));
+  await sleep(WINDOW);
+});
+test('무차별 대입: 주소를 계속 바꿔도 전체 실패 횟수가 넘으면 잠긴다', async () => {
+  const tries = await Promise.all(Array.from({ length: 60 }, (_, i) => call('POST', '/login', { password: 'spray-' + i }, { ip: '10.9.' + (i % 250) + '.' + (i + 1) })));
+  const after = await call('POST', '/login', { password: 'spray-last' }, { ip: '10.77.0.1' });
+  assert.equal(after.status, 429, '60곳에서 틀린 뒤에도 새 주소가 통과했다: ' + tries.map(r => r.status).join(','));
+  await sleep(WINDOW);
+  assert.equal(await login(), 200, '기다린 뒤에는 다시 로그인된다');
+  cookie = '';
+});
+test('쿠폰 훑기: 쿠폰 코드를 연달아 넣어 보면 막힌다', async () => {
+  let blocked = 0;
+  for (let i = 0; i < 60; i++) if ((await call('POST', '/voucher', { code: 'TEBAK' + i })).status === 429) blocked++;
+  assert.ok(blocked > 0, '60번 연속으로 틀려도 막히지 않았다');
+  await sleep(WINDOW);
 });
 
 test('가짜 주문 도배: 같은 곳에서 새 주문을 계속 넣으면 막힌다', async () => {
@@ -116,6 +140,7 @@ test('보안 헤더: 화면과 API 응답에 붙어 있다', async () => {
   assert.match(csp, /frame-ancestors 'none'/);
   assert.equal(page.headers.get('x-content-type-options'), 'nosniff');
   assert.ok(page.headers.get('referrer-policy'));
+  assert.match(page.headers.get('strict-transport-security') || '', /max-age=\d+/);
   const admin = await call('GET', '/admin/', null, { raw: true });
   assert.match(admin.headers.get('content-security-policy') || '', /script-src 'self'/);
 });

@@ -65,3 +65,12 @@ CREATE TABLE IF NOT EXISTS audit (
   action TEXT NOT NULL,                     -- login, reset, batch.add, batch.update, batch.delete, order.add, order.pay, order.delete, calc
   detail TEXT NOT NULL DEFAULT ''
 );
+
+-- 관리자 로그인: 로그인할 때 넣고 로그아웃할 때 지운다. 쿠키의 번호가 여기 없으면 로그인으로 치지 않는다.
+CREATE TABLE IF NOT EXISTS sessions (
+  id TEXT PRIMARY KEY,
+  exp INTEGER NOT NULL                      -- 만료 시각 (ms)
+);
+
+-- 확인 대기 중인 주문을 결제 금액으로 빨리 찾기 위한 색인 (금액 겹침 확인용)
+CREATE INDEX IF NOT EXISTS orders_pending_total ON orders (total) WHERE pay = 'pending';

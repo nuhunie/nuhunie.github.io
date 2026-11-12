@@ -79,6 +79,7 @@ section + section { margin-top: 44px; }
 .grid3 .span { grid-column: span 2; }
 .note { border: 1px solid var(--line); background: var(--soft); border-radius: var(--r); padding: 10px 14px; font-size: 13px; margin: 14px 0; }
 .note b { margin-right: 6px; }
+.note.warn { border-color: var(--red); background: #fff5f5; }
 
 /* 홈 머리: 상호가 주인공 */
 .hero { display: flex; align-items: center; gap: 20px; padding: 28px; border: 1px solid var(--line); border-radius: var(--r); background: var(--soft); }
