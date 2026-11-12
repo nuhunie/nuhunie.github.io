@@ -435,5 +435,8 @@ GO.EN = {
   'Pelanggan scan QR ini dan langsung masuk ke halaman pesan. Pakai di Instagram, poster, atau chat, menggantikan Google Form. QR per batch ada di tab Batch (tombol QR).': 'Customers scan this QR and go straight to the order page. Use it on Instagram, posters or chat instead of a Google Form. Each batch has its own QR in the Batch tab (QR button).',
   'Lihat QR pemesanan': 'Show order QR',
   'Salin link': 'Copy link',
-  'Link disalin': 'Link copied'
+  'Link disalin': 'Link copied',
+  'Batch dari QR ini sudah selesai': 'The batch on this QR has already finished',
+  'Kami pilihkan batch yang sedang buka': 'We picked a batch that is open now',
+  'Periksa sebelum memesan.': 'Please check before ordering.'
 };

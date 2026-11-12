@@ -60,6 +60,11 @@ window.runE2E = async function () {
   check('결제: 배치가 미리 선택되어 있다', $('[data-pay=batchId]').value === 'kr-5');
   check('결제: 완료된 배치는 고를 수 없다', !$$('[data-pay=batchId] option').some(o => S.batch(o.value).stage === GO.LAST_STAGE));
   check('결제: 접수 중인 배치에는 마감 안내가 없다', !$('.note.warn'));
+  try { sessionStorage.removeItem('nuh-pay-draft'); } catch (e) {}
+  await go('#/pay/kr-1');
+  check('주문 QR: 끝난 배치의 QR 로 들어오면 알리고, 같은 서비스의 지금 주문 받는 배치로 바꾼다', !!$('#oldQr') && $('[data-pay=batchId]').value === 'kr-5' && S.batch('kr-5').stage === 0, ($('#oldQr') || {}).textContent + ' / ' + ($('[data-pay=batchId]') || {}).value);
+  await go('#/pay/kr-5');
+  check('주문 QR: 열린 배치의 QR 로 들어오면 알림이 없다', !$('#oldQr'));
   type('[data-pay=batchId]', 'kr-4'); await wait(60);
   check('결제: 마감된 배치를 고르면 따로 처리된다는 안내가 나온다', !!$('.note.warn') && $('[data-pay=batchId]').value === 'kr-4');
   type('[data-pay=batchId]', 'kr-5'); await wait(60);
@@ -195,6 +200,9 @@ window.runE2E = async function () {
   $('.modal').remove();
   await go('#/admin/batch');
   $('[data-act=order-qr][data-id="kr-5"]').click(); await wait(80);
+  { let saved = ''; const ac = HTMLElement.prototype.click; HTMLElement.prototype.click = function () { if (this.tagName === 'A' && this.download) { saved = this.download + ' ' + this.href.slice(0, 22); return; } return ac.apply(this, arguments); };
+    $('[data-act=order-qr-save]').click(); for (let i = 0; i < 30 && !saved; i++) await wait(50); HTMLElement.prototype.click = ac;
+    check('주문 QR: 이미지로 저장하면 월이 든 이름의 PNG 그림이 만들어진다', /^nuhunie-qr-\d{4}-\d{2}-kr-5\.png data:image\/png/.test(saved), saved); }
   check('주문 QR: 배치 QR 은 그 배치가 골라진 주문 화면 주소를 담고, 완료된 배치에는 QR 단추가 없다', $('#orderQrLink').textContent.endsWith('#/pay/kr-5') && !$('[data-act=order-qr][data-id="kr-1"]'), $('#orderQrLink').textContent);
   $('.modal').remove();
   await go('#/admin/shop');

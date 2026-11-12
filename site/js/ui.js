@@ -353,8 +353,15 @@
   }
   function initPay(batchId, orderId) {
     var b = S.batch(batchId), fromLink = !!b && b.stage < GO.LAST_STAGE;
-    if (!fromLink) b = S.db.batches.filter(function (x) { return x.stage < GO.LAST_STAGE; })[0] || S.db.batches[0];
+    var asked = batchId && batchId !== '-' ? batchId : '';
+    if (!fromLink) {
+      // 같은 서비스에서 지금 주문 받는 배치를 먼저 고른다 (예전 달의 QR 을 찍은 손님이 엉뚱한 서비스로 가지 않게)
+      var svc = b ? b.svc : asked.split('-')[0], open = S.db.batches.filter(function (x) { return x.stage < GO.LAST_STAGE; });
+      b = open.filter(function (x) { return x.svc === svc && x.stage === 0; })[0] || open.filter(function (x) { return x.svc === svc; })[0] ||
+        open.filter(function (x) { return x.stage === 0; })[0] || open[0] || S.db.batches[0];
+    }
     P = { svc: b ? b.svc : '', batchId: b ? b.id : '', orderId: '', id: '', buyer: '', item: '', qty: 1, base: '', voucher: '', off: 0, method: payMethods()[0] || 'Transfer bank', fileName: '', file: null, err: '',
+      oldBatch: !orderId && asked && !fromLink ? asked : '',   // 끝났거나 없어진 배치의 주문 주소(예전 QR)로 들어왔다
       pay: '', total: 0, fixed: false, loading: !!orderId, missing: false, gone: false, failed: false, payBy: '', empty: !b && !orderId };   // empty: 주문할 수 있는 배치가 하나도 없다
     if (!orderId) {
       if (P.empty) return;
@@ -408,6 +415,14 @@
       '<p class="err" id="payErr" role="alert">' + esc(P.err) + '</p>' +
       '<button class="btn block">' + L('Kirim bukti pembayaran', '결제 증빙 제출') + '</button></div>';
   }
+  // 예전 달의 QR 처럼 이미 끝난 배치의 주문 주소로 들어왔을 때 알린다
+  function oldQrNotice() {
+    if (!P.oldBatch || P.orderId) return '';
+    var ob = S.batch(P.oldBatch), nb = S.batch(P.batchId);
+    return '<p class="note warn" id="oldQr"><b>' + L('Perhatian', '주의') + '</b> ' +
+      L('Batch dari QR ini sudah selesai', '이 QR의 배치는 이미 끝났습니다') + (ob ? ': ' + esc(batchName(ob) + ' · ' + monthLabel(ob.month)) : '') + '. ' +
+      (nb ? L('Kami pilihkan batch yang sedang buka', '지금 주문 받는 배치로 바꿨습니다') + ': <b>' + esc(batchName(nb) + ' · ' + monthLabel(nb.month)) + '</b>. ' + L('Periksa sebelum memesan.', '주문하기 전에 확인해 주세요.') : '') + '</p>';
+  }
   function vPay() {
     if (P.loading) return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="lead">' + L('Memuat pesanan…', '주문을 불러오는 중…') + '</p>';
     if (P.failed) return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1>' + empty(L('Gagal memuat. Coba lagi.', '불러오지 못했습니다. 다시 시도해 주세요.'));
@@ -420,7 +435,7 @@
         ? '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="lead">' + L('Bayar sesuai nominal, lalu unggah bukti pembayaran.', '안내된 금액을 결제한 뒤 증빙을 올려 주세요.') + '</p>'
         : '<h1>' + L('Pesan sekarang', '주문하기') + '</h1><p class="lead">' + L('Isi data pesanan, lalu tekan "Buat pesanan & lihat nominal". Setelah itu bayar dan unggah bukti.', '주문 정보를 적고 "주문 접수하고 결제 금액 보기"를 누르세요. 그다음 결제하고 증빙을 올립니다.') + '</p>') +
       '<form class="two" data-form="pay"><div class="panel"><h2>' + L('Data pesanan', '주문 정보') + '</h2>' +
-      openNotice() +
+      openNotice() + oldQrNotice() +
       (P.orderId ? '<p class="note">' + L('Pesanan', '주문') + ' <b>' + P.orderId + '</b> · <a href="#/pay">' + L('Isi manual', '직접 입력하기') + '</a><br>' + L('Simpan nomor ini untuk melanjutkan pembayaran atau melacak pesanan.', '이 번호를 보관해 두세요. 결제를 이어서 하거나 조회할 때 씁니다.') + '</p>'
         : '<p class="hint">' + L('Sudah punya nomor pesanan?', '주문번호가 있나요?') + ' <a href="#/confirm">' + L('Konfirmasi pembayaran', '결제 확인하기') + ' →</a></p>') +
       '<div class="field"><label>' + L('Pilih layanan', '서비스 선택') + ' *</label><div class="seg wide">' + svcs + '</div></div>' +
@@ -758,7 +773,7 @@
   function orderLink(batchId) { return new URL(ROOT || './', location.href).href.replace(/#.*$/, '') + '#/pay' + (batchId ? '/' + batchId : ''); }
   function showOrderQR(batchId) {
     var b = batchId && S.batch(batchId), link = orderLink(batchId);
-    var title = b ? batchName(b) + ' (' + LL(S.service(b.svc).name) + ')' : GO.BRAND.name;
+    var title = b ? batchName(b) + ' · ' + monthLabel(b.month) + ' (' + LL(S.service(b.svc).name) + ')' : GO.BRAND.name;
     var m = document.createElement('div');
     m.className = 'modal'; m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true');
     m.innerHTML = '<div class="receipt orderqr"><button class="x" data-act="modal-close" aria-label="' + L('Tutup', '닫기') + '">×</button>' +
@@ -779,15 +794,21 @@
     function finish() {
       g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
       g.strokeStyle = '#e0e0e0'; g.lineWidth = 2; g.strokeRect(20, 20, W - 40, H - 40);
-      g.textAlign = 'center'; g.fillStyle = '#d6336c'; g.font = 'bold 56px Nunito, sans-serif'; g.fillText(GO.BRAND.name, W / 2, 110);
+      g.textAlign = 'center'; g.fillStyle = '#d6336c'; g.font = 'bold 52px Nunito, sans-serif'; g.fillText(GO.BRAND.name, W / 2, 100);
+      // 몇 월 QR 인지 한눈에: 분홍 테두리 표시에 "Desember 2026" (손님이 보는 그림이라 인도네시아어)
+      var band = b ? new Date(b.month + '-01T00:00:00').toLocaleDateString('id-ID', { month: 'long', year: 'numeric' }) : 'Semua batch';
+      g.font = 'bold 30px Nunito, sans-serif'; var bw = g.measureText(band).width + 48;
+      g.strokeStyle = '#d6336c'; g.lineWidth = 2; g.strokeRect(W / 2 - bw / 2, 140, bw, 50);
+      g.fillStyle = '#d6336c'; g.fillText(band, W / 2, 176);
       g.fillStyle = '#111'; g.font = 'bold 34px Nunito, sans-serif';
-      g.fillText(b ? batchName(b) : 'Jastip Korea · Jepang · Tiket', W / 2, 170);
-      if (b) { g.fillStyle = '#666'; g.font = '26px Nunito, sans-serif'; g.fillText(S.service(b.svc).name[0] + (b.closeDate ? ' · Tutup order ' + b.closeDate : ''), W / 2, 212); }
-      g.drawImage(src, 110, 250, 680, 680);
-      g.fillStyle = '#d6336c'; g.font = 'bold 44px Nunito, sans-serif'; g.fillText('Scan untuk pesan', W / 2, 1010);
-      g.fillStyle = '#666'; g.font = '24px Nunito, sans-serif'; g.fillText(orderLink(batchId).replace(/^https?:\/\//, ''), W / 2, 1060);
+      g.fillText(b ? batchName(b) : 'Jastip Korea · Jepang · Tiket', W / 2, 262);
+      if (b) { g.fillStyle = '#666'; g.font = '26px Nunito, sans-serif'; g.fillText(S.service(b.svc).name[0] + (b.closeDate ? ' · Tutup order ' + b.closeDate : ''), W / 2, 302); }
+      g.drawImage(src, 140, 330, 620, 620);
+      g.fillStyle = '#d6336c'; g.font = 'bold 44px Nunito, sans-serif'; g.fillText('Scan untuk pesan', W / 2, 1030);
+      g.fillStyle = '#666'; g.font = '24px Nunito, sans-serif'; g.fillText(orderLink(batchId).replace(/^https?:\/\//, ''), W / 2, 1080);
       var a = document.createElement('a');
-      a.download = GO.BRAND.name.toLowerCase() + '-qr-' + (batchId || 'order') + '.png'; a.href = c.toDataURL('image/png'); a.click();
+      a.download = GO.BRAND.name.toLowerCase() + '-qr-' + (b ? b.month + '-' + b.id : 'order') + '.png';   // 예: nuhunie-qr-2026-12-kr-6.png
+      a.href = c.toDataURL('image/png'); a.click();
     }
     // 가운데 마크가 그려진 뒤에 저장한다
     var tries = 0;
