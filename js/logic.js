@@ -80,13 +80,13 @@
     });
   };
 
-  // 주문 한 건의 진행 단계 = [결제] + 배치 단계들. 현재 위치(cur)를 계산한다.
+  // 주문 한 건의 진행 단계 = [결제] + 배치 단계 1~5. cur는 "지금 있는 칸"이다.
+  //   결제 전        → 0 (결제 칸)
+  //   결제 후        → 배치 단계와 같은 칸 (배치가 아직 접수 중이면 결제 칸에 머문다)
+  // 배치 상세의 단계 표시와 같은 규칙: cur 앞은 지나온 칸, cur는 현재 칸.
   X.orderProgress = function (order, batch) {
-    var steps = [{ key: 'pay', done: order.pay === 'paid' }];
-    for (var i = 1; i <= GO.LAST_STAGE; i++) steps.push({ key: i, done: order.pay === 'paid' && batch.stage >= i });
-    var cur = 0;
-    steps.forEach(function (s, i) { if (s.done) cur = i + 1; });
-    return { steps: steps, cur: Math.min(cur, steps.length - 1), finished: cur === steps.length };
+    var paid = order.pay === 'paid';
+    return { cur: paid ? batch.stage : 0, finished: paid && batch.stage === GO.LAST_STAGE };
   };
 
   X.maskName = function (n) {
