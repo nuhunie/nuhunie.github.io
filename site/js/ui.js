@@ -410,7 +410,7 @@
     return '<div class="login"><h1>' + L('Admin', '관리자') + '</h1><p class="lead">' + L('Masuk untuk mengelola batch, pesanan, dan pembayaran.', '배치·주문·결제를 관리하려면 로그인하세요.') + '</p>' +
       (S.loginReady
         ? '<form data-form="login"><div class="field"><label>' + L('Kata sandi admin', '관리자 비밀번호') + '</label><input type="password" name="password" autocomplete="current-password" required></div><p class="err" id="loginErr" role="alert"></p><button class="btn block">' + L('Masuk', '로그인') + '</button></form>'
-        : '<p class="note">' + (S.loginWeak ? L('Login admin dimatikan karena kata sandi di server terlalu pendek (minimal 12 karakter).', '서버의 관리자 비밀번호가 너무 짧아(12자 미만) 로그인이 꺼져 있습니다.') : L('Login admin belum diatur di server.', '서버에 관리자 로그인이 아직 설정되지 않았습니다.')) + '</p>') + '</div>';
+        : '<p class="note">' + (S.loginWeak ? L('Login admin dimatikan karena kata sandi di server terlalu pendek (minimal 8 karakter).', '서버의 관리자 비밀번호가 너무 짧아(8자 미만) 로그인이 꺼져 있습니다.') : L('Login admin belum diatur di server.', '서버에 관리자 로그인이 아직 설정되지 않았습니다.')) + '</p>') + '</div>';
   }
   function aGuide() {
     var g = [

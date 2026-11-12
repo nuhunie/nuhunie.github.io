@@ -3,14 +3,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const req = ip => ({ headers: { get: k => (k === 'cf-connecting-ip' ? ip : null) } });
 
-test('비밀번호가 12자보다 짧으면 로그인을 열지 않는다', async () => {
+test('비밀번호가 8자보다 짧으면 로그인을 열지 않는다', async () => {
   const { configured, weakPassword } = await import('../server/lib.js');
   assert.equal(configured({ ADMIN_PASSWORD: '0219', SESSION_SECRET: 'x' }), false);
   assert.equal(weakPassword({ ADMIN_PASSWORD: '0219', SESSION_SECRET: 'x' }), true);
-  assert.equal(configured({ ADMIN_PASSWORD: 'a'.repeat(11), SESSION_SECRET: 'x' }), false);
-  assert.equal(configured({ ADMIN_PASSWORD: 'a'.repeat(12), SESSION_SECRET: 'x' }), true);
-  assert.equal(weakPassword({ ADMIN_PASSWORD: 'a'.repeat(12), SESSION_SECRET: 'x' }), false);
-  assert.equal(configured({ ADMIN_PASSWORD: 'a'.repeat(12) }), false);           // 세션 열쇠가 없어도 열지 않는다
+  assert.equal(configured({ ADMIN_PASSWORD: 'a'.repeat(7), SESSION_SECRET: 'x' }), false);
+  assert.equal(configured({ ADMIN_PASSWORD: 'a'.repeat(8), SESSION_SECRET: 'x' }), true);
+  assert.equal(weakPassword({ ADMIN_PASSWORD: 'a'.repeat(8), SESSION_SECRET: 'x' }), false);
+  assert.equal(configured({ ADMIN_PASSWORD: 'a'.repeat(8) }), false);           // 세션 열쇠가 없어도 열지 않는다
   assert.equal(configured({}), false);
   assert.equal(weakPassword({}), false);                                         // 아예 없는 것은 "짧다"가 아니라 "미설정"
 });

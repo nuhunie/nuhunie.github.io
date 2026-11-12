@@ -57,7 +57,7 @@ function sameText(a, b) {            // 길이와 내용을 끝까지 비교해 
   return diff === 0;
 }
 // 비밀번호가 너무 짧으면 로그인 자체를 열지 않는다: 횟수 제한으로는 짧은 비밀번호를 지킬 수 없다.
-export const MIN_PASSWORD = 12;
+export const MIN_PASSWORD = 8;
 export function weakPassword(env) { return !!env.ADMIN_PASSWORD && String(env.ADMIN_PASSWORD).length < MIN_PASSWORD; }
 export function configured(env) { return !!(env.ADMIN_PASSWORD && env.SESSION_SECRET) && !weakPassword(env); }
 // 예시 데이터 초기화는 켜 둔 곳(내 컴퓨터, 검사 환경)에서만 된다

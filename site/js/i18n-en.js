@@ -267,7 +267,7 @@ GO.EN = {
   'Setelah tutup order': 'After closing',
   'Pesanan ini masuk setelah tutup order, jadi diproses terpisah dari batch. Admin akan mengabari jadwalnya.': 'This order came in after orders closed, so it is handled separately from the batch. The admin will let you know the schedule.',
   'diproses terpisah': 'handled separately',
-  'Login admin dimatikan karena kata sandi di server terlalu pendek (minimal 12 karakter).': 'Admin sign-in is off because the server password is too short (at least 12 characters).',
+  'Login admin dimatikan karena kata sandi di server terlalu pendek (minimal 8 karakter).': 'Admin sign-in is off because the server password is too short (at least 8 characters).',
 
   // 배색·이동
   'Ke atas': 'Back to top',
