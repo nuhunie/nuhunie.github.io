@@ -7,13 +7,15 @@
  *   RFC 8291  알림 내용 암호화 (aes128gcm). 알림 회사(구글·애플·모질라)는 내용을 읽지 못한다.
  *   RFC 8292  VAPID: 우리 서버가 보낸 알림임을 서명으로 밝힌다. 열쇠는 VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY (scripts/vapid.js 로 만든다).
  *
- * 보낼 알림은 push_queue 에 넣고, 요청이 올 때 조금씩(DRAIN_MAX 건) 꺼내 보낸다. Cloudflare 무료 요금제는 요청 한 번에 바깥으로
- * 보내는 요청 수(서브요청)가 50으로 제한되어 있어서, 기기가 많은 배치를 한 번에 보내지 않는다. 꺼낼 때 지우면서 꺼내므로
+ * 보낼 알림은 push_queue 에 넣고, 요청이 올 때 조금씩(DRAIN_MAX 건) 꺼내 보낸다. Cloudflare 무료 요금제의 요청 한 번 한도 때문이다.
+ *   CPU 시간 10ms: 알림 1건의 암호화·서명이 약 0.6ms(내 컴퓨터에서 잰 값, 20건에 약 12ms). 8건이면 약 5ms 로 절반 아래.
+ *   서브요청 50개: D1 읽기·쓰기도 센다. 단계 변경 요청은 D1·캐시 약 12개 + 알림 8건 = 약 20개.
+ *   (응답 뒤에 하는 일(waitUntil)의 CPU 가 같은 한도에 드는지는 문서에 없다. 든다고 보고 정했다.) 꺼낼 때 지우면서 꺼내므로
  * (DELETE ... RETURNING) 같은 순간 두 요청이 같은 알림을 두 번 보내지 않는다. */
 import '../site/js/i18n-en.js';
 
 const GO = globalThis.GO, X = GO.logic;
-export const DRAIN_MAX = 20;
+export const DRAIN_MAX = 8;
 const TTL_SEC = 3 * 86400;                         // 휴대폰이 꺼져 있으면 알림 회사가 이 시간 동안 들고 있다가 전한다
 const MAX_ORDERS_PER_DEVICE = 20;
 
