@@ -89,6 +89,10 @@
         }).catch(function () {});
       }).catch(function () { mode = 'local'; loadLocal(); });
     },
+    /* 웹 푸시 알림 (서버판에서만). 공개 열쇠가 비어 있으면 알림 기능이 꺼져 있다 */
+    pushKey: function () { return mode === 'server' ? api('GET', '/push/key').then(function (r) { return r.key || ''; }, function () { return ''; }) : Promise.resolve(''); },
+    pushSubscribe: function (orderId, sub, lang) { var j = sub.toJSON(); return api('POST', '/push/subscribe', { orderId: orderId, endpoint: j.endpoint, keys: j.keys, lang: lang }); },
+    pushUnsubscribe: function (endpoint, orderId) { return api('POST', '/push/unsubscribe', { endpoint: endpoint, orderId: orderId || '' }); },
     /* 서버 내용을 다시 읽는다. 바뀐 것이 있으면 true */
     refresh: function (force) {
       if (mode !== 'server') return Promise.resolve(false);

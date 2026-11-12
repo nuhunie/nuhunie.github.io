@@ -20,6 +20,7 @@ for (const key of Object.keys(need)) {
   added.push(key);
 }
 fs.writeFileSync(varsFile, vars);
+require('./vapid.js');                             // 웹 푸시 시험용 열쇠 (.dev.vars)
 console.log(added.length ? '.dev.vars 에 추가: ' + added.join(', ') : '.dev.vars 는 이미 준비되어 있습니다.');
 
 execSync('npx --yes wrangler d1 execute nuhunie --local --file db/schema.sql', { cwd: root, stdio: 'inherit' });

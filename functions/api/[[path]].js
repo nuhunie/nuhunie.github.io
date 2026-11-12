@@ -9,6 +9,9 @@
  *   POST /api/order            새 주문 접수(결제 전). 주문번호와 결제 금액을 서버가 정해 저장한다
  *   POST /api/proof/:id        결제 증빙 사진 올리기(본문이 그림 그대로). 결제 전·반려된 주문에만
  *   POST /api/pay              접수된 주문의 결제 증빙 제출 → 확인 대기
+ *   GET  /api/push/key         웹 푸시 공개 열쇠 (비어 있으면 알림 기능이 꺼져 있다)
+ *   POST /api/push/subscribe   이 기기가 이 주문의 알림을 받는다 { orderId, endpoint, keys: { p256dh, auth }, lang }
+ *   POST /api/push/unsubscribe 알림 끄기 { endpoint, orderId? }
  *   GET  /api/me               관리자 로그인 여부
  *   POST /api/login, /api/logout
  * 관리자만 (/api/admin/...)
@@ -23,6 +26,7 @@
  *   GET  log                   활동 기록
  */
 import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, startSession, endSession, clearCookie, loadState, seed, toOrder, overLimit, recordHit, logAct, canReset, weakPassword, ORDER_SELECT, PUBLIC_ORDERS, withDeadline, expired, purgeExpired, canUnpay, VOUCHER_SELECT, toService, reserveVoucher, VOUCHER_FULL_FOR, photoOk, toBase64, fromBase64 } from '../../server/lib.js';
+import * as Push from '../../server/push.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const NO_VOUCHER = 'Voucher not found.';
@@ -30,7 +34,7 @@ const VOUCHER_GONE_WHILE_REJECTED = 'The voucher on this order was used up while
 const PUBLIC_CACHE_SEC = 60;      // 서버 쪽에 저장해 두는 시간. 내용이 바뀌면 바로 지운다
 const PUBLIC_BROWSER_SEC = 10;    // 고객 브라우저가 다시 묻지 않는 시간
 
-export async function onRequest({ request, env, params }) {
+export async function onRequest({ request, env, params, waitUntil }) {
   const db = env.DB;
   if (!db) return fail('Database is not connected.', 500);
   const path = [].concat(params.path || []);
@@ -42,6 +46,9 @@ export async function onRequest({ request, env, params }) {
   // 내용이 바뀌는 요청(결제 제출, 관리자 변경) 뒤에는 저장해 둔 것을 지운다.
   const publicKey = new Request(url.origin + '/api/public');
   const dropPublicCache = () => caches.default.delete(publicKey).catch(() => {});
+  // 응답을 먼저 돌려주고 뒤에서 하는 일(알림 보내기). 실패해도 요청은 성공으로 끝난다.
+  const later = p => { const q = Promise.resolve(p).catch(e => console.error('push', e && e.message)); if (waitUntil) waitUntil(q); return q; };
+  const sendPush = () => later(Push.drainQueue(db, env, url.origin));
 
   try {
     /* ── 누구나 ── */
@@ -209,6 +216,30 @@ export async function onRequest({ request, env, params }) {
       return json({ order: saved });
     }
 
+    /* ── 웹 푸시 알림 (server/push.js) ── */
+    if (route === 'GET /push/key') return json({ key: Push.configured(env) ? env.VAPID_PUBLIC_KEY : '' });
+    if (route === 'POST /push/subscribe') {
+      const b = await readJson(request);
+      if (!b) return fail('Bad request.');
+      if (!Push.configured(env)) return fail('Notifications are not set up.', 503);
+      if (await overLimit(db, env, request, 'push')) return fail('Too many requests. Try again later.', 429);
+      const keys = b.keys && typeof b.keys === 'object' ? b.keys : {};
+      if (!Push.endpointOk(b.endpoint, env) || !Push.keysOk(keys.p256dh, keys.auth)) return fail('Bad subscription.');
+      const id = V.orderId(b.orderId), row = id && await db.prepare('SELECT 1 FROM orders WHERE id = ?').bind(id).first();
+      if (!row) { await recordHit(db, request, 'look'); return fail('Order not found.', 404); }   // 틀린 번호는 조회처럼 센다
+      await recordHit(db, request, 'push');
+      if (!(await Push.subscribe(db, b.endpoint, keys.p256dh, keys.auth, V.oneOf(b.lang, ['id', 'en', 'ko']) || 'id', id))) return fail('Too many orders on this device.', 409);
+      return json({ ok: true });
+    }
+    if (route === 'POST /push/unsubscribe') {
+      const b = await readJson(request);
+      if (!b || typeof b.endpoint !== 'string' || b.endpoint.length > 1000) return fail('Bad request.');
+      const id = b.orderId == null || b.orderId === '' ? '' : V.orderId(b.orderId);
+      if (id === null) return fail('Order not found.', 404);
+      await Push.unsubscribe(db, b.endpoint, id);
+      return json({ ok: true });
+    }
+
     /* ── 관리자만 ── */
     if (path[0] === 'admin') {
       if (!(await isAdmin(request, env))) return fail('Admin sign-in required.', 401);
@@ -253,7 +284,7 @@ export async function onRequest({ request, env, params }) {
     const b = method === 'GET' || method === 'DELETE' ? {} : await readJson(request);
     if (!b) return fail('Bad request.');
 
-    if (sub === 'GET /state') return json(await loadState(db, true, env));
+    if (sub === 'GET /state') { sendPush(); return json(await loadState(db, true, env)); }   // 남은 알림이 있으면 이어서 보낸다
 
     if (sub === 'POST /reset') {
       // 전체 주문을 지우는 기능이라, 켜 둔 곳(내 컴퓨터, 검사 환경)에서만 된다. 배포판에는 ALLOW_RESET 이 없다.
@@ -283,21 +314,27 @@ export async function onRequest({ request, env, params }) {
       if ('stage' in b) { const v = V.int(b.stage, 0, GO.LAST_STAGE); if (v === null) return fail('Bad stage.'); sets.push('stage = ?'); vals.push(v); }
       if ('note' in b) { const v = V.optText(b.note, 300); if (v === null) return fail('Note is too long.'); sets.push('note = ?'); vals.push(v); }
       if (!sets.length) return fail('Nothing to change.');
+      const old = 'stage' in b ? await db.prepare('SELECT stage FROM batches WHERE id = ?').bind(id).first() : null;
       const r = await db.prepare('UPDATE batches SET ' + sets.join(', ') + ' WHERE id = ?').bind(...vals, id).run();
       if (!r.meta.changes) return fail('Batch not found.', 404);
       await logAct(db, request, 'batch.update', id + ' ' + JSON.stringify(b));
-      return json({ ok: true });
+      // 단계가 앞으로 나아갔을 때만 알린다 (잘못 눌러 뒤로 돌린 것은 알리지 않는다)
+      let queued = 0;
+      if (old && vals[0] > old.stage) { queued = await Push.queueStage(db, id, vals[0]); if (queued) sendPush(); }
+      return json({ ok: true, notified: queued });
     }
     if (sub === 'DELETE /batch') {
       const gone = await db.batch([
+        db.prepare(Push.UNLINK_BATCH).bind(id),                                                        // 알림 신청 연결 (주문보다 먼저)
         db.prepare('DELETE FROM order_flags WHERE order_id IN (SELECT id FROM orders WHERE batch_id = ?)').bind(id),
         db.prepare('DELETE FROM voucher_uses WHERE order_id IN (SELECT id FROM orders WHERE batch_id = ?)').bind(id),
         db.prepare('DELETE FROM order_payer WHERE order_id IN (SELECT id FROM orders WHERE batch_id = ?)').bind(id),
         db.prepare('DELETE FROM proof_images WHERE order_id IN (SELECT id FROM orders WHERE batch_id = ?)').bind(id),
         db.prepare('DELETE FROM orders WHERE batch_id = ?').bind(id),
-        db.prepare('DELETE FROM batches WHERE id = ?').bind(id)
+        db.prepare('DELETE FROM batches WHERE id = ?').bind(id),
+        db.prepare(Push.DROP_LONELY_SUBS)
       ]);
-      if (!gone[5].meta.changes) return fail('Batch not found.', 404);     // 없는 배치: 지운 것이 없으니 기록하지 않는다
+      if (!gone[6].meta.changes) return fail('Batch not found.', 404);     // 없는 배치: 지운 것이 없으니 기록하지 않는다
       await logAct(db, request, 'batch.delete', id);
       return json({ ok: true });
     }
@@ -336,7 +373,7 @@ export async function onRequest({ request, env, params }) {
     if (sub === 'DELETE /order') {
       const gone = await db.batch([db.prepare('DELETE FROM order_flags WHERE order_id = ?').bind(id), db.prepare('DELETE FROM orders WHERE id = ?').bind(id),
         db.prepare('DELETE FROM voucher_uses WHERE order_id = ?').bind(id), db.prepare('DELETE FROM order_payer WHERE order_id = ?').bind(id),
-        db.prepare('DELETE FROM proof_images WHERE order_id = ?').bind(id)]);   // 쓴 쿠폰을 돌려준다
+        db.prepare('DELETE FROM proof_images WHERE order_id = ?').bind(id), db.prepare(Push.UNLINK_ORDER).bind(id), db.prepare(Push.DROP_LONELY_SUBS)]);   // 쓴 쿠폰을 돌려준다
       if (!gone[1].meta.changes) return fail('Order not found.', 404);     // 없는 주문
       await logAct(db, request, 'order.delete', id);
       return json({ ok: true });

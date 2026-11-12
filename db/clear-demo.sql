@@ -12,3 +12,6 @@ DELETE FROM order_payer;
 DELETE FROM proof_images;
 DELETE FROM hits;
 DELETE FROM audit;
+DELETE FROM push_links;
+DELETE FROM push_subs;
+DELETE FROM push_queue;

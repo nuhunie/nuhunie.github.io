@@ -42,6 +42,9 @@
     'Check the service fields.': ['Periksa kembali data layanan.', '서비스 내용을 다시 확인해 주세요.'],
     'This service still has batches.': ['Layanan ini masih punya batch. Hapus batch-nya dulu.', '이 서비스에 배치가 남아 있습니다. 배치를 먼저 지워 주세요.'],
     'Order not found.': ['Nomor pesanan tidak ditemukan.', '주문번호를 찾을 수 없습니다.'],
+    'Notifications are not set up.': ['Notifikasi belum tersedia di toko ini.', '이 가게는 아직 알림을 쓸 수 없습니다.'],
+    'Bad subscription.': ['Browser ini tidak bisa menerima notifikasi.', '이 브라우저는 알림을 받을 수 없습니다.'],
+    'Too many orders on this device.': ['Notifikasi di perangkat ini sudah untuk terlalu banyak pesanan. Matikan untuk pesanan lama dulu.', '이 기기에서 알림을 켠 주문이 너무 많습니다. 오래된 주문의 알림을 먼저 꺼 주세요.'],
     'Batch not found.': ['Batch tidak ditemukan.', '배치를 찾을 수 없습니다.'],
     'Service not found.': ['Layanan tidak ditemukan.', '서비스를 찾을 수 없습니다.'],
     'This batch is already completed.': ['Batch ini sudah selesai.', '이 배치는 이미 완료됐습니다.'],
@@ -258,10 +261,72 @@
         (o.late ? '<p class="note warn">' + L('Pesanan ini masuk setelah tutup order, jadi diproses terpisah dari batch. Admin akan mengabari jadwalnya.', '이 주문은 마감 뒤에 들어와 배치와 따로 처리됩니다. 일정은 운영자가 알려 드립니다.') + '</p>' : p ? stepper(labels, p.cur, p.finished) : '') + deadlineNote(o) +
         '<p class="where">' + L('Posisi sekarang', '현재 위치') + ': <b>' + esc(o.late ? LL(GO.PAY[o.pay]) + ' · ' + L('diproses terpisah', '별도 처리') : o.pay === 'paid' && b ? LL(GO.STAGES[b.stage]) : LL(GO.PAY[o.pay])) + '</b>' + (b ? ' · <a href="#/b/' + b.id + '">' + esc(LL(s.name) + ' / ' + batchName(b)) + '</a>' : '') + '</p>' +
         (b && b.note ? '<p class="note"><b>' + L('Info', '안내') + '</b> ' + esc(b.note) + '</p>' : '') +
+        (o.id ? '<div class="note push" data-push="' + o.id + '" hidden></div>' : '') +
         (o.pay === 'unpaid' || o.pay === 'rejected' ? '<a class="btn" href="#/pay/' + encodeURIComponent(o.batchId) + '/' + o.id + '">' + L('Bayar pesanan ini', '이 주문 결제하기') + '</a>'
           : '<button type="button" class="btn line" data-act="receipt" data-id="' + o.id + '">' + L('Lihat bukti pesanan', '영수증 보기') + '</button>') + '</article>';
     }).join('');
   }
+  /* ── 웹 푸시 알림 받기 ──
+   * 고객 아이디가 없으므로 이 기기(브라우저)가 주문번호와 짝지어 신청한다. 배치 단계가 바뀌면 서버가 알림을 보낸다(server/push.js).
+   * 이 기기에서 알림을 켠 주문번호는 브라우저에만 적어 둔다(nuh-push-orders). */
+  var PUSH_KEY = 'nuh-push-orders', pushKeyP = null;
+  function pushOrders() { try { return (JSON.parse(localStorage.getItem(PUSH_KEY)) || []).filter(X.isOrderId); } catch (e) { return []; } }
+  function setPushOrders(list) { try { localStorage.setItem(PUSH_KEY, JSON.stringify(list.slice(0, 20))); } catch (e) {} }
+  function pushSupport() {
+    if ('serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window) return 'ok';
+    var ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    var home = navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+    return ios && !home ? 'ios-home' : 'no';     // 아이폰은 홈 화면에 추가한 뒤에만 알림을 받을 수 있다
+  }
+  function keyBytes(b64) { var t = b64.replace(/-/g, '+').replace(/_/g, '/'), s = atob(t + '='.repeat((4 - t.length % 4) % 4)), out = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) out[i] = s.charCodeAt(i); return out; }
+  function sameKey(buf, b64) { if (!buf) return false; var a = new Uint8Array(buf), b = keyBytes(b64); return a.length === b.length && a.every(function (x, i) { return x === b[i]; }); }
+  // 배치 단계가 더 남은 주문에만 보인다 (완료된 배치, 마감 뒤에 따로 처리하는 주문, 반려된 주문은 단계 알림이 가지 않는다)
+  function pushable(o) { var b = S.batch(o.batchId); return !!b && b.stage < GO.LAST_STAGE && !o.late && o.pay !== 'rejected'; }
+  function pushBoxHtml(id, msg) {
+    var sup = pushSupport(), on = pushOrders().indexOf(id) >= 0 && sup === 'ok' && Notification.permission === 'granted';
+    var body = on ? '<b>' + L('Notifikasi aktif.', '알림이 켜져 있습니다.') + '</b> ' + L('Kami kabari saat batch pindah tahap.', '배치 단계가 바뀌면 알려 드립니다.') + ' <button type="button" class="link" data-act="push-off" data-id="' + id + '">' + L('Matikan', '끄기') + '</button>'
+      : sup === 'ios-home' ? '<b>' + L('Mau dapat notifikasi?', '알림을 받으시겠어요?') + '</b> ' + L('Di iPhone: ketuk tombol Bagikan, pilih "Tambah ke Layar Utama", lalu buka Nuhunie dari layar utama dan nyalakan notifikasi di sini.', '아이폰: 공유 단추 → "홈 화면에 추가"를 누른 뒤, 홈 화면의 Nuhunie 를 열어 여기서 알림을 켜 주세요.')
+      : sup === 'ok' && Notification.permission === 'denied' ? L('Notifikasi diblokir di browser ini. Izinkan notifikasi untuk situs ini di pengaturan browser.', '이 브라우저에서 알림이 막혀 있습니다. 브라우저 설정에서 이 사이트의 알림을 허용해 주세요.')
+      : '<b>' + L('Dapatkan notifikasi', '알림 받기') + '</b> ' + L('Kami kabari di HP ini saat batch pindah tahap, misalnya saat tiba di Indonesia.', '배치 단계가 바뀌면(예: 인도네시아 도착) 이 휴대폰으로 알려 드립니다.') + ' <button type="button" class="btn sm" data-act="push-on" data-id="' + id + '">' + L('Nyalakan notifikasi', '알림 켜기') + '</button>';
+    return body + (msg ? '<small class="err" role="alert">' + esc(msg) + '</small>' : '');
+  }
+  // 조회 카드를 그린 뒤 채운다: 서버에 알림 열쇠가 있을 때만 보인다
+  function fillPush(found) {
+    if (S.mode !== 'server' || pushSupport() === 'no') return;
+    (pushKeyP = pushKeyP || S.pushKey()).then(function (key) {
+      if (!key) return;
+      found.forEach(function (o) { var box = $('[data-push="' + o.id + '"]'); if (box && pushable(o)) { box.innerHTML = pushBoxHtml(o.id); box.hidden = false; } });
+    });
+  }
+  // 서버 오류는 서버 문장 표로, 브라우저가 낸 오류(알림 서비스에 닿지 못함 등)는 "이 브라우저는 알림을 받을 수 없다"로 보여 준다
+  function pushErr(e) { return e && e.status ? errText(e) : LL(SERVER_MSG['Bad subscription.']); }
+  function pushMsg(id, msg) { var box = $('[data-push="' + id + '"]'); if (box) box.innerHTML = pushBoxHtml(id, msg); }
+  function pushOn(id) {
+    // 허락 묻기는 누른 그 순간에 바로 해야 한다(아이폰 규칙). 열쇠는 상자를 그릴 때 이미 받아 두었다.
+    var asked = Notification.requestPermission();
+    Promise.all([asked, pushKeyP || S.pushKey()]).then(function (r) {
+      if (r[0] !== 'granted') { pushMsg(id); return; }
+      var key = r[1];
+      return navigator.serviceWorker.register(ROOT + 'sw.js').then(function () { return navigator.serviceWorker.ready; }).then(function (reg) {
+        return reg.pushManager.getSubscription().then(function (old) {
+          if (old && sameKey(old.options && old.options.applicationServerKey, key)) return old;
+          return (old ? old.unsubscribe() : Promise.resolve()).then(function () { return reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) }); });
+        });
+      }).then(function (sub) { return S.pushSubscribe(id, sub, lang); }).then(function () {
+        setPushOrders([id].concat(pushOrders().filter(function (x) { return x !== id; }))); pushMsg(id);
+      });
+    }).catch(function (e) { pushMsg(id, pushErr(e)); });
+  }
+  function pushOff(id) {
+    navigator.serviceWorker.getRegistration().then(function (reg) { return reg && reg.pushManager.getSubscription(); }).then(function (sub) {
+      var left = pushOrders().filter(function (x) { return x !== id; });
+      return (sub ? S.pushUnsubscribe(sub.endpoint, id) : Promise.resolve()).then(function () {
+        setPushOrders(left);
+        if (sub && !left.length) return sub.unsubscribe();   // 이 기기에서 알림을 켠 주문이 더 없으면 수신 주소도 지운다
+      });
+    }).then(function () { pushMsg(id); }, function (e) { pushMsg(id, pushErr(e)); });
+  }
+
   function vTrack(q) {
     var first = S.db.orders[0];
     return '<h1>' + L('Lacak pesanan', '주문 조회') + '</h1><p class="lead">' + L('Masukkan nomor pesanan untuk melihat posisi dan status pesanan Anda.', '주문번호를 입력하면 내 주문의 위치와 상태를 볼 수 있습니다.') + '</p>' + searchForm(q) +
@@ -280,6 +345,7 @@
       found.forEach(rememberOrder);                 // 주문번호로 찾은 주문은 이 기기에 기억해 둔다
       out.innerHTML = found.length ? '<p class="count">' + found.length + ' ' + L('pesanan ditemukan', '건 찾음') + '</p>' + trackCards(found)
         : empty(found.gone || isGone(X.normOrderId(q)) ? goneText() : L('Pesanan tidak ditemukan. Periksa lagi nomor pesanan.', '주문을 찾지 못했습니다. 주문번호를 다시 확인해 주세요.'));
+      fillPush(found);
     }, function () {
       var out = $('#trackOut');
       if (out) out.innerHTML = empty(L('Gagal memuat. Coba lagi.', '불러오지 못했습니다. 다시 시도해 주세요.'));
@@ -1174,6 +1240,8 @@
       });
     }
     else if (act === 'receipt') showReceipt(id);
+    else if (act === 'push-on') pushOn(id);
+    else if (act === 'push-off') pushOff(id);
     else if (act === 'my-clear') { try { localStorage.removeItem(MY_KEY); } catch (x) {} render(); }
     else if (act === 'modal-close') t.closest('.modal').remove();
     else if (act === 'remind-go') t.closest('.modal').remove();   // 알림 창의 "지금 결제하기": 창을 닫고 그 주문의 결제 화면으로 간다

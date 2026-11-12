@@ -16,11 +16,12 @@ jobs:
           node-version: 22
 
       - name: 계산 로직과 서버 공통 코드
-        run: node --test tests/logic.test.js tests/server.test.js
+        run: node --test tests/logic.test.js tests/server.test.js tests/push.test.js
 
       - name: 서버 띄우기
         run: |
           printf 'ADMIN_PASSWORD=%s\nSESSION_SECRET=%s\nRATE_WINDOW_SEC=6\nALLOW_RESET=1\n' "$(openssl rand -hex 8)" "$(openssl rand -hex 32)" > .dev.vars
+          node scripts/vapid.js
           npx --yes wrangler@4 d1 execute nuhunie --local --file db/schema.sql
           npx wrangler@4 pages dev site --port 8788 > server.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://localhost:8788/api/public > /dev/null && exit 0; sleep 2; done

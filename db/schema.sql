@@ -118,3 +118,28 @@ CREATE TABLE IF NOT EXISTS order_flags (
 
 -- 결제 전 주문을 접수 시각으로 빨리 찾기 위한 색인 (기한이 지난 접수를 지울 때 쓴다)
 CREATE INDEX IF NOT EXISTS orders_unpaid_created ON orders (created_at) WHERE pay = 'unpaid';
+
+-- 웹 푸시 알림 (server/push.js). 고객 아이디가 없으므로 "기기"에 보낸다.
+-- push_subs: 브라우저가 만든 기기 수신 주소와 열쇠, 알림 언어. 이름·연락처는 없다.
+CREATE TABLE IF NOT EXISTS push_subs (
+  endpoint TEXT PRIMARY KEY,
+  p256dh TEXT NOT NULL,
+  auth TEXT NOT NULL,
+  lang TEXT NOT NULL DEFAULT 'id',
+  created_at TEXT NOT NULL
+);
+-- push_links: 어느 기기가 어느 주문의 알림을 받는가. 주문을 지우는 모든 곳에서 함께 지운다.
+CREATE TABLE IF NOT EXISTS push_links (
+  endpoint TEXT NOT NULL,
+  order_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (endpoint, order_id)
+);
+CREATE INDEX IF NOT EXISTS push_links_order ON push_links (order_id);
+-- push_queue: 보낼 알림. 요청이 올 때 몇 건씩 꺼내 보내고, 꺼내면서 지운다.
+CREATE TABLE IF NOT EXISTS push_queue (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  endpoint TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);

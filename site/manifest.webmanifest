@@ -1,0 +1,12 @@
+{
+  "name": "Nuhunie",
+  "short_name": "Nuhunie",
+  "start_url": "/#/track",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#d6336c",
+  "icons": [
+    { "src": "/assets/mark-a.png", "sizes": "265x265", "type": "image/png", "purpose": "any" }
+  ]
+}

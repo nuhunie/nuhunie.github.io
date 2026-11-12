@@ -308,3 +308,7 @@ input[readonly], select:disabled { background: var(--soft); color: var(--sub); }
 .remind-item { border-top: 1px solid var(--line); padding: 14px 0; }
 .remind-item small { display: block; }
 .remind-item .note { margin: 10px 0; }
+
+/* 웹 푸시 알림 받기 (조회 카드) */
+.note.push .btn { margin-left: 6px; }
+.note.push .err { display: block; margin-top: 6px; }

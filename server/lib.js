@@ -110,9 +110,10 @@ export async function isAdmin(request, env) {
  *   pay     한 곳에서 새 주문 제출
  *   look    한 곳에서 틀린 주문 조회 (없는 주문번호). 맞는 조회는 세지 않는다
  *   coupon  한 곳에서 틀린 쿠폰 코드
+ *   push    한 곳에서 알림 신청(웹 푸시)
  * "어디서든 합친 로그인 실패 상한"은 두지 않는다: 누군가 일부러 틀리게 넣어 운영자의 로그인을 계속 막을 수 있어서다.
  * 주소를 바꿔 가며 하는 시도는 긴 비밀번호(MIN_PASSWORD)로 막는다. */
-const LIMITS = { login: [5, 900], pay: [10, 3600], look: [20, 600], coupon: [20, 600], proof: [30, 3600] };
+const LIMITS = { login: [5, 900], pay: [10, 3600], look: [20, 600], coupon: [20, 600], proof: [30, 3600], push: [30, 3600] };   // push: 알림 신청
 const ipOf = request => (request.headers.get('cf-connecting-ip') || 'local').trim().toLowerCase();
 // 세는 단위. IPv6는 한 사람이 /64 대역을 통째로 받아 끝자리를 마음대로 바꿀 수 있으므로 앞 64비트로 묶는다.
 export function ipKey(request) {
@@ -194,11 +195,12 @@ export async function purgeExpired(db, env) {
     db.prepare('DELETE FROM order_flags WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id),
     db.prepare('DELETE FROM voucher_uses WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id),   // 쓴 쿠폰을 돌려준다
     db.prepare('DELETE FROM order_payer WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id),
-    db.prepare('DELETE FROM proof_images WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id)
+    db.prepare('DELETE FROM proof_images WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id),
+    db.prepare('DELETE FROM push_links WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id)   // 알림 신청 연결
   ));
   const done = await db.batch(stmts);
   // 실제로 지워진 주문만 적는다(그 사이 증빙을 냈거나, 같은 순간의 다른 요청이 먼저 지웠을 수 있다)
-  const ids = rows.filter((r, i) => done[i * 5] && done[i * 5].meta && done[i * 5].meta.changes).map(r => r.id);
+  const ids = rows.filter((r, i) => done[i * 6] && done[i * 6].meta && done[i * 6].meta.changes).map(r => r.id);
   if (!ids.length) return [];
   // 활동 기록 한 줄은 200자까지 보인다. 주문번호가 잘려 빠지지 않게 12개씩 나눠 적는다.
   const at = new Date().toISOString(), logs = [];
@@ -231,7 +233,7 @@ export async function seed(db) {
   const s = GO.seed();
   const stmts = [
     db.prepare('DELETE FROM order_flags'), db.prepare('DELETE FROM orders'), db.prepare('DELETE FROM batches'), db.prepare('DELETE FROM services'),
-    db.prepare('DELETE FROM vouchers'), db.prepare('DELETE FROM voucher_limits'), db.prepare('DELETE FROM voucher_uses'), db.prepare('DELETE FROM voucher_notes'), db.prepare('DELETE FROM order_payer'), db.prepare('DELETE FROM proof_images'), db.prepare('DELETE FROM settings')
+    db.prepare('DELETE FROM vouchers'), db.prepare('DELETE FROM voucher_limits'), db.prepare('DELETE FROM voucher_uses'), db.prepare('DELETE FROM voucher_notes'), db.prepare('DELETE FROM order_payer'), db.prepare('DELETE FROM proof_images'), db.prepare('DELETE FROM push_links'), db.prepare('DELETE FROM push_subs'), db.prepare('DELETE FROM push_queue'), db.prepare('DELETE FROM settings')
   ];
   s.services.forEach((v, i) => stmts.push(db.prepare('INSERT INTO services (id, name_id, name_ko, desc_id, desc_ko, cur, sort) VALUES (?,?,?,?,?,?,?)').bind(v.id, v.name[0], v.name[1], v.desc[0], v.desc[1], v.cur, i)));
   s.batches.forEach(b => stmts.push(db.prepare('INSERT INTO batches (id, svc, no, title, month, stage, close_date, kurs, note) VALUES (?,?,?,?,?,?,?,?,?)').bind(b.id, b.svc, b.no, b.title, b.month, b.stage, b.closeDate, b.kurs, b.note)));

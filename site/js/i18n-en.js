@@ -1,7 +1,8 @@
 /* 영어 문구. 화면 코드는 L('인도네시아어', '한국어')로 쓰고,
  * 영어는 인도네시아어 원문을 열쇠로 이 표에서 찾는다. 표에 없으면 원문이 그대로 나온다. */
-window.GO = window.GO || {};
-GO.EN = {
+// globalThis: 서버(웹 푸시 알림 문구)도 이 표를 쓴다 (data.js 와 같은 방식)
+globalThis.GO = globalThis.GO || {};
+globalThis.GO.EN = {
   // 공통·홈
   'Jastip Korea, Jepang, dan tiket. Order, bayar, dan lacak di satu tempat.': 'Personal shopping from Korea and Japan, plus tickets. Order, pay and track in one place.',
   'Layanan': 'Services',
@@ -438,5 +439,19 @@ GO.EN = {
   'Link disalin': 'Link copied',
   'Batch dari QR ini sudah selesai': 'The batch on this QR has already finished',
   'Kami pilihkan batch yang sedang buka': 'We picked a batch that is open now',
-  'Periksa sebelum memesan.': 'Please check before ordering.'
+  'Periksa sebelum memesan.': 'Please check before ordering.',
+  'Update pesanan': 'Order update',
+  'Ketuk untuk lihat pesananmu.': 'Tap to see your order.',
+  'Notifikasi belum tersedia di toko ini.': 'Notifications are not available for this shop yet.',
+  'Browser ini tidak bisa menerima notifikasi.': 'This browser cannot receive notifications.',
+  'Notifikasi di perangkat ini sudah untuk terlalu banyak pesanan. Matikan untuk pesanan lama dulu.': 'This device already gets notifications for too many orders. Turn them off for older orders first.',
+  'Notifikasi aktif.': 'Notifications are on.',
+  'Kami kabari saat batch pindah tahap.': 'We will let you know when the batch moves to the next stage.',
+  'Matikan': 'Turn off',
+  'Mau dapat notifikasi?': 'Want notifications?',
+  'Di iPhone: ketuk tombol Bagikan, pilih "Tambah ke Layar Utama", lalu buka Nuhunie dari layar utama dan nyalakan notifikasi di sini.': 'On iPhone: tap Share, choose "Add to Home Screen", then open Nuhunie from the home screen and turn on notifications here.',
+  'Notifikasi diblokir di browser ini. Izinkan notifikasi untuk situs ini di pengaturan browser.': 'Notifications are blocked in this browser. Allow notifications for this site in the browser settings.',
+  'Dapatkan notifikasi': 'Get notifications',
+  'Kami kabari di HP ini saat batch pindah tahap, misalnya saat tiba di Indonesia.': 'We will notify this phone when the batch moves to the next stage, for example when it arrives in Indonesia.',
+  'Nyalakan notifikasi': 'Turn on notifications'
 };

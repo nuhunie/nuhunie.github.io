@@ -424,6 +424,22 @@ test('관리자: 한 일이 활동 기록에 남는다', async () => {
   assert.ok(log[0].at && typeof log[0].ip === 'string');
   assert.ok(new Date(log[0].at) >= new Date(log[log.length - 1].at));   // 최근 것이 위
 });
+test('웹 푸시: 공개 열쇠를 주고, 알림 회사 주소와 있는 주문만 신청을 받는다', async () => {
+  const key = (await call('GET', '/push/key')).json.key;
+  assert.equal(key, vars.VAPID_PUBLIC_KEY || '');
+  if (!key) return;                                                          // 열쇠가 없는 곳: 알림 기능이 꺼져 있다
+  const { privateKey } = require('crypto').generateKeyPairSync('ec', { namedCurve: 'P-256' }), j = privateKey.export({ format: 'jwk' });
+  const keys = { p256dh: Buffer.concat([Buffer.from([4]), Buffer.from(j.x, 'base64url'), Buffer.from(j.y, 'base64url')]).toString('base64url'), auth: Buffer.alloc(16, 7).toString('base64url') };
+  const endpoint = 'https://fcm.googleapis.com/fcm/send/api-test-' + Date.now(), orderId = GO.seed().orders[0].id;
+  const sub = b => call('POST', '/push/subscribe', Object.assign({ orderId, endpoint, keys, lang: 'ko' }, b));
+  for (const bad of [{ endpoint: 'http://localhost:9/x' }, { endpoint: 'https://example.com/push' }, { endpoint: 'https://fcm.googleapis.com.example.com/x' }, { keys: { p256dh: 'abc', auth: keys.auth } }, { keys: null }, { endpoint: 12 }])
+    assert.equal((await sub(bad)).status, 400, JSON.stringify(bad));
+  assert.equal((await sub({ orderId: GO.BRAND.orderPrefix + '-ZZZZZZZZ' })).status, 404);
+  assert.equal((await sub({})).status, 200);
+  assert.equal((await sub({})).status, 200, '같은 기기가 다시 켜도 된다');
+  assert.equal((await call('POST', '/push/unsubscribe', { endpoint, orderId })).status, 200);
+  assert.equal((await call('POST', '/push/unsubscribe', { endpoint: 5 })).status, 400);
+});
 test('로그아웃하면 같은 쿠키를 다시 써도 막힌다. 끝으로 예시 데이터로 되돌린다', async () => {
   assert.equal((await call('GET', '/me')).json.canReset, true);              // 내 컴퓨터에서만 초기화가 켜져 있다
   assert.equal((await admin('POST', '/admin/reset')).status, 200);
