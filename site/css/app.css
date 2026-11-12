@@ -291,8 +291,9 @@ input[readonly], select:disabled { background: var(--soft); color: var(--sub); }
   .steps li::before { display: none; }
   .steps em { left: 0; transform: none; }
   h1 { font-size: 21px; }
-  /* 좁은 화면: 이동 버튼이 입력칸을 가리지 않게 화면 가장자리 여백 안으로 줄인다 */
-  .jump { right: 4px; bottom: 12px; }
+  /* 좁은 화면: 이동 버튼이 글·입력칸을 가리지 않게 작게 줄이고, 스크롤하는 동안만 보인다(ui.js 의 wakeJump) */
+  .jump { right: 4px; bottom: 12px; opacity: 0; pointer-events: none; transition: opacity .25s; }
+  .jump.on, .jump:focus-within { opacity: 1; pointer-events: auto; }
   .jump button { width: 34px; height: 34px; }
   .hero { padding: 20px; gap: 14px; }
   .hero h1 { font-size: 26px; }
@@ -310,8 +311,9 @@ input[readonly], select:disabled { background: var(--soft); color: var(--sub); }
 .remind-item .note { margin: 10px 0; }
 
 /* 웹 푸시 알림 받기 (조회 카드) */
-.note.push .btn { margin-left: 6px; }
+.note.push .btn { display: flex; width: fit-content; margin: 10px 0 0; }   /* 글 아래 따로 한 줄 (글 중간에 끼어 잘리지 않게) */
 .note.push .err { display: block; margin-top: 6px; }
+@media (max-width: 760px) { .note.push .btn { width: 100%; } }   /* 휴대폰: 알림 켜기 단추를 한 줄 가득 (누르기 쉽게) */
 
 /* 서비스 화면: "이런 사이트에서 사 드려요" 목록 (글자만) */
 .sites { margin: 12px 0 18px; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--r); font-size: 14px; color: var(--sub); line-height: 1.7; }

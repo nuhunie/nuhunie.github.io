@@ -1091,6 +1091,10 @@
   // 화면이 짧아 스크롤할 것이 없으면 이동 버튼을 숨긴다
   function showJump() { $('#jump').hidden = document.documentElement.scrollHeight < window.innerHeight + 300; }
   window.addEventListener('resize', showJump);
+  // 휴대폰(좁은 화면)에서는 이동 버튼이 글을 가리지 않게, 스크롤하는 동안만 보이고 멈추면 잠시 뒤 사라진다 (CSS 의 .jump.on)
+  var jumpTimer = 0;
+  function wakeJump() { var j = $('#jump'); if (!j) return; j.classList.add('on'); clearTimeout(jumpTimer); jumpTimer = setTimeout(function () { j.classList.remove('on'); }, 2500); }
+  window.addEventListener('scroll', wakeJump, { passive: true });
 
   // 접근성: 화면을 그린 뒤 각 입력칸을 그 위의 제목(label)과 연결한다
   var labelSeq = 0;
