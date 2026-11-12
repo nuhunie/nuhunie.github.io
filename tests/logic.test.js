@@ -172,6 +172,19 @@ cases.forEach(([line, want]) => test('자동 분류: ' + line, () => {
   assert.deepEqual({ buyer: r.buyer, item: r.item, qty: r.qty, price: r.price, cur: r.cur }, want);
   assert.deepEqual(r.missing, []);
 }));
+test('자동 분류: 소수 두 자리가 붙은 금액을 100배로 읽지 않는다', () => {
+  for (const [line, want] of [['dinda / Album / Rp 25.000,00', 25000], ['dinda / Album / Rp25.000,00', 25000], ['dinda / Album / Rp 25,000.00', 25000],
+    ['dinda / Album / IDR 1.250.000,00', 1250000], ['dinda / Album / Rp 25000,00', 25000], ['dinda / Album / Rp 25.000', 25000], ['dinda / Album / Rp 1.250.000', 1250000]])
+    assert.equal(X.classifyLine(line).price, want, line);
+});
+test('결제 금액과 주문번호: 화면과 서버가 같은 규칙을 쓴다', () => {
+  const id = X.orderIdFrom(new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7]));
+  assert.equal(id, GO.BRAND.orderPrefix + '-ABCDEFGH');
+  assert.equal(X.isOrderId(X.orderIdFrom(new Uint8Array([255, 31, 32, 99, 7, 200, 13, 64]))), true);
+  assert.equal(X.payable(50000, 0, id), 50000 + X.uniqueCode(id));
+  assert.equal(X.payable(50000, 5000, id), 45000 + X.uniqueCode(id));
+  assert.equal(X.payable(3000, 5000, id), X.uniqueCode(id));       // 쿠폰이 금액보다 커도 0 아래로 내려가지 않는다
+});
 test('자동 분류: 가격이 없으면 빠진 칸으로 표시한다', () => {
   assert.deepEqual(X.classifyLine('halo kak').missing, ['price']);
 });

@@ -6,8 +6,8 @@
  *   GET  /api/track?q=         주문번호로 내 주문 조회
  *   GET  /api/order?id=        주문 한 건 (결제 화면 불러오기)
  *   POST /api/voucher          쿠폰 확인
- *   POST /api/amount-check     이 결제 금액을 확인 대기 중인 다른 주문이 쓰고 있는지
- *   POST /api/pay              결제 증빙 제출 → 확인 대기
+ *   POST /api/order            새 주문 접수(결제 전). 주문번호와 결제 금액을 서버가 정해 저장한다
+ *   POST /api/pay              접수된 주문의 결제 증빙 제출 → 확인 대기
  *   GET  /api/me               관리자 로그인 여부
  *   POST /api/login, /api/logout
  * 관리자만 (/api/admin/...)
@@ -42,7 +42,7 @@ export async function onRequest({ request, env, params }) {
     if (route === 'GET /public') {
       const hit = await caches.default.match(publicKey);
       if (hit) return hit;
-      const res = json(await loadState(db, false), 200, { 'cache-control': 'public, max-age=' + PUBLIC_BROWSER_SEC + ', s-maxage=' + PUBLIC_CACHE_SEC });
+      const res = json(await loadState(db, false, env), 200, { 'cache-control': 'public, max-age=' + PUBLIC_BROWSER_SEC + ', s-maxage=' + PUBLIC_CACHE_SEC });
       await caches.default.put(publicKey, res.clone()).catch(() => {});
       return res;
     }
@@ -97,13 +97,45 @@ export async function onRequest({ request, env, params }) {
       return json({ code: v.code, off: v.off });
     }
 
-    if (route === 'POST /amount-check') {
-      // 결제 금액이 같으면 운영자가 입금을 구분할 수 없다. 화면은 금액을 보여 주기 전에 여기에 묻고,
-      // 이미 쓰이는 금액이면 주문번호를 새로 뽑아 고유 코드를 바꾼다.
-      const b = await readJson(request), total = b && V.int(b.total, 1, 2e9);
-      if (total === null || !b) return fail('Bad request.');
-      const taken = await db.prepare("SELECT 1 FROM orders WHERE pay = 'pending' AND total = ? LIMIT 1").bind(total).first();
-      return json({ free: !taken });
+    // 쿠폰 코드 → 할인액. 코드를 안 적었으면 0, 없는 코드면 null
+    const voucherOff = async code => {
+      if (code === '' || code == null) return 0;
+      const v = typeof code === 'string' && await db.prepare('SELECT off FROM vouchers WHERE code = ?').bind(code.trim().toUpperCase()).first();
+      return v ? v.off : null;
+    };
+
+    if (route === 'POST /order') {
+      // 고객이 새 주문을 접수한다(결제 전). 주문번호와 결제 금액을 서버가 정해 저장하므로,
+      // 고객이 화면을 새로 고치거나 은행 앱에 다녀와도, 다른 기기에서 열어도 금액이 바뀌지 않는다.
+      const b = await readJson(request);
+      if (!b) return fail('Bad request.');
+      if (await overLimit(db, env, request, 'pay')) return fail('Too many new orders from here. Try again later.', 429);
+      const buyer = V.text(typeof b.buyer === 'string' ? b.buyer.trim().replace(/^@/, '') : null, 40), item = V.text(b.item, 120);
+      const qty = V.int(b.qty, 1, 999), base = V.int(b.base, 1, 1e9);
+      if (!buyer || !item || qty === null || base === null) return fail('Buyer, item, quantity and total are required.');
+      const batch = await db.prepare('SELECT id, stage FROM batches WHERE id = ?').bind(typeof b.batchId === 'string' ? b.batchId : '').first();
+      if (!batch) return fail('Batch not found.', 404);
+      if (batch.stage === GO.LAST_STAGE) return fail('This batch is already completed.', 409);
+      const off = await voucherOff(b.voucher);
+      if (off === null) return fail('Voucher not found.');
+      // 금액이 같은 주문이 있으면 운영자가 입금을 구분할 수 없다. 결제 전·확인 대기 주문과 금액이 겹치지 않는
+      // 주문번호가 나올 때까지 다시 뽑는다. 여덟 번 모두 겹치면 마지막 번호를 쓴다(관리자 화면이 겹침을 알린다).
+      let id = '', total = 0;
+      for (let i = 0; i < 8; i++) {
+        id = X.orderIdFrom(crypto.getRandomValues(new Uint8Array(8)));
+        total = X.payable(base, off, id);
+        if (!(await db.prepare("SELECT 1 FROM orders WHERE id = ? OR (total = ? AND pay IN ('unpaid', 'pending')) LIMIT 1").bind(id, total).first())) break;
+      }
+      // 주문 마감 뒤(단계 1 이상)에 들어온 새 주문도 받는다. 다만 이미 진행 중인 배치와 같은 일정으로는 처리할 수 없으므로
+      // "마감 뒤 주문"으로 표시해 고객과 운영자 모두에게 알린다.
+      const late = batch.stage >= 1 ? batch.stage : 0, now = new Date().toISOString();
+      await db.batch([
+        db.prepare("INSERT INTO orders (id, batch_id, buyer, item, qty, base, total, pay, method, proof_name, created_at) VALUES (?,?,?,?,?,?,?,'unpaid','','',?)")
+          .bind(id, batch.id, buyer, item, qty, base, total, now),
+        db.prepare('INSERT INTO order_flags (order_id, self, late) VALUES (?, 1, ?)').bind(id, late)
+      ]);
+      await recordHit(db, request, 'pay');
+      return json({ order: { id, batchId: batch.id, buyer, item, qty, base, total, pay: 'unpaid', method: '', proofName: '', createdAt: now, self: 1, late } });
     }
 
     if (route === 'POST /pay') {
@@ -111,47 +143,21 @@ export async function onRequest({ request, env, params }) {
       if (!b) return fail('Bad request.');
       const methodName = V.oneOf(b.method, ['QRIS', 'Transfer bank']), proof = V.text(b.proofName, 200);
       if (!methodName || !proof) return fail('Payment method and proof are required.');
-      let off = 0;
-      if (b.voucher) {
-        const v = await db.prepare('SELECT off FROM vouchers WHERE code = ?').bind(String(b.voucher).trim().toUpperCase()).first();
-        if (!v) return fail('Voucher not found.');
-        off = v.off;
-      }
-      const payable = (base, id) => base - Math.min(off, base) + X.uniqueCode(id);   // 쿠폰이 금액보다 커도 0 아래로 내려가지 않는다
-
-      if (b.orderId) {                               // 이미 있는 주문을 결제
-        const id = V.orderId(b.orderId), row = id && await db.prepare(ORDER_SELECT + ' WHERE o.id = ?').bind(id).first();
-        if (!row) return fail('Order not found.', 404);
-        const total = payable(row.base, id);         // 금액은 DB에 있는 주문 금액으로만 계산한다 (고객이 보낸 값은 쓰지 않는다)
-        // "아직 결제 전인 주문만"이라는 조건을 UPDATE 안에 둔다: 이미 제출된 주문이나 동시에 들어온 두 번째 요청은 바뀌는 줄이 0이다
-        const done = await db.prepare("UPDATE orders SET total = ?, pay = 'pending', method = ?, proof_name = ? WHERE id = ? AND pay IN ('unpaid', 'rejected')").bind(total, methodName, proof, id).run();
-        if (!done.meta.changes) return fail('This order has already been submitted.', 409);
-        await dropPublicCache();
-        const saved = toOrder(Object.assign(row, { total, pay: 'pending', method: methodName, proof_name: proof }));
-        saved.buyer = X.maskName(saved.buyer);
-        return json({ order: saved });
-      }
-      // 새 주문. 고객이 QR로 낸 금액과 같아야 하므로 화면이 미리 정한 주문번호를 그대로 쓴다.
-      if (await overLimit(db, env, request, 'pay')) return fail('Too many new orders from here. Try again later.', 429);
-      const id = V.orderId(b.id), buyer = V.text(String(b.buyer || '').replace(/^@/, ''), 40), item = V.text(b.item, 120);
-      const qty = V.int(b.qty, 1, 999), base = V.int(b.base, 1, 1e9);
-      if (!id || !buyer || !item || qty === null || base === null) return fail('Buyer, item, quantity and total are required.');
-      const batch = await db.prepare('SELECT id, stage FROM batches WHERE id = ?').bind(String(b.batchId || '')).first();
-      if (!batch) return fail('Batch not found.', 404);
-      if (batch.stage === GO.LAST_STAGE) return fail('This batch is already completed.', 409);
-      if (await db.prepare('SELECT 1 FROM orders WHERE id = ?').bind(id).first()) return fail('Order number is taken. Reload and try again.', 409);
-      const total = payable(base, id), now = new Date().toISOString();
-      // 주문 마감 뒤(단계 1 이상)에 들어온 새 주문도 받는다. 다만 이미 진행 중인 배치와 같은 일정으로는 처리할 수 없으므로
-      // "마감 뒤 주문"으로 표시해 고객과 운영자 모두에게 알린다.
-      const late = batch.stage >= 1 ? batch.stage : 0;
-      await db.batch([
-        db.prepare("INSERT INTO orders (id, batch_id, buyer, item, qty, base, total, pay, method, proof_name, created_at) VALUES (?,?,?,?,?,?,?,'pending',?,?,?)")
-          .bind(id, batch.id, buyer, item, qty, base, total, methodName, proof, now),
-        db.prepare('INSERT INTO order_flags (order_id, self, late) VALUES (?, 1, ?)').bind(id, late)
-      ]);
-      await recordHit(db, request, 'pay');
+      const off = await voucherOff(b.voucher);
+      if (off === null) return fail('Voucher not found.');
+      if (!b.orderId) return fail('Create the order first.');     // 새 주문은 POST /order 로 먼저 접수한다
+      const id = V.orderId(b.orderId), row = id && await db.prepare(ORDER_SELECT + ' WHERE o.id = ?').bind(id).first();
+      if (!row) return fail('Order not found.', 404);
+      // 금액은 DB에 있는 값으로만 정한다 (고객이 보낸 금액은 쓰지 않는다).
+      // 고객이 접수한 주문(self)은 접수할 때 금액이 정해졌다. 운영자가 넣은 주문은 여기서 쿠폰과 고유 코드를 붙인다.
+      const total = row.self ? row.total : X.payable(row.base, off, id);
+      // "아직 결제 전인 주문만"이라는 조건을 UPDATE 안에 둔다: 이미 제출된 주문이나 동시에 들어온 두 번째 요청은 바뀌는 줄이 0이다
+      const done = await db.prepare("UPDATE orders SET total = ?, pay = 'pending', method = ?, proof_name = ? WHERE id = ? AND pay IN ('unpaid', 'rejected')").bind(total, methodName, proof, id).run();
+      if (!done.meta.changes) return fail('This order has already been submitted.', 409);
       await dropPublicCache();
-      return json({ order: { id, batchId: batch.id, buyer, item, qty, base, total, pay: 'pending', method: methodName, proofName: proof, createdAt: now, self: 1, late } });
+      const saved = toOrder(Object.assign(row, { total, pay: 'pending', method: methodName, proof_name: proof }));
+      saved.buyer = X.maskName(saved.buyer);
+      return json({ order: saved });
     }
 
     /* ── 관리자만 ── */
@@ -176,13 +182,13 @@ export async function onRequest({ request, env, params }) {
     const b = method === 'GET' || method === 'DELETE' ? {} : await readJson(request);
     if (!b) return fail('Bad request.');
 
-    if (sub === 'GET /state') return json(await loadState(db, true));
+    if (sub === 'GET /state') return json(await loadState(db, true, env));
 
     if (sub === 'POST /reset') {
       // 전체 주문을 지우는 기능이라, 켜 둔 곳(내 컴퓨터, 검사 환경)에서만 된다. 배포판에는 ALLOW_RESET 이 없다.
       if (!canReset(env)) return fail('Reset is disabled here.', 403);
       await seed(db); await logAct(db, request, 'reset', '');
-      return json(await loadState(db, true));
+      return json(await loadState(db, true, env));
     }
 
     if (sub === 'GET /log') {
@@ -222,7 +228,7 @@ export async function onRequest({ request, env, params }) {
     }
 
     if (sub === 'POST /order') {
-      const oid = V.orderId(b.id), buyer = V.text(String(b.buyer || '').replace(/^@/, ''), 40), item = V.text(b.item, 120);
+      const oid = V.orderId(b.id), buyer = V.text(typeof b.buyer === 'string' ? b.buyer.trim().replace(/^@/, '') : null, 40), item = V.text(b.item, 120);
       const qty = V.int(b.qty, 1, 999), total = V.int(b.total, 1, 1e9);
       if (!oid || !buyer || !item || qty === null || total === null) return fail('Check the order fields.');
       if (!(await db.prepare('SELECT 1 FROM batches WHERE id = ?').bind(String(b.batchId || '')).first())) return fail('Batch not found.', 404);

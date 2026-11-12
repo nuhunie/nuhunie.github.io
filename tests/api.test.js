@@ -91,27 +91,43 @@ test('결제: 있는 주문은 금액 = 주문 금액 − 쿠폰 + 고유 코드
   assert.equal(r.json.order.pay, 'pending');
   assert.match(r.json.order.buyer, /\*/);                                   // 응답에도 전체 이름을 싣지 않는다
   assert.notEqual(r.json.order.buyer, 'hacker');
-  // 방금 확인 대기가 된 금액은 다른 주문이 쓸 수 없다고 알려 준다
-  assert.equal((await call('POST', '/amount-check', { total: r.json.order.total })).json.free, false);
-  assert.equal((await call('POST', '/amount-check', { total: r.json.order.total + 1 })).json.free, true);
   assert.equal((await call('POST', '/pay', { orderId: o.id, method: 'QRIS', proofName: 'b.jpg' })).status, 409);  // 이미 제출함
   await admin('PATCH', '/admin/order/' + o.id, { pay: 'rejected' });
   const again = await call('POST', '/pay', { orderId: o.id, method: 'Transfer bank', proofName: 'c.jpg' });
   assert.equal(again.json.order.total, o.total + X.uniqueCode(o.id));
 });
-test('결제: 새 주문은 서버가 금액을 계산하고, 잘못된 입력은 거절한다', async () => {
-  const id = GO.BRAND.orderPrefix + '-' + X.orderCode(777001);
-  const good = { id, batchId: 'kr-5', buyer: '@tester', item: 'Keyring uji', qty: 2, base: 50000, method: 'QRIS', proofName: 'p.jpg' };
-  for (const bad of [{ base: 0 }, { base: -5 }, { qty: 0 }, { buyer: '' }, { item: '' }, { id: 'XX-1' }, { batchId: 'nope' }, { method: 'Cash' }, { total: 1 , base: 'abc' }]) {
-    const r = await call('POST', '/pay', Object.assign({}, good, bad));
+const nap = ms => new Promise(r => setTimeout(r, ms));
+const WINDOW_MS = (Number(vars.RATE_WINDOW_SEC) || 6) * 1000 + 500;      // 새 주문 횟수 제한이 풀리는 시간
+test('주문 접수: 서버가 주문번호와 결제 금액을 정해 저장하고, 잘못된 입력은 거절한다', async () => {
+  const good = { batchId: 'kr-5', buyer: '@tester', item: 'Keyring uji', qty: 2, base: 50000 };
+  for (const bad of [{ base: 0 }, { base: -5 }, { qty: 0 }, { buyer: '' }, { item: '' }, { batchId: 'nope' }, { batchId: 5 }, { base: 'abc' }, { voucher: 'NOPE' },
+    { base: '1e3' }, { base: true }, { base: [1000] }, { qty: null }, { buyer: 12345 }, { buyer: ['x'] }, { item: 99 }]) {
+    const r = await call('POST', '/order', Object.assign({}, good, bad));
     assert.ok(r.status >= 400 && r.status < 500, JSON.stringify(bad) + ' → ' + r.status);
   }
-  const r = await call('POST', '/pay', Object.assign({ total: 1, pay: 'paid' }, good));   // 고객이 보낸 total·pay는 무시된다
-  assert.equal(r.status, 200);
-  assert.equal(r.json.order.total, 50000 + X.uniqueCode(id));
-  assert.equal(r.json.order.pay, 'pending');
-  assert.equal(r.json.order.buyer, 'tester');   // 방금 만든 새 주문은 입력한 이름 그대로 돌려준다
-  assert.equal(r.json.order.late, 0);            // 접수 중인 배치라 "마감 뒤 주문" 표시가 없다
+  // 고객이 보낸 주문번호·금액·결제 상태는 쓰지 않는다
+  const made = await call('POST', '/order', Object.assign({ id: GO.BRAND.orderPrefix + '-AAAAAAAA', total: 1, pay: 'paid' }, good));
+  assert.equal(made.status, 200);
+  const o = made.json.order, id = o.id;
+  assert.ok(X.isOrderId(id) && id !== GO.BRAND.orderPrefix + '-AAAAAAAA', id);
+  assert.equal(o.total, 50000 + X.uniqueCode(id));
+  assert.equal(o.pay, 'unpaid');
+  assert.equal(o.buyer, 'tester');   // 방금 만든 새 주문은 입력한 이름 그대로 돌려준다
+  assert.equal(o.late, 0);           // 접수 중인 배치라 "마감 뒤 주문" 표시가 없다
+  // 다시 읽어도(새로 고침, 은행 앱에 다녀옴, 다른 기기) 주문번호와 결제 금액이 그대로다
+  for (let i = 0; i < 2; i++) {
+    const again = (await call('GET', '/order?id=' + id)).json.order;
+    assert.equal(again.total, o.total);
+    assert.equal(again.pay, 'unpaid');
+    assert.equal(again.self, 1);
+  }
+  // 주문번호 없이 결제만 보내면 받지 않는다 (새 주문은 먼저 접수해야 한다)
+  assert.equal((await call('POST', '/pay', Object.assign({ method: 'QRIS', proofName: 'p.jpg' }, good))).status, 400);
+  // 증빙을 내면 확인 대기가 되고, 금액은 접수 때와 같다. 이때 보낸 금액이나 쿠폰으로 바뀌지 않는다
+  const paid = await call('POST', '/pay', { orderId: id, method: 'QRIS', proofName: 'p.jpg', voucher: 'NUH5000', total: 1, base: 1 });
+  assert.equal(paid.status, 200);
+  assert.equal(paid.json.order.total, o.total);
+  assert.equal(paid.json.order.pay, 'pending');
   // 고객이 적어 낸 품목은 승인 전에는 공개 리캡에 나오지 않는다 (아무 글이나 공개 화면에 띄울 수 없게)
   const before = (await call('GET', '/public')).json.batches.find(x => x.id === 'kr-5').stats.pcs;
   assert.ok(!(await call('GET', '/batch-items?id=kr-5')).json.items.some(i => i.item === 'Keyring uji'));
@@ -119,23 +135,35 @@ test('결제: 새 주문은 서버가 금액을 계산하고, 잘못된 입력�
   assert.ok((await call('GET', '/batch-items?id=kr-5')).json.items.some(i => i.item === 'Keyring uji'), '승인 뒤에는 나와야 한다');
   assert.equal((await call('GET', '/public')).json.batches.find(x => x.id === 'kr-5').stats.pcs, before + 2);
   // 주문이 마감된 배치(kr-4, 구매 완료 단계)에도 새 주문은 받지만 "마감 뒤 주문"으로 표시된다
-  const lateId = GO.BRAND.orderPrefix + '-' + X.orderCode(777004);
-  const late = await call('POST', '/pay', Object.assign({}, good, { id: lateId, batchId: 'kr-4' }));
+  const late = await call('POST', '/order', Object.assign({}, good, { batchId: 'kr-4' }));
   assert.equal(late.status, 200);
   assert.equal(late.json.order.late, 2);
-  assert.equal((await call('GET', '/track?q=' + lateId)).json.orders[0].late, 2);
-  assert.equal((await admin('GET', '/admin/state')).json.orders.find(o => o.id === lateId).late, 2);
-  assert.equal((await call('POST', '/pay', good)).status, 409);                             // 같은 주문번호
-  assert.equal((await call('POST', '/pay', Object.assign({}, good, { id: GO.BRAND.orderPrefix + '-' + X.orderCode(777002), batchId: 'kr-1' }))).status, 409);  // 완료된 배치
+  assert.equal((await call('GET', '/track?q=' + late.json.order.id)).json.orders[0].late, 2);
+  assert.equal((await admin('GET', '/admin/state')).json.orders.find(x => x.id === late.json.order.id).late, 2);
+  assert.equal((await call('POST', '/order', Object.assign({}, good, { batchId: 'kr-1' }))).status, 409);  // 완료된 배치
 });
 
-test('결제: 쿠폰이 금액보다 커도 음수가 되지 않는다', async () => {
-  const id = GO.BRAND.orderPrefix + '-' + X.orderCode(777003);
-  const r = await call('POST', '/pay', { id, batchId: 'kr-5', buyer: 'kecil', item: 'Stiker', qty: 1, base: 3000, voucher: 'NUH5000', method: 'QRIS', proofName: 'p.jpg' });
-  assert.equal(r.status, 200);
-  assert.equal(r.json.order.total, X.uniqueCode(id));
-  assert.ok(r.json.order.total >= 1);
+test('주문 접수: 쿠폰은 접수할 때 적용되고, 금액보다 커도 음수가 되지 않는다', async () => {
+  const small = (await call('POST', '/order', { batchId: 'kr-5', buyer: 'kecil', item: 'Stiker', qty: 1, base: 3000, voucher: 'nuh5000' })).json.order;
+  assert.equal(small.total, X.uniqueCode(small.id));
+  assert.ok(small.total >= 1);
+  const big = (await call('POST', '/order', { batchId: 'kr-5', buyer: 'besar', item: 'Album', qty: 1, base: 20000, voucher: 'NUH5000' })).json.order;
+  assert.equal(big.total, 15000 + X.uniqueCode(big.id));
+  assert.equal((await call('GET', '/order?id=' + big.id)).json.order.total, big.total);
 });
+
+test('주문 접수: 같은 가격의 주문 여러 건이 서로 다른 결제 금액을 받는다', async () => {
+  await nap(WINDOW_MS);
+  const totals = [];
+  for (let i = 0; i < 8; i++) {
+    const r = await call('POST', '/order', { batchId: 'kr-5', buyer: 'sama' + i, item: 'Sama', qty: 1, base: 77000 });
+    assert.equal(r.status, 200, i + '번째 → ' + r.status);
+    totals.push(r.json.order.total);
+  }
+  assert.equal(new Set(totals).size, totals.length, totals.join(','));
+  await nap(WINDOW_MS);
+});
+
 test('세션: 서명이 맞아도 만료 시각이 지난 쿠키는 거절한다', async () => {
   // 실제 쿠키(번호.만료.서명)에서 번호를 가져와, 만료만 과거로 바꾸고 올바르게 다시 서명한다
   const crypto = require('crypto');
@@ -160,6 +188,8 @@ test('관리자: 배치 추가·단계 변경이 공개 화면에 반영된다',
   assert.equal((await admin('POST', '/admin/batch', Object.assign({}, b, { no: 10, svc: 'zz' }))).status, 404);
   assert.equal((await admin('PATCH', '/admin/batch/kr-9', { stage: 3, note: 'Sudah jalan' })).status, 200);
   assert.equal((await admin('PATCH', '/admin/batch/kr-9', { stage: 9 })).status, 400);
+  for (const bad of [true, null, [1], '1e0']) assert.equal((await admin('PATCH', '/admin/batch/kr-9', { stage: bad })).status, 400, 'stage ' + JSON.stringify(bad));
+  for (const bad of ['2026-02-30', '9999-99-99']) assert.equal((await admin('POST', '/admin/batch', Object.assign({}, b, { no: 11, closeDate: bad }))).status, 400, bad);
   const pub = (await call('GET', '/public')).json.batches.find(x => x.id === 'kr-9');
   assert.deepEqual([pub.stage, pub.note, pub.title, pub.closeDate], [3, 'Sudah jalan', 'Uji Coba', '2026-11-30']);
 });

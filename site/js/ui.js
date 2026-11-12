@@ -225,32 +225,90 @@
 
   /* ── 결제 확인 ── */
   var P = null;
+  /* 작성 중인 주문은 두 곳에 남긴다.
+   *  - 접수 전(입력 중): 이 탭의 sessionStorage. 새로 고치거나 다른 화면에 다녀와도 입력하던 내용이 남는다.
+   *  - 접수 후: 서버에 저장된 주문(결제 전). 주문번호와 결제 금액이 서버에 정해져 있어 언제 어느 기기에서 열어도 같다.
+   *    주소에 주문번호가 붙고, 이 기기에는 "결제를 마치지 않은 주문" 번호만 적어 둔다(localStorage). */
+  var DRAFT_KEY = 'nuh-pay-draft', OPEN_KEY = 'nuh-pay-open', DRAFT_FIELDS = ['svc', 'batchId', 'buyer', 'item', 'qty', 'base', 'voucher', 'off'];
+  function readStore(where, key) { try { return JSON.parse(window[where].getItem(key)) || null; } catch (e) { return null; } }
+  function writeStore(where, key, v) { try { if (v == null) window[where].removeItem(key); else window[where].setItem(key, JSON.stringify(v)); } catch (e) {} }
+  function saveDraft() {
+    if (!P || P.orderId || P.loading) return;
+    var d = {}; DRAFT_FIELDS.forEach(function (k) { d[k] = P[k]; });
+    writeStore('sessionStorage', DRAFT_KEY, d);
+  }
+  function openOrder() { var o = readStore('localStorage', OPEN_KEY); return o && X.isOrderId(o.id) ? o : null; }
+  function forgetOpen(id) { var o = openOrder(); if (o && o.id === id) writeStore('localStorage', OPEN_KEY, null); }
+  function openNotice() {
+    var o = openOrder();
+    if (!o || P.orderId) return '';
+    return '<p class="note">' + L('Ada pesanan yang belum selesai dibayar', '결제를 마치지 않은 주문이 있습니다') + ': <b>' + o.id + '</b> · <a href="#/pay/' + encodeURIComponent(o.batchId || '-') + '/' + o.id + '">' + L('Lanjutkan pembayaran', '이어서 결제하기') + '</a></p>';
+  }
   function initPay(batchId, orderId) {
-    var b = S.batch(batchId);
-    if (!b || b.stage === GO.LAST_STAGE) b = S.db.batches.filter(function (x) { return x.stage < GO.LAST_STAGE; })[0] || S.db.batches[0];
-    P = { svc: b.svc, batchId: b.id, orderId: '', id: S.newOrderId(), buyer: '', item: '', qty: 1, base: '', voucher: '', off: 0, method: 'QRIS', fileName: '', err: '' };
-    if (!orderId) return;
+    var b = S.batch(batchId), fromLink = !!b && b.stage < GO.LAST_STAGE;
+    if (!fromLink) b = S.db.batches.filter(function (x) { return x.stage < GO.LAST_STAGE; })[0] || S.db.batches[0];
+    P = { svc: b.svc, batchId: b.id, orderId: '', id: '', buyer: '', item: '', qty: 1, base: '', voucher: '', off: 0, method: 'QRIS', fileName: '', err: '',
+      pay: '', total: 0, fixed: false, loading: !!orderId, missing: false };
+    if (!orderId) {
+      // 접수 전에 입력하던 내용이 있으면 되살린다. 배치 화면에서 넘어왔으면(주소에 배치가 있으면) 그 배치를 따른다.
+      var d = readStore('sessionStorage', DRAFT_KEY);
+      if (d) {
+        DRAFT_FIELDS.forEach(function (k) { if (d[k] != null) P[k] = d[k]; });
+        var db = S.batch(P.batchId);
+        if (fromLink || !db || db.stage === GO.LAST_STAGE) { P.svc = b.svc; P.batchId = b.id; } else P.svc = db.svc;
+      }
+      return;
+    }
     var mine = P;
     S.fetchOrder(orderId).then(function (o) {
-      if (!o || P !== mine) return;
-      var ob = S.batch(o.batchId) || b;
-      Object.assign(P, { svc: ob.svc, batchId: ob.id, orderId: o.id, id: o.id, buyer: o.buyer, item: o.item, qty: o.qty, base: o.base || o.total });
+      if (P !== mine) return;
+      P.loading = false;
+      if (!o) { P.missing = true; forgetOpen(String(orderId).toUpperCase()); render(); return; }
+      var ob = S.batch(o.batchId) || b, base = o.base || o.total;
+      // 고객이 접수한 주문(self)은 결제 금액이 이미 정해져 있다. 쿠폰은 접수할 때 적용된 만큼만 보여 준다.
+      Object.assign(P, { svc: ob.svc, batchId: ob.id, orderId: o.id, id: o.id, buyer: o.buyer, item: o.item, qty: o.qty, base: base, pay: o.pay, total: o.total, fixed: !!o.self });
+      if (P.fixed) P.off = Math.max(0, base + X.uniqueCode(o.id) - o.total);
+      if (o.pay !== 'unpaid' && o.pay !== 'rejected') forgetOpen(o.id);
       render();
     });
   }
   function payAmount() {
     var base = Number(P.base) || 0;
     if (!base) return { base: 0, off: 0, code: 0, total: 0 };
-    var code = X.uniqueCode(P.id), off = Math.min(P.off, base);
-    return { base: base, off: off, code: code, total: base - off + code };
+    var off = Math.min(P.off, base);
+    if (!P.orderId) return { base: base, off: off, code: 0, total: base - off };     // 접수 전: 고유 코드는 접수할 때 정해진다
+    var code = X.uniqueCode(P.id);
+    return { base: base, off: off, code: code, total: P.fixed ? P.total : base - off + code };
+  }
+  // 결제 칸: 접수 전이면 "주문 접수" 단추, 접수된 주문이면 금액·QR·증빙, 이미 낸 주문이면 안내만.
+  function payPanel() {
+    var h = '<div class="panel"><h2>' + L('Pembayaran', '결제') + '</h2>';
+    if (!P.orderId) {
+      return h + '<div id="payOut"></div><p class="err" id="payErr" role="alert">' + esc(P.err) + '</p>' +
+        '<button class="btn block">' + L('Buat pesanan & lihat nominal', '주문 접수하고 결제 금액 보기') + '</button>' +
+        '<p class="hint">' + L('Setelah pesanan dibuat, nomor pesanan dan nominal pembayaran tetap sama walaupun halaman dimuat ulang.', '주문을 접수하면 주문번호와 결제 금액이 정해지며, 화면을 새로 고쳐도 바뀌지 않습니다.') + '</p></div>';
+    }
+    if (P.pay !== 'unpaid' && P.pay !== 'rejected') {
+      return h + '<p class="note">' + L('Bukti pembayaran untuk pesanan ini sudah dikirim.', '이 주문은 결제 증빙을 이미 제출했습니다.') + ' (' + esc(LL(GO.PAY[P.pay])) + ')</p>' +
+        '<a class="btn block" href="#/track/' + P.orderId + '">' + L('Lihat status pesanan', '주문 상태 보기') + '</a></div>';
+    }
+    return h +
+      '<div class="field"><label>' + L('Metode pembayaran', '결제 수단') + '</label><div class="seg wide">' + ['QRIS', 'Transfer bank'].map(function (m) { return '<button type="button" class="' + (P.method === m ? 'on' : '') + '" data-act="pay-method" data-id="' + m + '">' + (m === 'QRIS' ? m : L('Transfer bank', '계좌 이체')) + '</button>'; }).join('') + '</div></div>' +
+      '<div id="payOut"></div>' +
+      '<div class="field"><label>' + L('Bukti pembayaran', '결제 증빙') + ' *</label><div class="file"><input type="file" id="proofFile" class="sr" accept="image/*" data-pay="file"><label for="proofFile" class="btn line">' + L('Pilih file', '파일 선택') + '</label><span id="fileName">' + esc(P.fileName || L('Belum ada file dipilih', '선택된 파일 없음')) + '</span></div><small>' + L('Screenshot atau foto bukti transfer.', '이체 화면 캡처나 사진.') + '</small></div>' +
+      '<p class="err" id="payErr" role="alert">' + esc(P.err) + '</p>' +
+      '<button class="btn block">' + L('Kirim bukti pembayaran', '결제 증빙 제출') + '</button></div>';
   }
   function vPay() {
+    if (P.loading) return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="lead">' + L('Memuat pesanan…', '주문을 불러오는 중…') + '</p>';
+    if (P.missing) return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="note warn">' + L('Nomor pesanan tidak ditemukan.', '주문번호를 찾을 수 없습니다.') + '</p><a class="btn line" href="#/pay">' + L('Isi manual', '직접 입력하기') + '</a>';
     var svcs = S.db.services.map(function (s) { return '<button type="button" class="' + (s.id === P.svc ? 'on' : '') + '" data-act="pay-svc" data-id="' + s.id + '"' + (P.orderId ? ' disabled' : '') + '>' + esc(LL(s.name)) + '</button>'; }).join('');
     var bs = S.batchesOf(P.svc).filter(function (b) { return b.stage < GO.LAST_STAGE || (P.orderId && b.id === P.batchId); }).map(function (b) { return '<option value="' + b.id + '"' + (b.id === P.batchId ? ' selected' : '') + '>' + esc(batchName(b)) + ' (' + esc(monthLabel(b.month)) + ')</option>'; }).join('');
     var lock = P.orderId ? ' readonly' : '';
     return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="lead">' + L('Isi data pesanan, bayar lewat QR, lalu unggah bukti pembayaran.', '주문 정보를 입력하고 QR로 결제한 뒤 증빙을 올려 주세요.') + '</p>' +
       '<form class="two" data-form="pay"><div class="panel"><h2>' + L('Data pesanan', '주문 정보') + '</h2>' +
-      (P.orderId ? '<p class="note">' + L('Pesanan', '주문') + ' <b>' + P.orderId + '</b> · <a href="#/pay">' + L('Isi manual', '직접 입력하기') + '</a></p>'
+      openNotice() +
+      (P.orderId ? '<p class="note">' + L('Pesanan', '주문') + ' <b>' + P.orderId + '</b> · <a href="#/pay">' + L('Isi manual', '직접 입력하기') + '</a><br>' + L('Simpan nomor ini untuk melanjutkan pembayaran atau melacak pesanan.', '이 번호를 보관해 두세요. 결제를 이어서 하거나 조회할 때 씁니다.') + '</p>'
         : '<div class="field"><label>' + L('Sudah punya nomor pesanan?', '주문번호가 있나요?') + '</label><div class="inline"><input id="payLookup" placeholder="' + GO.BRAND.orderPrefix + '-7K3M9Q2X" autocomplete="off"><button type="button" class="btn line" data-act="pay-lookup">' + L('Muat', '불러오기') + '</button></div><small id="lookupMsg">' + L('Data pesanan terisi otomatis.', '주문 정보가 자동으로 채워집니다.') + '</small></div>') +
       '<div class="field"><label>' + L('Pilih layanan', '서비스 선택') + ' *</label><div class="seg wide">' + svcs + '</div></div>' +
       '<div class="field"><label>' + L('Nomor batch', '배치 번호') + ' *</label><select data-pay="batchId"' + (P.orderId ? ' disabled' : '') + '>' + bs + '</select></div>' + lateNotice() +
@@ -258,13 +316,8 @@
       '<div class="field"><label>' + L('Jumlah (pcs)', '수량') + '</label><input type="number" min="1" data-pay="qty" value="' + P.qty + '"' + lock + '></div></div>' +
       '<div class="field"><label>Item *</label><input data-pay="item" value="' + esc(P.item) + '" placeholder="Photocard random 1 pc"' + lock + '></div>' +
       '<div class="field"><label>' + L('Total harga (Rp)', '총 금액 (Rp)') + ' *</label><input type="number" data-pay="base" value="' + P.base + '"' + lock + '></div>' +
-      '<div class="field"><label>' + L('Voucher diskon', '할인 쿠폰') + '</label><div class="inline"><input data-pay="voucher" value="' + esc(P.voucher) + '" placeholder="' + L('Kode voucher', '쿠폰 코드') + '"><button type="button" class="btn line" data-act="pay-voucher">' + L('Pakai', '적용') + '</button></div><small id="vMsg">' + (P.off ? L('Voucher aktif', '쿠폰 적용됨') + ': −' + rp(P.off) : L('Tidak ada voucher dipakai', '적용된 쿠폰 없음')) + '</small></div>' +
-      '</div><div class="panel"><h2>' + L('Pembayaran', '결제') + '</h2>' +
-      '<div class="field"><label>' + L('Metode pembayaran', '결제 수단') + '</label><div class="seg wide">' + ['QRIS', 'Transfer bank'].map(function (m) { return '<button type="button" class="' + (P.method === m ? 'on' : '') + '" data-act="pay-method" data-id="' + m + '">' + (m === 'QRIS' ? m : L('Transfer bank', '계좌 이체')) + '</button>'; }).join('') + '</div></div>' +
-      '<div id="payOut"></div>' +
-      '<div class="field"><label>' + L('Bukti pembayaran', '결제 증빙') + ' *</label><div class="file"><input type="file" id="proofFile" class="sr" accept="image/*" data-pay="file"><label for="proofFile" class="btn line">' + L('Pilih file', '파일 선택') + '</label><span id="fileName">' + esc(P.fileName || L('Belum ada file dipilih', '선택된 파일 없음')) + '</span></div><small>' + L('Screenshot atau foto bukti transfer.', '이체 화면 캡처나 사진.') + '</small></div>' +
-      '<p class="err" id="payErr" role="alert">' + esc(P.err) + '</p>' +
-      '<button class="btn block">' + L('Kirim bukti pembayaran', '결제 증빙 제출') + '</button></div></form>';
+      '<div class="field"><label>' + L('Voucher diskon', '할인 쿠폰') + '</label><div class="inline"><input data-pay="voucher" value="' + esc(P.voucher) + '" placeholder="' + L('Kode voucher', '쿠폰 코드') + '"' + (P.fixed ? ' readonly' : '') + '><button type="button" class="btn line" data-act="pay-voucher"' + (P.fixed ? ' disabled' : '') + '>' + L('Pakai', '적용') + '</button></div><small id="vMsg">' + (P.off ? L('Voucher aktif', '쿠폰 적용됨') + ': −' + rp(P.off) : L('Tidak ada voucher dipakai', '적용된 쿠폰 없음')) + '</small></div>' +
+      '</div>' + payPanel() + '</form>';
   }
   // 주문이 마감된 배치에 새 주문을 넣으려 할 때의 안내. 이미 진행 중인 배치와 같은 처리를 해 줄 수 없다는 점을 결제 전에 알린다.
   function lateNotice() {
@@ -274,6 +327,7 @@
       ' (' + L('Tahap sekarang', '현재 단계') + ': ' + esc(LL(GO.STAGES[b.stage])) + ')</p>';
   }
   // 관리자 화면에서 마감 뒤 주문을 알아보게 하는 표시
+  function selfBadge(o) { return o.self ? ' <span class="badge">' + L('Dibuat pelanggan', '고객 접수') + '</span>' : ''; }
   function lateBadge(o) { return o.late ? ' <span class="badge run">' + L('Setelah tutup order', '마감 뒤 주문') + '</span>' : ''; }
   // 진짜 QR을 그린다(js/vendor/qrcode.js). 가운데에 마크를 얹어도 읽히도록 오류 복원 수준을 높게 잡는다.
   // 가장 높은 수준(H, 30%)이 기본이고, QRIS처럼 내용이 길어 칸이 너무 잘아지면 한 단계 낮춘다(Q, 25%).
@@ -313,6 +367,14 @@
     var out = $('#payOut'); if (!out) return;
     var a = payAmount();
     if (!a.total) { out.innerHTML = '<p class="hint box">' + L('Isi total harga untuk menampilkan nominal pembayaran.', '총 금액을 입력하면 결제 금액이 표시됩니다.') + '</p>'; return; }
+    if (!P.orderId) {
+      out.innerHTML = '<div class="amount">' +
+        '<div class="brk"><div><b>' + L('Total harga', '총 금액') + '</b></div><span>' + rp(a.base) + '</span></div>' +
+        (a.off ? '<div class="brk"><div><b>Voucher</b></div><span>−' + rp(a.off) + '</span></div>' : '') +
+        '<div class="brk"><div><b>' + L('Kode unik', '고유 코드') + '</b><small>' + L('ditentukan saat pesanan dibuat', '주문을 접수하면 정해집니다') + '</small></div><span>+Rp1–999</span></div>' +
+        '<div class="total"><span>' + L('Nominal sebelum kode unik', '고유 코드를 더하기 전 금액') + '</span><b>' + rp(a.total) + '</b></div></div>';
+      return;
+    }
     out.innerHTML = '<div class="amount">' +
       '<div class="brk"><div><b>' + L('Total harga', '총 금액') + '</b></div><span>' + rp(a.base) + '</span></div>' +
       (a.off ? '<div class="brk"><div><b>Voucher</b></div><span>−' + rp(a.off) + '</span></div>' : '') +
@@ -322,37 +384,37 @@
         ? '<div class="qr"><canvas width="400" height="400" id="qrC"></canvas><div><b>' + L('QRIS dinamis', '동적 QRIS') + '</b><p>' + L('Nominal terisi otomatis saat di-scan, tidak perlu ketik harga.', '스캔하면 금액이 자동 입력되어 직접 칠 필요가 없습니다.') + '</p>' + (GO.logic.qrisValid(GO.BRAND.qris) ? '' : '<small>' + L('QR contoh untuk mockup, belum terhubung ke penyedia pembayaran.', '목업용 예시 QR이며 결제사와 연결되어 있지 않습니다.') + '</small>') + '</div></div>'
         : '<p class="note"><b>BCA 000-000-0000</b> a.n. ' + esc(GO.BRAND.name) + '<br>' + L('Transfer tepat sesuai nominal di atas.', '위 금액과 정확히 같게 이체해 주세요.') + ' <small>(' + L('rekening contoh', '예시 계좌') + ')</small></p>');
     var q = $('#qrC'); if (q) drawQR(q, qrText(P.id, a.total));
-    ensureFreeAmount(a.total);
   }
-  // 새 주문이면, 지금 보여 주는 결제 금액을 확인 대기 중인 다른 주문이 쓰고 있는지 묻는다.
-  // 쓰고 있으면 주문번호를 새로 뽑아 고유 코드를 바꾼다: 금액이 같으면 운영자가 입금을 구분할 수 없다.
-  // (이미 있는 주문은 번호가 정해져 있어 바꿀 수 없다. 그 경우는 관리자 화면이 겹침을 알려 준다.)
-  var amountTimer = null;
-  function ensureFreeAmount(total) {
-    if (!P || P.orderId || P._checked === total) return;
-    clearTimeout(amountTimer);
-    var mine = P;
-    amountTimer = setTimeout(function () {
-      if (P !== mine) return;
-      mine._checked = total;
-      S.amountFree(total).then(function (free) {
-        if (free || P !== mine || (mine._retries || 0) >= 5) return;
-        mine._retries = (mine._retries || 0) + 1;
-        mine.id = S.newOrderId(); mine._checked = null;
-        drawPay();
-      });
-    }, 400);
+  // 새 주문 접수: 서버가 주문번호와 결제 금액을 정해 저장한다. 그 뒤에는 주소에 주문번호가 붙은 결제 화면으로 간다.
+  function reservePay() {
+    var a = payAmount();
+    P.err = (!String(P.buyer).trim() || !String(P.item).trim() || !a.base) ? L('Lengkapi nama pembeli, item, dan total harga.', '구매자, 품목, 총 금액을 입력해 주세요.') : '';
+    $('#payErr').textContent = P.err;
+    if (P.err) return;
+    var btn = $('form[data-form=pay] .btn.block');
+    btn.disabled = true;
+    S.createOrder({ batchId: P.batchId, buyer: P.buyer, item: P.item, qty: Math.max(1, Math.round(Number(P.qty)) || 1), base: a.base, voucher: P.off ? P.voucher : '' }).then(function (o) {
+      writeStore('sessionStorage', DRAFT_KEY, null);
+      writeStore('localStorage', OPEN_KEY, { id: o.id, batchId: o.batchId });
+      rememberOrder(o);
+      go('#/pay/' + o.batchId + '/' + o.id);
+    }, function (e) {
+      btn.disabled = false;
+      $('#payErr').textContent = L('Gagal membuat pesanan. Coba lagi.', '주문을 접수하지 못했습니다. 다시 시도해 주세요.') + ' (' + e.message + ')';
+    });
   }
   function submitPay() {
+    if (!P.orderId) { reservePay(); return; }
     var a = payAmount();
-    if (!P.buyer.trim() || !P.item.trim() || !a.total) { P.err = L('Lengkapi nama pembeli, item, dan total harga.', '구매자, 품목, 총 금액을 입력해 주세요.'); }
+    if (!a.total) { P.err = L('Lengkapi nama pembeli, item, dan total harga.', '구매자, 품목, 총 금액을 입력해 주세요.'); }
     else if (!P.fileName) { P.err = L('Unggah bukti pembayaran terlebih dahulu.', '결제 증빙을 먼저 올려 주세요.'); }
     else P.err = '';
     if (P.err) { $('#payErr').textContent = P.err; return; }
-    var payload = { orderId: P.orderId, id: P.id, batchId: P.batchId, buyer: P.buyer, item: P.item, qty: P.qty, base: a.base, voucher: P.off ? P.voucher : '', method: P.method, proofName: P.fileName };
+    var payload = { orderId: P.orderId, voucher: !P.fixed && P.off ? P.voucher : '', method: P.method, proofName: P.fileName };
     var btn = $('form[data-form=pay] .btn.block');
     btn.disabled = true;
     S.submitPayment(payload).then(function (o) {
+      forgetOpen(o.id);
       P = null; receipts[o.id] = o; rememberOrder(o);
       go('#/track/' + o.id);
       showReceipt(o.id);
@@ -508,7 +570,10 @@
     var sample = 'Batch 4\n@nadya / Photocard random 1 pc / 2pcs / Rp 25.000\ndinda - album mini - 285k\n3. rara, acrylic stand, x1, ¥2000\ntiara lightstick strap 135rb';
     var prev = '';
     if (A.rows) {
-      prev = '<h2 class="sub">' + L('Hasil pemisahan', '분류 결과') + ' <small>(' + (A.engine === 'ai' ? 'AI' : L('aturan otomatis', '규칙 기반 자동 분류')) + ')</small></h2>' +
+      var chosen = S.batch(A.batchId), other = [];
+      A.rows.forEach(function (r) { if (r.batchNo !== null && chosen && r.batchNo !== chosen.no && other.indexOf(r.batchNo) < 0) other.push(r.batchNo); });
+      var mismatch = other.length ? '<p class="note warn" id="batchMismatch"><b>' + L('Perhatian', '주의') + '</b> ' + L('Di teks tertulis', '글에 적힌 배치') + ': Batch ' + other.join(', ') + '. ' + L('Batch yang dipilih', '고른 배치') + ': ' + esc(batchName(chosen)) + '. ' + L('Jika disimpan, pesanan masuk ke batch yang dipilih.', '저장하면 고른 배치에 들어갑니다.') + '</p>' : '';
+      prev = mismatch + '<h2 class="sub">' + L('Hasil pemisahan', '분류 결과') + ' <small>(' + (A.engine === 'ai' ? 'AI' : L('aturan otomatis', '규칙 기반 자동 분류')) + ')</small></h2>' +
         (A.rows.length ? '<div class="tbl"><table class="edit"><thead><tr><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th>' + L('Jumlah', '수량') + '</th><th>' + L('Harga asli', '원래 가격') + '</th><th>Total (Rp)</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' +
           A.rows.map(function (r, i) {
             function cell(f, type) { return '<td class="' + (r.missing.indexOf(f) >= 0 || (f === 'total' && !r.total) ? 'miss' : '') + '"><input ' + (type ? 'type="number" ' : '') + 'data-row="' + i + '" data-f="' + f + '" value="' + esc(r[f] == null ? '' : r[f]) + '" aria-label="' + f + '"></td>'; }
@@ -520,7 +585,7 @@
     }
     var list = S.ordersOf(A.batchId).map(function (o) {
       var key = 'o:' + o.id, pay = A.edit[key] ? A.edit[key].pay : o.pay;
-      return '<tr' + (A.edit[key] ? ' class="dirty"' : '') + '><td>' + o.id + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + o.qty + '</td><td class="r">' + rp(o.total) + '</td>' +
+      return '<tr' + (A.edit[key] ? ' class="dirty"' : '') + '><td>' + o.id + selfBadge(o) + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + o.qty + '</td><td class="r">' + rp(o.total) + '</td>' +
         '<td><select data-opay="' + o.id + '" aria-label="' + L('Pembayaran', '결제') + '">' + Object.keys(GO.PAY).map(function (k) { return '<option value="' + k + '"' + (k === pay ? ' selected' : '') + '>' + esc(LL(GO.PAY[k])) + '</option>'; }).join('') + '</select></td>' +
         '<td class="acts">' + saveCell('order-save', o.id, key) + '<button class="link" data-act="order-del" data-id="' + o.id + '">' + L('Hapus', '삭제') + '</button></td></tr>';
     }).join('');
@@ -676,7 +741,7 @@
     else if (act === 'lang') { lang = id; try { localStorage.setItem('go-lang', lang); } catch (x) {} render(); }
     else if (act === 'calc-reset') { C = null; render(); }
     else if (act === 'calc-save') { S.setCalcDefaults(C); t.textContent = L('Tersimpan', '저장됨'); }
-    else if (act === 'pay-svc') { P.svc = id; P.batchId = (S.batchesOf(id).filter(function (b) { return b.stage < GO.LAST_STAGE; })[0] || {}).id; render(); }
+    else if (act === 'pay-svc') { P.svc = id; P.batchId = (S.batchesOf(id).filter(function (b) { return b.stage < GO.LAST_STAGE; })[0] || {}).id; saveDraft(); render(); }
     else if (act === 'pay-method') { P.method = id; render(); }
     else if (act === 'pay-lookup') {
       S.fetchOrder($('#payLookup').value).then(function (found) {
@@ -687,7 +752,7 @@
     else if (act === 'pay-voucher') {
       S.checkVoucher(P.voucher).then(function (v) {
         if (!P) return;
-        P.off = v ? v.off : 0;
+        P.off = v ? v.off : 0; saveDraft();
         $('#vMsg').textContent = v ? L('Voucher aktif', '쿠폰 적용됨') + ': −' + rp(v.off) : L('Kode voucher tidak ditemukan.', '쿠폰 코드를 찾을 수 없습니다.');
         drawPay();
       });
@@ -732,8 +797,9 @@
     } else if ((k = t.getAttribute('data-pay'))) {
       if (k === 'file') { P.fileName = t.files[0] ? t.files[0].name : ''; $('#fileName').textContent = P.fileName || L('Belum ada file dipilih', '선택된 파일 없음'); return; }
       P[k] = t.value;
-      if (k === 'batchId') { render(); return; }   // 마감 안내가 배치에 따라 달라진다
       if (k === 'voucher') { P.off = 0; }
+      saveDraft();                                 // 새로 고치거나 다른 화면에 다녀와도 남도록
+      if (k === 'batchId') { render(); return; }   // 마감 안내가 배치에 따라 달라진다
       drawPay();
     } else if ((k = t.getAttribute('data-admin'))) {
       A[k] = t.value;

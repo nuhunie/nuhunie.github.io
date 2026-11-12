@@ -99,7 +99,7 @@ test('쿠폰 훑기: 쿠폰 코드를 연달아 넣어 보면 막힌다', async 
 
 test('가짜 주문 도배: 같은 곳에서 새 주문을 계속 넣으면 막힌다', async () => {
   const codes = [];
-  for (let i = 0; i < 20; i++) codes.push((await call('POST', '/pay', { id: PFX + '-' + X.orderCode(910000 + i), batchId: 'kr-5', buyer: 'spam', item: 'Spam', qty: 1, base: 1000, method: 'QRIS', proofName: 'x.jpg' })).status);
+  for (let i = 0; i < 20; i++) codes.push((await call('POST', '/order', { batchId: 'kr-5', buyer: 'spam', item: 'Spam', qty: 1, base: 1000 })).status);
   assert.ok(codes.includes(429), '20건을 넣어도 막히지 않았다: ' + codes.join(','));
   assert.ok(codes.filter(c => c === 200).length <= 10);
   await sleep(WINDOW);
@@ -113,13 +113,16 @@ test('동시 결제: 같은 주문에 결제가 동시에 두 번 들어오면 �
 });
 
 test('과대 입력: 지나치게 긴 값과 큰 본문은 거절한다', async () => {
-  const base = { id: PFX + '-' + X.orderCode(920001), batchId: 'kr-5', buyer: 'big', item: 'x', qty: 1, base: 1000, method: 'QRIS', proofName: 'x.jpg' };
-  for (const bad of [{ item: 'x'.repeat(5000) }, { buyer: 'b'.repeat(500) }, { proofName: 'p'.repeat(5000) }, { qty: 1e9 }, { base: 1e15 }]) {
-    const r = await call('POST', '/pay', Object.assign({}, base, bad));
+  const base = { batchId: 'kr-5', buyer: 'big', item: 'x', qty: 1, base: 1000 };
+  for (const bad of [{ item: 'x'.repeat(5000) }, { buyer: 'b'.repeat(500) }, { qty: 1e9 }, { base: 1e15 }]) {
+    const r = await call('POST', '/order', Object.assign({}, base, bad));
     assert.ok(r.status === 400 || r.status === 413, JSON.stringify(Object.keys(bad)) + ' → ' + r.status);
   }
-  const huge = await call('POST', '/pay', JSON.stringify(Object.assign({}, base, { note: 'n'.repeat(300000) })));
+  const longProof = await call('POST', '/pay', { orderId: seed.orders[0].id, method: 'QRIS', proofName: 'p'.repeat(5000) });
+  assert.equal(longProof.status, 400);
+  const huge = await call('POST', '/order', JSON.stringify(Object.assign({}, base, { note: 'n'.repeat(300000) })));
   assert.ok(huge.status === 400 || huge.status === 413, '300KB 본문 → ' + huge.status);
+  assert.equal((await call('POST', '/order', '{not json')).status, 400);
   assert.equal((await call('POST', '/pay', '{not json')).status, 400);
 });
 

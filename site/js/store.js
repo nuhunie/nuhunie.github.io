@@ -51,6 +51,8 @@
     });
   }
 
+  function voucherOf(code) { code = String(code || '').trim().toUpperCase(); return db.vouchers.filter(function (x) { return x.code === code; })[0] || null; }
+
   GO.store = {
     get db() { return db; },
     get mode() { return mode; },
@@ -120,12 +122,8 @@
     },
     newOrderId: function () {
       // 무작위 8자리. 맞히기 어렵도록 암호용 난수를 쓴다.
-      var id, i, bytes;
-      do {
-        bytes = new Uint8Array(8); globalThis.crypto.getRandomValues(bytes);
-        id = GO.BRAND.orderPrefix + '-';
-        for (i = 0; i < 8; i++) id += X.ORDER_CHARS.charAt(bytes[i] & 31);
-      } while (find(db.orders, id));
+      var id, bytes;
+      do { bytes = new Uint8Array(8); globalThis.crypto.getRandomValues(bytes); id = X.orderIdFrom(bytes); } while (find(db.orders, id));
       return id;
     },
 
@@ -143,21 +141,30 @@
       if (mode === 'local') return Promise.resolve(db.vouchers.filter(function (v) { return v.code === code; })[0] || null);
       return api('POST', '/voucher', { code: code }).then(function (v) { return v; }, function () { return null; });
     },
-    /* 이 결제 금액을 확인 대기 중인 다른 주문이 쓰고 있지 않은지 (Promise<boolean>). 확인하지 못하면 true */
-    amountFree: function (total) {
-      if (mode === 'local') return Promise.resolve(!db.orders.some(function (o) { return o.pay === 'pending' && o.total === total; }));
-      return api('POST', '/amount-check', { total: total }).then(function (r) { return r.free !== false; }, function () { return true; });
+    /* 고객이 새 주문을 접수한다(결제 전). p = { batchId, buyer, item, qty, base, voucher } → 저장된 주문 (Promise)
+     * 주문번호와 결제 금액은 여기서 정해져 저장된다. 서버가 있으면 서버가 정한다(같은 규칙: logic.js 의 payable). */
+    createOrder: function (p) {
+      if (mode === 'server') return api('POST', '/order', p).then(function (r) { return r.order; });
+      var v = voucherOf(p.voucher), pb = find(db.batches, p.batchId), base = Math.round(Number(p.base)), id, total, i;
+      if (!pb || !(base > 0)) return Promise.reject(new Error('Check the order fields.'));
+      for (i = 0; i < 8; i++) {                    // 결제 전·확인 대기 주문과 금액이 겹치지 않는 번호를 고른다
+        id = this.newOrderId(); total = X.payable(base, v ? v.off : 0, id);
+        if (!db.orders.some(function (o) { return o.total === total && (o.pay === 'unpaid' || o.pay === 'pending'); })) break;
+      }
+      var o = { id: id, self: 1, late: pb.stage >= 1 ? pb.stage : 0, batchId: pb.id, buyer: String(p.buyer).trim().replace(/^@/, ''), item: String(p.item).trim(),
+        qty: Math.max(1, Math.round(Number(p.qty)) || 1), base: base, total: total, pay: 'unpaid', method: '', proofName: '', createdAt: new Date().toISOString() };
+      db.orders.push(o); save();
+      return Promise.resolve(o);
     },
-    /* p = { orderId | id, batchId, buyer, item, qty, base, voucher, method, proofName }  →  저장된 주문 */
+    /* 접수된 주문의 결제 증빙을 낸다. p = { orderId, voucher, method, proofName } → 저장된 주문 (Promise) */
     submitPayment: function (p) {
       if (mode === 'server') return api('POST', '/pay', p).then(function (r) { return pull().catch(function () {}).then(function () { return r.order; }); });
-      var v = db.vouchers.filter(function (x) { return x.code === String(p.voucher || '').trim().toUpperCase(); })[0];
-      var o = p.orderId ? this.order(p.orderId) : null;
-      var base = o ? (o.base || o.total) : Math.round(Number(p.base));
-      var id = o ? o.id : p.id;
-      var patch = { base: base, total: base - Math.min(v ? v.off : 0, base) + X.uniqueCode(id), pay: 'pending', method: p.method, proofName: p.proofName };
-      if (o) Object.assign(o, patch);
-      else { var pb = find(db.batches, p.batchId); o = Object.assign({ id: id, self: 1, late: pb && pb.stage >= 1 ? pb.stage : 0, batchId: p.batchId, buyer: String(p.buyer).trim().replace(/^@/, ''), item: String(p.item).trim(), qty: Math.max(1, Number(p.qty) || 1), createdAt: new Date().toISOString() }, patch); db.orders.push(o); }
+      var o = this.order(p.orderId), v = voucherOf(p.voucher);
+      if (!o) return Promise.reject(new Error('Order not found.'));
+      if (o.pay !== 'unpaid' && o.pay !== 'rejected') return Promise.reject(new Error('This order has already been submitted.'));
+      var base = o.base || o.total;
+      // 고객이 접수한 주문(self)은 접수할 때 금액이 정해졌다. 운영자가 넣은 주문은 여기서 쿠폰과 고유 코드를 붙인다.
+      Object.assign(o, { base: base, total: o.self ? o.total : X.payable(base, v ? v.off : 0, o.id), pay: 'pending', method: p.method, proofName: p.proofName });
       save();
       return Promise.resolve(o);
     },

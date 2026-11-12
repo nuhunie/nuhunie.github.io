@@ -27,14 +27,21 @@ export async function readJson(request) {
 }
 
 /* ── 입력 검사: 값이 맞으면 정리된 값을, 아니면 null을 돌려준다 ── */
+// 숫자로 받는 값: 진짜 숫자이거나 숫자만 적힌 글자여야 한다. true, null, "1e3", [1000] 은 숫자로 바꾸지 않는다.
+const toNum = v => typeof v === 'number' ? v : (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim()) ? Number(v) : NaN);
 export const V = {
   text(v, max) { v = typeof v === 'string' ? v.trim() : ''; return v && v.length <= max ? v : null; },
   optText(v, max) { v = typeof v === 'string' ? v.trim() : ''; return v.length <= max ? v : null; },
-  int(v, min, max) { v = Number(v); return Number.isInteger(v) && v >= min && v <= max ? v : null; },
-  num(v, min, max) { v = Number(v); return Number.isFinite(v) && v >= min && v <= max ? v : null; },
+  int(v, min, max) { v = toNum(v); return Number.isInteger(v) && v >= min && v <= max ? v : null; },
+  num(v, min, max) { v = toNum(v); return Number.isFinite(v) && v >= min && v <= max ? v : null; },
   oneOf(v, list) { return list.indexOf(v) >= 0 ? v : null; },
   month(v) { return /^\d{4}-(0[1-9]|1[0-2])$/.test(v) ? v : null; },
-  date(v) { return v === '' || v == null ? '' : /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null; },
+  date(v) {                                     // 모양뿐 아니라 달력에 있는 날짜인지도 본다 (2026-02-30 은 거절)
+    if (v === '' || v == null) return '';
+    if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+    const d = new Date(v + 'T00:00:00Z');
+    return !isNaN(d) && d.toISOString().slice(0, 10) === v ? v : null;
+  },
   orderId(v) { v = typeof v === 'string' ? v.trim().toUpperCase() : ''; return X.isOrderId(v) ? v : null; }
 };
 export const PAY = Object.keys(GO.PAY);
@@ -61,7 +68,7 @@ export const MIN_PASSWORD = 8;
 export function weakPassword(env) { return !!env.ADMIN_PASSWORD && String(env.ADMIN_PASSWORD).length < MIN_PASSWORD; }
 export function configured(env) { return !!(env.ADMIN_PASSWORD && env.SESSION_SECRET) && !weakPassword(env); }
 // 예시 데이터 초기화는 켜 둔 곳(내 컴퓨터, 검사 환경)에서만 된다
-export function canReset(env) { return env.ALLOW_RESET === '1'; }
+export function canReset(env) { return !!env && env.ALLOW_RESET === '1'; }   // env를 빠뜨리고 부르면 허용하지 않는다
 export async function passwordOk(env, given) {
   if (!configured(env) || typeof given !== 'string') return false;
   // 두 값을 같은 열쇠로 서명한 뒤 비교한다 (길이가 달라도 비교 시간이 같다)
@@ -153,10 +160,17 @@ export async function seed(db) {
   await db.batch(stmts);
 }
 
-/* ── 화면 전체 상태 읽기. admin이 아니면 공개해도 되는 것만 담는다 ── */
-export async function loadState(db, admin) {
+// 서비스 종류(한국·일본·티켓)만 넣는다. 배치·주문·쿠폰 같은 예시는 넣지 않는다.
+export async function seedServices(db) {
+  await db.batch(GO.seed().services.map((v, i) => db.prepare('INSERT OR IGNORE INTO services (id, name_id, name_ko, desc_id, desc_ko, cur, sort) VALUES (?,?,?,?,?,?,?)').bind(v.id, v.name[0], v.name[1], v.desc[0], v.desc[1], v.cur, i)));
+}
+
+/* ── 화면 전체 상태 읽기. admin이 아니면 공개해도 되는 것만 담는다 ──
+ * 서비스 표가 비어 있으면(새 DB) 채운다. 예시 주문까지 넣는 것은 초기화가 허용된 곳(내 컴퓨터, GitHub 검사)뿐이고,
+ * 배포판에서는 서비스 종류만 넣는다: 예시 주문번호는 공개된 코드로 계산할 수 있어 실제 사이트에 다시 생기면 안 된다. */
+export async function loadState(db, admin, env) {
   let services = (await db.prepare('SELECT * FROM services ORDER BY sort').all()).results;
-  if (!services.length) { await seed(db); services = (await db.prepare('SELECT * FROM services ORDER BY sort').all()).results; }
+  if (!services.length) { await (canReset(env) ? seed(db) : seedServices(db)); services = (await db.prepare('SELECT * FROM services ORDER BY sort').all()).results; }
   const batches = (await db.prepare('SELECT * FROM batches').all()).results;
   const state = { services: services.map(toService) };
 

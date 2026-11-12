@@ -44,6 +44,14 @@
     for (var i = 0; i < orderId.length; i++) h = (h * 31 + orderId.charCodeAt(i)) % 1000003;
     return (h % 999) + 1;
   };
+  // 결제할 금액 = 주문 금액 − 쿠폰 + 고유 코드. 쿠폰이 금액보다 커도 0 아래로 내려가지 않는다.
+  X.payable = function (base, off, orderId) { return base - Math.min(off || 0, base) + X.uniqueCode(orderId); };
+  // 무작위 바이트 8개로 주문번호를 만든다. 맞히기 어렵도록 부르는 쪽이 암호용 난수를 넘긴다.
+  X.orderIdFrom = function (bytes) {
+    var id = GO.BRAND.orderPrefix + '-';
+    for (var i = 0; i < 8; i++) id += X.ORDER_CHARS.charAt(bytes[i] & 31);
+    return id;
+  };
   /* ── QRIS: 가게 QR 한 장에 주문 금액을 넣는다 ──
    * QRIS 내용은 "번호 2자리 + 길이 2자리 + 값" 이 이어진 글자열이다 (국제 규격 EMV QR).
    * 01번 = 고정(11)/금액 지정(12), 54번 = 금액, 맨 끝 63번 = 앞 내용 전체의 검사값.
@@ -184,7 +192,8 @@
       if (/^\d+[.,]\d{1,2}$/.test(s)) f = parseFloat(String(s).replace(',', '.'));
       return Math.round(f * (suffix === 'jt' || suffix === 'juta' ? 1e6 : 1e3));
     }
-    return parseInt(String(s).replace(/[.,]/g, ''), 10);
+    // 천 단위는 늘 세 자리씩 끊는다. 끝이 구분자 + 두 자리("25.000,00", "25,000.00")면 소수부이므로 버린다.
+    return parseInt(String(s).replace(/[.,]\d{2}$/, '').replace(/[.,]/g, ''), 10);
   }
 
   var PRICE_RULES = [

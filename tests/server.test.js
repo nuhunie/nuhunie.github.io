@@ -30,3 +30,40 @@ test('횟수 제한의 주소 단위: IPv4는 그대로, IPv6는 앞 64비트로
   assert.notEqual(a, c);           // 다른 /64
   assert.equal(ipKey(req('::1')), ipKey(req('0:0:0:0:0:0:0:2')));
 });
+
+test('입력 검사: 숫자가 아닌 값을 숫자로 바꿔 받지 않는다', async () => {
+  const { V } = await import('../server/lib.js');
+  for (const bad of [true, false, null, undefined, [1000], {}, '1e3', '0x10', '', ' ', '12abc']) assert.equal(V.int(bad, 0, 1e9), null, JSON.stringify(bad));
+  assert.equal(V.int(1000, 1, 1e9), 1000);
+  assert.equal(V.int('1000', 1, 1e9), 1000);      // 화면의 입력 칸은 글자로 보내므로 숫자만 적힌 글자는 받는다
+  assert.equal(V.int(2.5, 1, 9), null);
+  assert.equal(V.num('11.5', 0, 100), 11.5);
+  assert.equal(V.num(true, 0, 100), null);
+  assert.equal(V.text(12345, 40), null);          // 글자 칸에 숫자·배열을 넣으면 받지 않는다
+  assert.equal(V.text(['x'], 40), null);
+});
+test('입력 검사: 달력에 없는 날짜는 받지 않는다', async () => {
+  const { V } = await import('../server/lib.js');
+  for (const bad of ['2026-02-30', '9999-99-99', '2026-13-01', '2026-00-10', '2025-02-29', '2026-1-5', 20261130]) assert.equal(V.date(bad), null, String(bad));
+  assert.equal(V.date('2026-11-30'), '2026-11-30');
+  assert.equal(V.date('2028-02-29'), '2028-02-29');   // 윤년
+  assert.equal(V.date(''), '');
+});
+// 실제 DB 대신, 어떤 SQL이 실행됐는지만 적어 두는 가짜 DB
+function fakeDb() {
+  const ran = [];
+  const prepare = sql => ({ sql, bind() { return this; }, async all() { ran.push(sql); return { results: [] }; }, async first() { ran.push(sql); return null; }, async run() { ran.push(sql); return { meta: { changes: 1 } }; } });
+  return { ran, prepare, async batch(list) { list.forEach(s => ran.push(s.sql)); } };
+}
+test('새 DB: 배포판에서는 서비스 종류만 넣고 예시 주문은 넣지 않는다', async () => {
+  const { loadState } = await import('../server/lib.js');
+  for (const env of [{}, { ALLOW_RESET: '0' }, undefined]) {
+    const db = fakeDb();
+    await loadState(db, false, env);
+    assert.ok(db.ran.some(s => /INSERT OR IGNORE INTO services/.test(s)), '서비스는 넣어야 한다');
+    assert.deepEqual(db.ran.filter(s => /INSERT INTO (orders|batches|vouchers)|DELETE FROM/.test(s)), [], '예시 주문·배치·쿠폰을 넣거나 무언가를 지우면 안 된다');
+  }
+  const local = fakeDb();
+  await loadState(local, true, { ALLOW_RESET: '1' });
+  assert.ok(local.ran.some(s => /INSERT INTO orders/.test(s)), '내 컴퓨터(초기화 허용)에서는 예시 주문까지 넣는다');
+});

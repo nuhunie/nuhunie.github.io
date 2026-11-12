@@ -6,6 +6,7 @@ window.runE2E = async function () {
   const S = GO.store, X = GO.logic, out = [];
   const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
   const wait = ms => new Promise(r => setTimeout(r, ms));
+  try { sessionStorage.removeItem('nuh-pay-draft'); localStorage.removeItem('nuh-pay-open'); } catch (e) {}   // 앞서 쓰던 흔적 없이 시작한다
   // 주소가 관리자 화면이면 관리자 사이트로, 아니면 고객 사이트로 바꿔 그린다 (실제로는 서로 다른 페이지다)
   const go = async h => { GO.app = /^#\/(admin|calc)/.test(h) ? 'admin' : 'site'; location.hash = h; await wait(80); GO.render(); await wait(20); };
   const type = (sel, v, ev) => { const e = typeof sel === 'string' ? $(sel) : sel; e.value = v; e.dispatchEvent(new Event(ev || 'input', { bubbles: true })); };
@@ -69,11 +70,25 @@ window.runE2E = async function () {
   const before = S.db.orders.length;
   type('[data-pay=buyer]', '@tester'); type('[data-pay=item]', 'Keyring uji'); type('[data-pay=base]', '50000');
   type('[data-pay=voucher]', 'nuh5000'); $('[data-act=pay-voucher]').click(); await wait(40);
-  const shown = num($('#payOut .total b').textContent);
-  attach(); $('form[data-form=pay] .btn.block').click(); await wait(120);
+  check('결제: 접수 전에는 QR이 없고 주문도 생기지 않는다', !$('#qrC') && S.db.orders.length === before && num($('#payOut .total b').textContent) === 45000);
+  await go('#/track'); await go('#/pay/kr-5');
+  check('결제: 다른 화면에 다녀와도 입력하던 내용이 남아 있다', $('[data-pay=buyer]').value === '@tester' && $('[data-pay=item]').value === 'Keyring uji' && $('[data-pay=base]').value === '50000' && num($('#payOut .total b').textContent) === 45000, $('[data-pay=buyer]').value);
+  $('form[data-form=pay] .btn.block').click(); await wait(150);
   const o2 = S.db.orders[S.db.orders.length - 1];
-  check('결제: 새 주문은 금액 − 쿠폰 + 고유 코드', S.db.orders.length === before + 1 && o2.total === 50000 - 5000 + X.uniqueCode(o2.id) && shown === o2.total && o2.buyer === 'tester', JSON.stringify(o2) + ' shown ' + shown);
+  check('결제: 접수하면 결제 전 주문으로 저장되고 주소에 주문번호가 붙는다', S.db.orders.length === before + 1 && o2.pay === 'unpaid' && o2.self === 1 && location.hash === '#/pay/kr-5/' + o2.id, location.hash);
+  const shown = num($('#payOut .total b').textContent);
+  check('결제: 새 주문은 금액 − 쿠폰 + 고유 코드', o2.total === 50000 - 5000 + X.uniqueCode(o2.id) && shown === o2.total && o2.buyer === 'tester' && !!$('#qrC'), JSON.stringify(o2) + ' shown ' + shown);
+  await go('#/track'); await go('#/pay');
+  check('결제: 결제를 마치지 않은 주문을 이어서 할 수 있게 알려 준다', !!$('a[href="#/pay/kr-5/' + o2.id + '"]') && $('[data-pay=buyer]').value === '');
+  await go('#/pay/kr-5/' + o2.id); await wait(60);
+  check('결제: 다시 열어도 주문번호와 결제 금액이 그대로다', num($('#payOut .total b').textContent) === shown && $('[data-pay=base]').readOnly && $('[data-pay=voucher]').readOnly);
+  attach(); $('form[data-form=pay] .btn.block').click(); await wait(120);
+  check('결제: 증빙을 내면 확인 대기가 되고 금액은 접수 때와 같다', S.order(o2.id).pay === 'pending' && S.order(o2.id).total === shown, JSON.stringify(S.order(o2.id)));
   $('.modal') && $('.modal').remove();
+  await go('#/pay/kr-5/' + o2.id); await wait(60);
+  check('결제: 이미 낸 주문을 다시 열면 제출 칸 대신 안내가 나온다', !$('#proofFile') && !!$('a.btn[href="#/track/' + o2.id + '"]'));
+  await go('#/pay/kr-5/' + GO.BRAND.orderPrefix + '-ZZZZZZZZ'); await wait(60);
+  check('결제: 없는 주문번호로 열면 찾을 수 없다고 알린다', !!$('.note.warn') && !$('form[data-form=pay]'));
 
   /* ── 운영자 여정 ── */
   await go('#/admin/batch');
@@ -91,6 +106,10 @@ window.runE2E = async function () {
 
   await go('#/admin/order');
   type('[data-admin=batchId]', 'kr-9'); await wait(60);
+  type('[data-admin=text]', 'Batch 4\n@uji / Album / 10k'); $('[data-act=classify]').click(); await wait(120);
+  check('주문 입력: 글에 적힌 배치 번호가 고른 배치와 다르면 알린다', !!$('#batchMismatch') && $('#batchMismatch').textContent.includes('Batch 4'));
+  type('[data-admin=text]', 'Batch 9\n@uji / Album / 10k'); $('[data-act=classify]').click(); await wait(120);
+  check('주문 입력: 배치 번호가 같으면 알림이 없다', !$('#batchMismatch'));
   type('[data-admin=text]', '@nadya / Photocard random 1 pc / 2pcs / Rp 25.000\ndinda - album mini - 285k\nrara, acrylic stand, x1, ¥2000\nbaris tanpa harga');
   $('[data-act=classify]').click(); await wait(120);
   check('주문 입력: 4줄이 4행으로 나뉜다', $$('table.edit tbody tr').length >= 4 && $$('[data-row]').length === 16, $$('[data-row]').length);
