@@ -71,7 +71,7 @@ window.runE2E = async function () {
   await confirmWith(o1.id.toLowerCase());
   check('결제 확인: 주문번호를 넣으면 그 주문의 결제 화면으로 가고 메뉴의 결제 확인이 켜진다', location.hash === '#/pay/' + o1.batchId + '/' + o1.id && !!$('#nav a.on[href="#/confirm"]'), location.hash);
   check('결제: 주문번호로 불러오면 내용이 채워지고 잠긴다', $('[data-pay=buyer]').value === X.maskName(o1.buyer) && $('[data-pay=buyer]').readOnly && num($('[data-pay=base]').value) === base1);
-  check('결제: QR과 결제 금액이 나온다', $('#qrC') && num($('#payOut .total b').textContent) === base1 + X.uniqueCode(o1.id), $('#payOut') && $('#payOut').innerText);
+  check('결제: QR과 결제 금액이 나온다', $('#qrC') && num($('#payOut .total b').textContent) === base1 - X.uniqueCode(o1.id), $('#payOut') && $('#payOut').innerText);
   await wait(300);
   const keepBank = GO.BRAND.bank;
   GO.BRAND.qris = ''; GO.render(); await wait(40);
@@ -83,7 +83,7 @@ window.runE2E = async function () {
   $('form[data-form=pay] .btn.block').click(); await wait(60);
   check('결제: 증빙 없이 내면 막고 이유를 알려 준다', $('#payErr').textContent.length > 0 && S.order(o1.id).pay === 'unpaid');
   attach(); $('form[data-form=pay] .btn.block').click(); await wait(120);
-  check('결제: 제출하면 확인 대기가 된다', S.order(o1.id).pay === 'pending' && S.order(o1.id).total === base1 + X.uniqueCode(o1.id), JSON.stringify(S.order(o1.id)));
+  check('결제: 제출하면 확인 대기가 된다', S.order(o1.id).pay === 'pending' && S.order(o1.id).total === base1 - X.uniqueCode(o1.id), JSON.stringify(S.order(o1.id)));
   check('영수증: 주문번호와 금액이 맞다', $('.modal .receipt') && $('.modal').innerText.includes(o1.id) && num($('.modal .total b').textContent) === S.order(o1.id).total);
   $('.modal [data-act=modal-close]').click();
   check('조회: 제출 후 내 주문 1건으로 이동한다', location.hash === '#/track/' + o1.id && $$('.card').length === 1);
@@ -104,7 +104,7 @@ window.runE2E = async function () {
   const o2 = S.db.orders[S.db.orders.length - 1];
   check('결제: 접수하면 결제 전 주문으로 저장되고 주소에 주문번호가 붙는다', S.db.orders.length === before + 1 && o2.pay === 'unpaid' && o2.self === 1 && location.hash === '#/pay/kr-5/' + o2.id, location.hash);
   const shown = num($('#payOut .total b').textContent);
-  check('결제: 새 주문은 금액 − 쿠폰 + 고유 코드', o2.total === 50000 - 5000 + X.uniqueCode(o2.id) && shown === o2.total && o2.buyer === 'tester' && !!$('#qrC'), JSON.stringify(o2) + ' shown ' + shown);
+  check('결제: 새 주문은 금액 − 쿠폰 − 고유 코드', o2.total === 50000 - 5000 - X.uniqueCode(o2.id) && shown === o2.total && o2.buyer === 'tester' && !!$('#qrC'), JSON.stringify(o2) + ' shown ' + shown);
   await go('#/track'); await go('#/pay');
   check('결제: 결제를 마치지 않은 주문을 이어서 할 수 있게 알려 준다', !!$('a[href="#/pay/kr-5/' + o2.id + '"]') && $('[data-pay=buyer]').value === '');
   await go('#/pay/kr-5/' + o2.id); await wait(60);
@@ -150,7 +150,7 @@ window.runE2E = async function () {
   type('[data-pay=voucher]', 'satu1'); $('[data-act=pay-voucher]').click(); await wait(40);
   $('form[data-form=pay] .btn.block').click(); await wait(120);
   const vo = S.db.orders[S.db.orders.length - 1];
-  check('쿠폰: 한도 안에서는 할인된다', vo.voucher === 'SATU1' && vo.total === 28000 + X.uniqueCode(vo.id), JSON.stringify(vo));
+  check('쿠폰: 한도 안에서는 할인된다', vo.voucher === 'SATU1' && vo.total === 28000 - X.uniqueCode(vo.id), JSON.stringify(vo));
   await go('#/pay/kr-5');
   type('[data-pay=buyer]', 'kupon2'); type('[data-pay=item]', 'Album'); type('[data-pay=base]', '30000');
   type('[data-pay=voucher]', 'satu1'); $('[data-act=pay-voucher]').click(); await wait(40);
@@ -158,7 +158,7 @@ window.runE2E = async function () {
   await go('#/admin/voucher');
   $('[data-act=voucher-del][data-id="SATU1"]').click(); await wait(40);
   window.confirm = realConfirm;
-  check('가게 설정: 쿠폰을 지우면 표에서 빠지고 쓴 주문 금액은 그대로다', !S.db.vouchers.some(v => v.code === 'SATU1') && S.order(vo.id).total === 28000 + X.uniqueCode(vo.id));
+  check('가게 설정: 쿠폰을 지우면 표에서 빠지고 쓴 주문 금액은 그대로다', !S.db.vouchers.some(v => v.code === 'SATU1') && S.order(vo.id).total === 28000 - X.uniqueCode(vo.id));
   // 한 장짜리 쿠폰 여러 장
   const bf = $('form[data-form=vbulk]');
   bf.off.value = '3000'; bf.count.value = '2'; bf.note.value = 'baru';

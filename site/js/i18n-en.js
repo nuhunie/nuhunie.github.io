@@ -428,5 +428,7 @@ GO.EN = {
   'Sudah memesan? Masukkan nomor pesanan untuk melihat nominal dan cara bayar, lalu unggah bukti pembayaran.': 'Already ordered? Enter your order number to see the amount and how to pay, then upload your payment proof.',
   'Belum ada pembayaran yang disetujui.': 'No approved payments yet.',
   'Tidak ada pembayaran yang ditolak.': 'No rejected payments.',
-  'Urut dari pesanan terbaru. Untuk mengubah status, buka': 'Newest orders first. To change a status, open'
+  'Urut dari pesanan terbaru. Untuk mengubah status, buka': 'Newest orders first. To change a status, open',
+  'Nominal sebelum dikurangi kode unik': 'Amount before the unique code is taken off',
+  'potongan kecil untuk mencocokkan transfer Anda': 'a small discount used to match your transfer'
 };

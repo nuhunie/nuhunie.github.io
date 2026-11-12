@@ -38,10 +38,10 @@ test('가격: 빈 값·0 수량은 0과 1개로 처리해 NaN이 나오지 않�
   assert.ok(Number.isFinite(r.total));
 });
 
-test('고유 코드: 1~999 범위이고 같은 주문번호면 항상 같다', () => {
+test('고유 코드: 1~300 범위이고 같은 주문번호면 항상 같다', () => {
   for (let i = 0; i < 500; i++) {
     const id = 'NUH-' + (100000 + i * 37), c = X.uniqueCode(id);
-    assert.ok(c >= 1 && c <= 999, id + ' → ' + c);
+    assert.ok(c >= 1 && c <= GO.UNIQUE_MAX && GO.UNIQUE_MAX === 300, id + ' → ' + c);
     assert.equal(c, X.uniqueCode(id));
   }
 });
@@ -59,10 +59,10 @@ test('주문번호: 머리글자-8자리, 헷갈리는 글자가 없고, 예시 
   assert.equal(many.size, 5000);
 });
 
-test('고유 코드: 99개가 아니라 999개에 고르게 퍼진다 (같은 가격 주문끼리 금액이 덜 겹치도록)', () => {
+test('고유 코드: 300개에 고르게 퍼진다 (같은 가격 주문끼리 금액이 덜 겹치도록)', () => {
   const seen = new Set();
   for (let i = 0; i < 20000; i++) seen.add(X.uniqueCode(GO.BRAND.orderPrefix + '-' + X.orderCode(i)));
-  assert.ok(seen.size > 900, '서로 다른 코드가 ' + seen.size + '개뿐');
+  assert.ok(seen.size >= 295, '서로 다른 코드가 ' + seen.size + '개뿐');
 });
 // QRIS 예시: 실제 가게가 아닌 꾸며 낸 값으로 규격대로 조립한다
 const tlv = (id, v) => id + String(v.length).padStart(2, '0') + v;
@@ -202,9 +202,14 @@ test('결제 금액과 주문번호: 화면과 서버가 같은 규칙을 쓴다
   const id = X.orderIdFrom(new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7]));
   assert.equal(id, GO.BRAND.orderPrefix + '-ABCDEFGH');
   assert.equal(X.isOrderId(X.orderIdFrom(new Uint8Array([255, 31, 32, 99, 7, 200, 13, 64]))), true);
-  assert.equal(X.payable(50000, 0, id), 50000 + X.uniqueCode(id));
-  assert.equal(X.payable(50000, 5000, id), 45000 + X.uniqueCode(id));
+  assert.equal(X.payable(50000, 0, id), 50000 - X.uniqueCode(id));    // 고유 코드는 빼 준다
+  assert.equal(X.payable(50000, 5000, id), 45000 - X.uniqueCode(id));
   assert.equal(X.payable(3000, 5000, id), X.uniqueCode(id));       // 쿠폰이 금액보다 커도 0 아래로 내려가지 않는다
+  assert.ok(X.payable(X.uniqueCode(id), 0, id) >= 1);                 // 남은 금액이 고유 코드보다 작으면 더한다
+  // 저장된 금액에서 쿠폰 할인액을 거꾸로 구한다. 보통 주문은 정확히 맞고,
+  // 쿠폰이 금액을 거의 다 덮는 드문 경우에도 화면의 계산(금액 − 쿠폰 ∓ 고유 코드 = 결제 금액)은 맞는다.
+  for (const [b, o] of [[50000, 0], [50000, 5000], [128000, 0], [20000, 10000]]) assert.equal(X.voucherOffFrom(b, X.payable(b, o, id), id), Math.min(o, b), b + '/' + o);
+  for (const [b, o] of [[3000, 5000], [300, 0], [1000, 900], [20000, 19900]]) { const t = X.payable(b, o, id), back = X.voucherOffFrom(b, t, id); assert.equal(X.payable(b, back, id), t, b + '/' + o); }
 });
 test('자동 분류: 품목 칸 안에 섞인 수량과 개당 표시를 떼어 낸다', () => {
   const pick = r => ({ buyer: r.buyer, item: r.item, qty: r.qty, price: r.price, priceIs: r.priceIs });

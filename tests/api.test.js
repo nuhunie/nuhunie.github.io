@@ -95,14 +95,14 @@ test('결제: 있는 주문은 금액 = 주문 금액 − 쿠폰 + 고유 코드
   assert.equal((await call('POST', '/pay', { orderId: o.id, method: 'QRIS', proofName: 'a.jpg', voucher: 'NOPE' })).status, 400);
   const r = await call('POST', '/pay', { orderId: o.id, method: 'QRIS', proofName: 'a.jpg', voucher: 'nuh5000', base: 1, total: 1, buyer: 'hacker' });
   assert.equal(r.status, 200);
-  assert.equal(r.json.order.total, o.total - 5000 + X.uniqueCode(o.id));   // 고객이 보낸 base·total은 쓰지 않는다
+  assert.equal(r.json.order.total, o.total - 5000 - X.uniqueCode(o.id));   // 고객이 보낸 base·total은 쓰지 않는다
   assert.equal(r.json.order.pay, 'pending');
   assert.match(r.json.order.buyer, /\*/);                                   // 응답에도 전체 이름을 싣지 않는다
   assert.notEqual(r.json.order.buyer, 'hacker');
   assert.equal((await call('POST', '/pay', { orderId: o.id, method: 'QRIS', proofName: 'b.jpg' })).status, 409);  // 이미 제출함
   await admin('PATCH', '/admin/order/' + o.id, { pay: 'rejected' });
   const again = await call('POST', '/pay', { orderId: o.id, method: 'Transfer bank', proofName: 'c.jpg' });
-  assert.equal(again.json.order.total, o.total + X.uniqueCode(o.id));
+  assert.equal(again.json.order.total, o.total - X.uniqueCode(o.id));
 });
 const nap = ms => new Promise(r => setTimeout(r, ms));
 const WINDOW_MS = (Number(vars.RATE_WINDOW_SEC) || 6) * 1000 + 500;      // 새 주문 횟수 제한이 풀리는 시간
@@ -118,7 +118,7 @@ test('주문 접수: 서버가 주문번호와 결제 금액을 정해 저장하
   assert.equal(made.status, 200);
   const o = made.json.order, id = o.id;
   assert.ok(X.isOrderId(id) && id !== GO.BRAND.orderPrefix + '-AAAAAAAA', id);
-  assert.equal(o.total, 50000 + X.uniqueCode(id));
+  assert.equal(o.total, 50000 - X.uniqueCode(id));
   assert.equal(o.pay, 'unpaid');
   assert.equal(o.buyer, 'tester');   // 방금 만든 새 주문은 입력한 이름 그대로 돌려준다
   assert.equal(o.late, 0);           // 접수 중인 배치라 "마감 뒤 주문" 표시가 없다
@@ -156,7 +156,7 @@ test('주문 접수: 쿠폰은 접수할 때 적용되고, 금액보다 커도 �
   assert.equal(small.total, X.uniqueCode(small.id));
   assert.ok(small.total >= 1);
   const big = (await call('POST', '/order', { batchId: 'kr-5', buyer: 'besar', item: 'Album', qty: 1, base: 20000, voucher: 'NUH5000' })).json.order;
-  assert.equal(big.total, 15000 + X.uniqueCode(big.id));
+  assert.equal(big.total, 15000 - X.uniqueCode(big.id));
   assert.equal((await call('GET', '/order?id=' + big.id)).json.order.total, big.total);
 });
 
@@ -183,7 +183,7 @@ test('쿠폰: 운영자가 만들고 지우며, 사용 한도를 넘으면 받�
   assert.equal((await call('POST', '/voucher', { code: 'uji1x' })).json.off, 3000);
   const first = await call('POST', '/order', { batchId: 'kr-5', buyer: 'kupon1', item: 'Album', qty: 1, base: 40000, voucher: 'uji1x' });
   assert.equal(first.status, 200);
-  assert.equal(first.json.order.total, 37000 + X.uniqueCode(first.json.order.id));
+  assert.equal(first.json.order.total, 37000 - X.uniqueCode(first.json.order.id));
   assert.equal((await admin('GET', '/admin/state')).json.vouchers.find(v => v.code === 'UJI1X').used, 1);
   // 한도(1번)를 다 썼다: 확인도, 새 주문도 받지 않는다
   assert.equal((await call('POST', '/voucher', { code: 'UJI1X' })).status, 409);
@@ -202,7 +202,7 @@ test('쿠폰: 운영자가 만들고 지우며, 사용 한도를 넘으면 받�
   assert.equal((await admin('DELETE', '/admin/voucher/uji1x')).status, 200);
   assert.equal((await admin('DELETE', '/admin/voucher/UJI1X')).status, 404);
   assert.equal((await call('POST', '/voucher', { code: 'UJI1X' })).status, 404);
-  assert.equal((await call('GET', '/order?id=' + op.id)).json.order.total, op.base - 3000 + X.uniqueCode(op.id));
+  assert.equal((await call('GET', '/order?id=' + op.id)).json.order.total, op.base - 3000 - X.uniqueCode(op.id));
   const log = (await admin('GET', '/admin/log')).json.log.map(l => l.action);
   assert.ok(log.includes('voucher.add') && log.includes('voucher.delete'));
   await nap(WINDOW_MS);
@@ -229,7 +229,7 @@ test('한 장짜리 쿠폰: 여러 장을 만들고, 한 장은 한 번만 쓰�
   const got = await Promise.all([1, 2, 3, 4].map(() => call('POST', '/order', body)));
   assert.deepEqual(got.map(r => r.status).sort(), [200, 409, 409, 409]);
   const won = got.find(r => r.status === 200).json.order;
-  assert.equal(won.total, 28000 + X.uniqueCode(won.id));
+  assert.equal(won.total, 28000 - X.uniqueCode(won.id));
   assert.equal((await call('POST', '/voucher', { code: codes[1] })).status, 409);
   // 운영자 화면에는 쓴 쿠폰이 보이고, 고객 응답에는 쿠폰·입금자가 없다
   const st = (await admin('GET', '/admin/state')).json;

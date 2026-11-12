@@ -375,7 +375,7 @@
       var ob = S.batch(o.batchId) || b, base = o.base || o.total;
       // 고객이 접수한 주문(self)은 결제 금액이 이미 정해져 있다. 쿠폰은 접수할 때 적용된 만큼만 보여 준다.
       Object.assign(P, { svc: ob ? ob.svc : '', batchId: ob ? ob.id : o.batchId, orderId: o.id, id: o.id, buyer: o.buyer, item: o.item, qty: o.qty, base: base, pay: o.pay, total: o.total, fixed: !!o.self, payBy: payBy(o) });
-      if (P.fixed) P.off = Math.max(0, base + X.uniqueCode(o.id) - o.total);
+      if (P.fixed) P.off = X.voucherOffFrom(base, o.total, o.id);
       if (o.pay !== 'unpaid' && o.pay !== 'rejected') forgetOpen(o.id);
       render();
     }, function () { if (P !== mine) return; P.loading = false; P.failed = true; render(); });   // 연결이 끊겼거나 조회가 막혔다
@@ -385,8 +385,8 @@
     if (!base) return { base: 0, off: 0, code: 0, total: 0 };
     var off = Math.min(P.off, base);
     if (!P.orderId) return { base: base, off: off, code: 0, total: base - off };     // 접수 전: 고유 코드는 접수할 때 정해진다
-    var code = X.uniqueCode(P.id);
-    return { base: base, off: off, code: code, total: P.fixed ? P.total : base - off + code };
+    var total = P.fixed ? P.total : X.payable(base, off, P.id);
+    return { base: base, off: off, code: total - (base - off), total: total };   // code: 빼면 음수, (거의 공짜 주문이라) 더하면 양수
   }
   // 결제 칸: 접수 전이면 "주문 접수" 단추, 접수된 주문이면 금액·QR·증빙, 이미 낸 주문이면 안내만.
   function payPanel() {
@@ -498,14 +498,14 @@
       out.innerHTML = '<div class="amount">' +
         '<div class="brk"><div><b>' + L('Total harga', '총 금액') + '</b></div><span>' + rp(a.base) + '</span></div>' +
         (a.off ? '<div class="brk"><div><b>Voucher</b></div><span>−' + rp(a.off) + '</span></div>' : '') +
-        '<div class="brk"><div><b>' + L('Kode unik', '고유 코드') + '</b><small>' + L('ditentukan saat pesanan dibuat', '주문을 접수하면 정해집니다') + '</small></div><span>+Rp1–999</span></div>' +
-        '<div class="total"><span>' + L('Nominal sebelum kode unik', '고유 코드를 더하기 전 금액') + '</span><b>' + rp(a.total) + '</b></div></div>';
+        '<div class="brk"><div><b>' + L('Kode unik', '고유 코드') + '</b><small>' + L('ditentukan saat pesanan dibuat', '주문을 접수하면 정해집니다') + '</small></div><span>−Rp1–' + GO.UNIQUE_MAX + '</span></div>' +
+        '<div class="total"><span>' + L('Nominal sebelum dikurangi kode unik', '고유 코드를 빼기 전 금액') + '</span><b>' + rp(a.total) + '</b></div></div>';
       return;
     }
     out.innerHTML = '<div class="amount">' +
       '<div class="brk"><div><b>' + L('Total harga', '총 금액') + '</b></div><span>' + rp(a.base) + '</span></div>' +
       (a.off ? '<div class="brk"><div><b>Voucher</b></div><span>−' + rp(a.off) + '</span></div>' : '') +
-      '<div class="brk"><div><b>' + L('Kode unik', '고유 코드') + '</b><small>' + L('untuk mencocokkan pembayaran otomatis', '입금 자동 대조용') + '</small></div><span>+' + rp(a.code) + '</span></div>' +
+      '<div class="brk"><div><b>' + L('Kode unik', '고유 코드') + '</b><small>' + L('potongan kecil untuk mencocokkan transfer Anda', '입금 확인용으로 조금 빼 드립니다') + '</small></div><span>' + (a.code < 0 ? '−' : '+') + rp(Math.abs(a.code)) + '</span></div>' +
       '<div class="total"><span>' + L('Nominal yang dibayar', '결제할 금액') + '</span><b>' + rp(a.total) + '</b></div></div>' +
       payHow();
     var q = $('#qrC'); if (q) drawQR(q, qrText(P.id, a.total));

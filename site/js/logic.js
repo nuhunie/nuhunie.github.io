@@ -36,16 +36,26 @@
     return { qty: qty, conv: conv, feeGo: feeGo, feeCo: feeCo, tax: tax, extra: extra, total: total, perPcs: Math.round(total / qty) };
   };
 
-  /* ── B. 고유 코드: 주문번호에서 1~999를 뽑아 입금액에 더한다 ──
-   * 같은 가격의 주문이 여러 건이어도 입금액 끝자리로 구분하기 위한 값이다.
-   * 99가지로는 같은 가격 주문 12건이면 절반 확률로 겹쳐서 999가지로 쓴다. */
+  /* ── B. 고유 코드: 주문번호에서 1~UNIQUE_MAX(300)를 뽑아 결제 금액에서 뺀다 ──
+   * 같은 가격의 주문이 여러 건이어도 입금액 끝자리로 구분하기 위한 값이다. 빼 주므로 손님에게 돌려줄 일이 없다.
+   * 겹침은 주문을 접수할 때 서버가 결제 전·확인 대기 주문과 겹치지 않는 번호를 골라 피한다. */
   X.uniqueCode = function (orderId) {
     var h = 0;
     for (var i = 0; i < orderId.length; i++) h = (h * 31 + orderId.charCodeAt(i)) % 1000003;
-    return (h % 999) + 1;
+    return (h % GO.UNIQUE_MAX) + 1;
   };
-  // 결제할 금액 = 주문 금액 − 쿠폰 + 고유 코드. 쿠폰이 금액보다 커도 0 아래로 내려가지 않는다.
-  X.payable = function (base, off, orderId) { return base - Math.min(off || 0, base) + X.uniqueCode(orderId); };
+  // 결제할 금액 = 주문 금액 − 쿠폰 − 고유 코드. 쿠폰을 빼고 남은 금액이 고유 코드보다 작으면(거의 공짜인 주문)
+  // 금액이 0 이하가 되지 않도록 그때만 고유 코드를 더한다.
+  X.payable = function (base, off, orderId) {
+    var after = base - Math.min(off || 0, base), c = X.uniqueCode(orderId);
+    return after - c >= 1 ? after - c : after + c;
+  };
+  // 저장된 결제 금액에서 거꾸로 쿠폰 할인액을 구한다(고객 화면에 "쿠폰 적용됨"을 보여 줄 때)
+  X.voucherOffFrom = function (base, total, orderId) {
+    var c = X.uniqueCode(orderId), a = base - c - total;
+    if (a >= 0 && X.payable(base, a, orderId) === total) return a;
+    return Math.max(0, base - (total - c));
+  };
   // 무작위 바이트 8개로 주문번호를 만든다. 맞히기 어렵도록 부르는 쪽이 암호용 난수를 넘긴다.
   X.orderIdFrom = function (bytes) {
     var id = GO.BRAND.orderPrefix + '-';
