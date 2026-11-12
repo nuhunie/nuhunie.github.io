@@ -86,7 +86,7 @@ test('입금 기한: 지울 때가 된 접수만, 지우는 순간에도 결제 
   const ran = [], st = sql => ({ sql, bind: (...a) => ({ sql, a, all: async () => ({ results: /SELECT o\.id/.test(sql) ? [{ id: 'NUH-AAAAAAAA' }, { id: 'NUH-BBBBBBBB' }] : [] }), run: async () => { ran.push(sql); return { meta: { changes: 1 } }; } }) });
   const db = { prepare: st, batch: async list => { list.forEach(s => ran.push(s.sql)); return list.map(() => ({ meta: { changes: 1 } })); } };
   assert.deepEqual(await purgeExpired(db, {}), ['NUH-AAAAAAAA', 'NUH-BBBBBBBB']);
-  assert.equal(ran.filter(s => /DELETE FROM orders WHERE id = \? AND pay = 'unpaid'/.test(s)).length, 2);
+  assert.equal(ran.filter(s => /DELETE FROM orders WHERE id = \? AND pay = 'unpaid' AND proof_name = ''/.test(s)).length, 2);   // 증빙을 낸 적 있는 주문은 지우지 않는다
   assert.equal(ran.filter(s => /DELETE FROM order_flags WHERE order_id = \? AND NOT EXISTS/.test(s)).length, 2);
   assert.ok(ran.some(s => /INSERT INTO audit/.test(s)));
   const empty = { prepare: sql => ({ bind: () => ({ all: async () => ({ results: [] }) }) }), batch: async () => { throw new Error('지울 것이 없으면 아무것도 쓰지 않는다'); } };

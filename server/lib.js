@@ -155,13 +155,14 @@ export const withDeadline = (o, env) => Object.assign(o, { payBy: X.payBy(o, pay
 // 지울 때가 된 접수인가 (접수 뒤 PURGE_HOURS 가 지나도록 결제 전)
 export const expired = (o, env, now) => X.payState(o, now, payHours(env), purgeHours(env)) === 'gone';
 // 지울 때가 된 접수를 지우고 그 주문번호들을 돌려준다. 지우는 순간에도 결제 전인지 다시 본다(그 사이 증빙을 냈을 수 있다).
+// 증빙을 한 번이라도 낸 주문(proof_name 이 있음)은 지우지 않는다: 운영자가 미결제로 되돌린 주문이 사라지면 안 된다. (logic.js 의 payBy 와 같은 조건)
 export async function purgeExpired(db, env) {
   const cutoff = new Date(Date.now() - purgeHours(env) * 3600000).toISOString();
-  const rows = (await db.prepare("SELECT o.id AS id FROM orders o JOIN order_flags f ON f.order_id = o.id AND f.self = 1 WHERE o.pay = 'unpaid' AND o.created_at < ? LIMIT 100").bind(cutoff).all()).results;
+  const rows = (await db.prepare("SELECT o.id AS id FROM orders o JOIN order_flags f ON f.order_id = o.id AND f.self = 1 WHERE o.pay = 'unpaid' AND o.proof_name = '' AND o.created_at < ? LIMIT 100").bind(cutoff).all()).results;
   if (!rows.length) return [];
   const stmts = [];
   rows.forEach(r => stmts.push(
-    db.prepare("DELETE FROM orders WHERE id = ? AND pay = 'unpaid'").bind(r.id),
+    db.prepare("DELETE FROM orders WHERE id = ? AND pay = 'unpaid' AND proof_name = ''").bind(r.id),
     db.prepare('DELETE FROM order_flags WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id)
   ));
   await db.batch(stmts);

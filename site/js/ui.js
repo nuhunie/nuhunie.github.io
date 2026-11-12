@@ -72,8 +72,9 @@
     return '<span class="badge ' + cls + '">' + esc(LL(GO.STAGES[b.stage])) + '</span>';
   }
   function payBadge(p) { return '<span class="badge pay-' + p + '">' + esc(LL(GO.PAY[p])) + '</span>'; }
-  /* 입금 기한: 고객이 접수한 결제 전 주문에만 있다. 서버가 준 payBy 를 쓰고, 목업판에서는 같은 규칙(logic.js)으로 계산한다. */
-  function payBy(o) { return (o && o.payBy) || X.payBy(o); }
+  /* 입금 기한: 고객이 접수하고 증빙을 낸 적 없는 결제 전 주문에만 있다. 서버나 저장소가 payBy 를 붙여 줬으면 빈 값이어도 그대로 믿는다
+   * (고객에게 온 주문은 증빙 이름이 가려져 있어, 여기서 다시 계산하면 기한 없는 주문에 기한이 생긴다). 없을 때만 같은 규칙(logic.js)으로 계산한다. */
+  function payBy(o) { return o && typeof o.payBy === 'string' ? o.payBy : X.payBy(o); }
   function overdue(o) { var by = payBy(o); return !!by && Date.now() >= Date.parse(by); }
   function whenLabel(iso) { return new Date(iso).toLocaleString(loc(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
   function leftLabel(iso) {

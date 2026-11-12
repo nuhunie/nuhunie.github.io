@@ -166,6 +166,7 @@
     orders.forEach(function (o) {
       if (o.id !== q) return;
       var copy = {}; for (var k in o) copy[k] = o[k];
+      copy.payBy = X.payBy(o);                      // 기한은 증빙 이름을 가리기 전에 정한다
       copy.buyer = X.maskName(o.buyer); copy.proofName = '';
       out.push(copy);
     });
@@ -184,9 +185,11 @@
   /* ── 입금 기한: 고객이 접수한 결제 전 주문에만 있다 ──
    *   payBy(o)          기한 시각(ISO 글자). 해당 없는 주문이면 ''
    *   payState(o, now)  'none' 해당 없음 · 'open' 기한 안 · 'overdue' 기한 지남(유예 중: 증빙만 받는다) · 'gone' 지울 때가 됨
-   * 운영자가 넣은 주문, 증빙을 낸 주문, 반려된 주문에는 기한이 없다(운영자가 다룬다). */
+   * 운영자가 넣은 주문, 증빙을 낸 주문, 반려된 주문에는 기한이 없다(운영자가 다룬다).
+   * 증빙을 한 번이라도 낸 주문(proofName 이 있음)은 운영자가 미결제로 되돌려도 기한이 없다: 자동으로 지워지면 안 된다.
+   * 그래서 기한은 증빙 이름을 가리기 전의 주문으로 계산한다(고객에게 내보낼 때는 payBy 를 먼저 붙이고 가린다). */
   X.payBy = function (o, hours) {
-    if (!o || !o.self || o.pay !== 'unpaid' || !o.createdAt) return '';
+    if (!o || !o.self || o.pay !== 'unpaid' || o.proofName || !o.createdAt) return '';
     var t = Date.parse(o.createdAt);
     return isNaN(t) ? '' : new Date(t + (hours || GO.PAY_HOURS) * 3600000).toISOString();
   };

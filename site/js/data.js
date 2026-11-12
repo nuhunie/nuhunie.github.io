@@ -3,7 +3,7 @@
  * Service  { id, name[id,ko], desc[id,ko], cur }
  * Batch    { id, svc→Service, no, title, month'YYYY-MM', stage(0~5), closeDate, kurs, note }
  * Order    { id('NUH-8자리'), batchId→Batch, buyer, item, qty, base, total(IDR), pay, method, proofName, createdAt }
- *          + self(고객이 접수한 주문), late(마감 뒤에 접수한 단계), payBy(입금 기한: 고객이 접수한 결제 전 주문에만)
+ *          + self(고객이 접수한 주문), late(마감 뒤에 접수한 단계), payBy(입금 기한: 고객이 접수하고 증빙을 낸 적 없는 결제 전 주문에만)
  * Voucher  { code, off(IDR) }
  * CalcDefaults  계산기 기본 수식
  */

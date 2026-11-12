@@ -229,6 +229,13 @@ test('입금 기한: 고객이 접수한 결제 전 주문에만 있고, 접수 
   assert.equal(X.payBy(Object.assign({}, o, { self: 0 })), '');            // 운영자가 넣은 주문
   assert.equal(X.payBy(Object.assign({}, o, { pay: 'pending' })), '');     // 증빙을 낸 주문
   assert.equal(X.payBy(Object.assign({}, o, { pay: 'rejected' })), '');    // 반려된 주문은 운영자가 다룬다
+  const back = Object.assign({}, o, { id: 'NUH-AAAAAAAA', buyer: 'tamu', proofName: 'bukti.jpg' });   // 증빙을 낸 뒤 운영자가 미결제로 되돌린 주문
+  assert.equal(X.payBy(back), '');
+  assert.equal(X.payState(back, Date.parse(o.createdAt) + 100 * 3600000), 'none', '증빙을 낸 적 있는 주문은 지워지면 안 된다');
+  const seen = X.searchOrders([back], back.id)[0];                         // 고객이 조회하면 증빙 이름은 가려지지만
+  assert.equal(seen.proofName, '');
+  assert.equal(seen.payBy, '', '가린 뒤에도 기한이 생기지 않는다');
+  assert.equal(X.searchOrders([Object.assign({}, o, { id: 'NUH-BBBBBBBB', buyer: 'tamu' })], 'NUH-BBBBBBBB')[0].payBy, '2026-11-13T03:00:00.000Z');
   assert.equal(X.payBy(o, 1), '2026-11-12T04:00:00.000Z');                 // 시간을 바꿔 줄 수 있다(검사용)
   assert.equal(X.payBy(null), '');
 });

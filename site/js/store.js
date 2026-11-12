@@ -142,7 +142,7 @@
     },
     fetchOrder: function (id) {
       // 없는 번호는 null, 기한까지 결제되지 않아 지워진 접수는 { gone: true }. 그 밖의 실패(연결 끊김, 횟수 제한)는 실패로 넘긴다.
-      if (mode === 'local') { var old = this.order(String(id || '').trim()); if (old && X.payState(old) === 'gone') { purgeLocal(); return Promise.resolve({ gone: true }); } var o = this.order(String(id || '').trim()); return Promise.resolve(o ? Object.assign({}, o, { buyer: X.maskName(o.buyer), proofName: '' }) : null); }
+      if (mode === 'local') { var old = this.order(String(id || '').trim()); if (old && X.payState(old) === 'gone') { purgeLocal(); return Promise.resolve({ gone: true }); } var o = this.order(String(id || '').trim()); return Promise.resolve(o ? Object.assign({}, o, { payBy: X.payBy(o), buyer: X.maskName(o.buyer), proofName: '' }) : null); }   // 기한은 증빙 이름을 가리기 전에 정한다(서버와 같다)
       return api('GET', '/order?id=' + encodeURIComponent(String(id || '').trim())).then(function (r) { return r.order; }, function (e) { if (e.status === 404) return null; if (e.status === 410) return { gone: true }; throw e; });
     },
     checkVoucher: function (code) {

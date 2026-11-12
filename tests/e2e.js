@@ -204,6 +204,13 @@ window.runE2E = async function () {
   check('알림: 취소 안내는 한 번만 뜬다', !$('.modal'));
   await go('#/pay/kr-5/' + od3.id); await wait(80);
   check('결제 화면: 취소된 접수의 주소를 열면 취소됐다고 알린다', /dibatalkan otomatis/.test($('#app').textContent));
+  // 증빙을 낸 주문을 운영자가 미결제로 되돌린 경우: 접수 48시간이 지났어도 지워지지 않고, 기한 안내도 다시 생기지 않는다
+  const od4 = await S.createOrder({ batchId: 'kr-5', buyer: 'balik', item: 'Uji dikembalikan', qty: 1, base: 42000, voucher: '' });
+  Object.assign(S.order(od4.id), { pay: 'unpaid', method: 'QRIS', proofName: 'bukti.jpg', createdAt: new Date(Date.now() - (GO.PURGE_HOURS + 1) * 3600000).toISOString() });
+  await go('#/track/' + od4.id); await wait(80);
+  check('기한: 증빙을 낸 주문은 운영자가 미결제로 되돌려도 지워지지 않고 기한 안내도 없다', !!S.order(od4.id) && $$('.card').length === 1 && !$('.card [data-deadline]'));
+  await go('#/pay/kr-5/' + od4.id); await wait(80);
+  check('기한: 되돌린 주문의 결제 화면은 금액을 그대로 보여 준다', !$('[data-deadline]') && !!$('#payOut .total'));
   try { localStorage.removeItem('nuh-my-orders'); } catch (e) {}
   const keep = S.db.batches.slice(); S.db.batches.length = 0;
   await go('#/'); await go('#/pay'); await wait(60);

@@ -199,6 +199,11 @@ test('접수: 고객이 접수한 주문에는 입금 기한(24시간)이 붙고
   assert.equal(paid.status, 200);
   assert.equal((await call('GET', '/order?id=' + r.json.order.id)).json.order.payBy, '');      // 증빙을 낸 주문에는 기한이 없다
   assert.equal((await call('GET', '/order?id=' + GO.seed().orders[0].id)).json.order.payBy, '');   // 운영자가 넣은 주문에도 없다
+  // 증빙을 낸 주문을 운영자가 미결제로 되돌려도 기한이 다시 생기지 않는다 (기한이 생기면 접수 48시간 뒤 자동으로 지워진다)
+  assert.equal((await admin('PATCH', '/admin/order/' + r.json.order.id, { pay: 'unpaid' })).status, 200);
+  assert.equal((await call('GET', '/order?id=' + r.json.order.id)).json.order.payBy, '');
+  assert.equal((await call('GET', '/track?q=' + r.json.order.id)).json.orders[0].payBy, '');
+  assert.equal((await admin('GET', '/admin/state')).json.orders.find(o => o.id === r.json.order.id).payBy, '');
   assert.equal((await call('POST', '/order', { batchId: 'kr-5', buyer: 'x'.repeat(GO.LIMITS.buyer + 1), item: 'a', qty: 1, base: 1000 })).status, 400);   // 한도는 data.js 한 곳에서 온다
 });
 test('관리자: 배치 추가·단계 변경이 공개 화면에 반영된다', async () => {

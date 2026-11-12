@@ -78,7 +78,8 @@ export async function onRequest({ request, env, params }) {
       if (!row) { await recordHit(db, request, 'look'); return json({ orders: [] }); }
       // 기한이 한참 지나도록 결제 전인 접수는 지우고, 지워졌다고 알린다 (틀린 번호로 세지 않는다)
       if (expired(toOrder(row), env)) { await purgeExpired(db, env); return json({ orders: [], gone: true }); }
-      return json({ orders: [withDeadline(Object.assign(toOrder(row), { buyer: X.maskName(row.buyer), proofName: '' }), env)] });
+      // 기한은 증빙 이름을 가리기 전에 정한다: 증빙을 낸 적 있는 주문에는 기한이 없다
+      return json({ orders: [Object.assign(withDeadline(toOrder(row), env), { buyer: X.maskName(row.buyer), proofName: '' })] });
     }
 
     if (route === 'GET /order') {
@@ -87,9 +88,10 @@ export async function onRequest({ request, env, params }) {
       if (await overLimit(db, env, request, 'look')) return fail('Too many requests. Try again later.', 429);
       const row = await db.prepare(ORDER_SELECT + ' WHERE o.id = ?').bind(id).first();
       if (!row) { await recordHit(db, request, 'look'); return fail('Order not found.', 404); }
-      const o = toOrder(row); o.proofName = ''; o.buyer = X.maskName(o.buyer);
+      const o = withDeadline(toOrder(row), env);   // 기한은 증빙 이름을 가리기 전에 정한다
       if (expired(o, env)) { await purgeExpired(db, env); return json({ error: 'This order has expired.', gone: true }, 410); }
-      return json({ order: withDeadline(o, env) });
+      o.proofName = ''; o.buyer = X.maskName(o.buyer);
+      return json({ order: o });
     }
 
     if (route === 'POST /voucher') {
