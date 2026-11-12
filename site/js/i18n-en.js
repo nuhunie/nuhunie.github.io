@@ -261,6 +261,14 @@ GO.EN = {
   'Ada pesanan dengan nominal yang sama. Cocokkan dengan bukti dan nama sebelum menyetujui.': 'Some orders have the same amount. Match them against the proof and the name before approving.',
   'Nominal sama': 'Same amount',
 
+  // 마감 뒤 주문
+  'Batch ini sudah tutup order. Pesanan baru tetap diterima, tetapi diproses terpisah dari batch ini dan bisa ikut pengiriman berikutnya.': 'Orders for this batch are closed. New orders are still accepted, but they are handled separately from this batch and may go with the next shipment.',
+  'Tahap sekarang': 'Current stage',
+  'Setelah tutup order': 'After closing',
+  'Pesanan ini masuk setelah tutup order, jadi diproses terpisah dari batch. Admin akan mengabari jadwalnya.': 'This order came in after orders closed, so it is handled separately from the batch. The admin will let you know the schedule.',
+  'diproses terpisah': 'handled separately',
+  'Login admin dimatikan karena kata sandi di server terlalu pendek (minimal 12 karakter).': 'Admin sign-in is off because the server password is too short (at least 12 characters).',
+
   // 배색·이동
   'Ke atas': 'Back to top',
   'Ke bawah': 'Go to bottom'

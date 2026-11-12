@@ -15,8 +15,8 @@ jobs:
         with:
           node-version: 22
 
-      - name: 계산 로직
-        run: node --test tests/logic.test.js
+      - name: 계산 로직과 서버 공통 코드
+        run: node --test tests/logic.test.js tests/server.test.js
 
       - name: 서버 띄우기
         run: |

@@ -12,7 +12,7 @@
 (function (GO) {
   var KEY = 'jastip-mockup-v4';
   var X = GO.logic;
-  var db, mode = 'local', admin = false, loginReady = true, canReset = true, lastPull = 0;
+  var db, mode = 'local', admin = false, loginReady = true, loginWeak = false, canReset = true, lastPull = 0;
 
   /* ── local ── */
   function loadLocal() {
@@ -56,6 +56,7 @@
     get mode() { return mode; },
     get isAdmin() { return mode === 'local' || admin; },
     get loginReady() { return loginReady; },
+    get loginWeak() { return loginWeak; },        // 서버의 관리자 비밀번호가 너무 짧아 로그인이 꺼져 있다
     get canReset() { return canReset; },          // 예시 데이터 초기화: 목업판과 내 컴퓨터에서만
 
     /* 처음 한 번: 서버가 있는지 확인하고 데이터를 읽는다 */
@@ -64,7 +65,7 @@
         if (!s || !s.services) throw new Error('no api');
         mode = 'server'; setState(s); lastPull = Date.now();
         return api('GET', '/me').then(function (me) {
-          admin = !!me.admin; loginReady = !!me.configured; canReset = !!me.canReset;
+          admin = !!me.admin; loginReady = !!me.configured; loginWeak = !!me.weak; canReset = !!me.canReset;
           if (admin) return pull();
         }).catch(function () {});
       }).catch(function () { mode = 'local'; loadLocal(); });
@@ -99,7 +100,7 @@
      * 서버의 공개 데이터에는 주문이 없고 배치마다 수량(stats.pcs)이 붙어 온다. */
     recap: function (batchId) {
       var b = find(db.batches, batchId);
-      return { pcs: b && b.stats ? b.stats.pcs : X.batchRecap(batchId, db.orders).pcs };
+      return { pcs: b && b.stats ? b.stats.pcs : X.batchRecap(batchId, X.publicOrders(db.orders)).pcs };
     },
     monthRecap: function (list) {
       var self = this, r = { batches: list.length, ongoing: 0, pcs: 0 };
@@ -110,7 +111,7 @@
     batchItems: function (batchId) {
       var b = find(db.batches, batchId);
       if (mode === 'server' && b && b.stats) return api('GET', '/batch-items?id=' + encodeURIComponent(batchId)).then(function (r) { return r.items; });
-      return Promise.resolve(X.batchRecap(batchId, db.orders).items.map(function (it) { return { item: it.item, qty: it.qty }; }));
+      return Promise.resolve(X.batchRecap(batchId, X.publicOrders(db.orders)).items.map(function (it) { return { item: it.item, qty: it.qty }; }));
     },
     /* 관리자 활동 기록 (server에서만). local이면 null */
     fetchLog: function () {
@@ -156,7 +157,7 @@
       var id = o ? o.id : p.id;
       var patch = { base: base, total: base - Math.min(v ? v.off : 0, base) + X.uniqueCode(id), pay: 'pending', method: p.method, proofName: p.proofName };
       if (o) Object.assign(o, patch);
-      else { o = Object.assign({ id: id, batchId: p.batchId, buyer: String(p.buyer).trim().replace(/^@/, ''), item: String(p.item).trim(), qty: Math.max(1, Number(p.qty) || 1), createdAt: new Date().toISOString() }, patch); db.orders.push(o); }
+      else { var pb = find(db.batches, p.batchId); o = Object.assign({ id: id, self: 1, late: pb && pb.stage >= 1 ? pb.stage : 0, batchId: p.batchId, buyer: String(p.buyer).trim().replace(/^@/, ''), item: String(p.item).trim(), qty: Math.max(1, Number(p.qty) || 1), createdAt: new Date().toISOString() }, patch); db.orders.push(o); }
       save();
       return Promise.resolve(o);
     },

@@ -111,6 +111,20 @@ test('결제: 새 주문은 서버가 금액을 계산하고, 잘못된 입력�
   assert.equal(r.json.order.total, 50000 + X.uniqueCode(id));
   assert.equal(r.json.order.pay, 'pending');
   assert.equal(r.json.order.buyer, 'tester');   // 방금 만든 새 주문은 입력한 이름 그대로 돌려준다
+  assert.equal(r.json.order.late, 0);            // 접수 중인 배치라 "마감 뒤 주문" 표시가 없다
+  // 고객이 적어 낸 품목은 승인 전에는 공개 리캡에 나오지 않는다 (아무 글이나 공개 화면에 띄울 수 없게)
+  const before = (await call('GET', '/public')).json.batches.find(x => x.id === 'kr-5').stats.pcs;
+  assert.ok(!(await call('GET', '/batch-items?id=kr-5')).json.items.some(i => i.item === 'Keyring uji'));
+  assert.equal((await admin('PATCH', '/admin/order/' + id, { pay: 'paid' })).status, 200);
+  assert.ok((await call('GET', '/batch-items?id=kr-5')).json.items.some(i => i.item === 'Keyring uji'), '승인 뒤에는 나와야 한다');
+  assert.equal((await call('GET', '/public')).json.batches.find(x => x.id === 'kr-5').stats.pcs, before + 2);
+  // 주문이 마감된 배치(kr-4, 구매 완료 단계)에도 새 주문은 받지만 "마감 뒤 주문"으로 표시된다
+  const lateId = GO.BRAND.orderPrefix + '-' + X.orderCode(777004);
+  const late = await call('POST', '/pay', Object.assign({}, good, { id: lateId, batchId: 'kr-4' }));
+  assert.equal(late.status, 200);
+  assert.equal(late.json.order.late, 2);
+  assert.equal((await call('GET', '/track?q=' + lateId)).json.orders[0].late, 2);
+  assert.equal((await admin('GET', '/admin/state')).json.orders.find(o => o.id === lateId).late, 2);
   assert.equal((await call('POST', '/pay', good)).status, 409);                             // 같은 주문번호
   assert.equal((await call('POST', '/pay', Object.assign({}, good, { id: GO.BRAND.orderPrefix + '-' + X.orderCode(777002), batchId: 'kr-1' }))).status, 409);  // 완료된 배치
 });

@@ -42,6 +42,10 @@ window.runE2E = async function () {
   $('#app a.btn[href="#/pay/kr-5"]').click(); await wait(80);
   check('결제: 배치가 미리 선택되어 있다', $('[data-pay=batchId]').value === 'kr-5');
   check('결제: 완료된 배치는 고를 수 없다', !$$('[data-pay=batchId] option').some(o => S.batch(o.value).stage === GO.LAST_STAGE));
+  check('결제: 접수 중인 배치에는 마감 안내가 없다', !$('.note.warn'));
+  type('[data-pay=batchId]', 'kr-4'); await wait(60);
+  check('결제: 마감된 배치를 고르면 따로 처리된다는 안내가 나온다', !!$('.note.warn') && $('[data-pay=batchId]').value === 'kr-4');
+  type('[data-pay=batchId]', 'kr-5'); await wait(60);
   const o1 = S.db.orders[0], base1 = o1.total;
   type('#payLookup', 'TIDAK-ADA'); $('[data-act=pay-lookup]').click(); await wait(60);
   check('결제: 없는 주문번호는 안내가 나온다', $('#lookupMsg').className === 'err');

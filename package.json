@@ -6,7 +6,7 @@
     "setup": "node scripts/setup.js",
     "dev": "npx wrangler pages dev site --port 8788",
     "mock": "python -m http.server 4173",
-    "test": "node --test tests/logic.test.js",
+    "test": "node --test tests/logic.test.js tests/server.test.js",
     "test:server": "node --test tests/api.test.js && node --test tests/abuse.test.js",
     "deploy": "npx wrangler pages deploy site --project-name nuhunie --branch main"
   }

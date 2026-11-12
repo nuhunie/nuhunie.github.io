@@ -56,7 +56,12 @@ function sameText(a, b) {            // 길이와 내용을 끝까지 비교해 
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
 }
-export function configured(env) { return !!(env.ADMIN_PASSWORD && env.SESSION_SECRET); }
+// 비밀번호가 너무 짧으면 로그인 자체를 열지 않는다: 횟수 제한으로는 짧은 비밀번호를 지킬 수 없다.
+export const MIN_PASSWORD = 12;
+export function weakPassword(env) { return !!env.ADMIN_PASSWORD && String(env.ADMIN_PASSWORD).length < MIN_PASSWORD; }
+export function configured(env) { return !!(env.ADMIN_PASSWORD && env.SESSION_SECRET) && !weakPassword(env); }
+// 예시 데이터 초기화는 켜 둔 곳(내 컴퓨터, 검사 환경)에서만 된다
+export function canReset(env) { return env.ALLOW_RESET === '1'; }
 export async function passwordOk(env, given) {
   if (!configured(env) || typeof given !== 'string') return false;
   // 두 값을 같은 열쇠로 서명한 뒤 비교한다 (길이가 달라도 비교 시간이 같다)
@@ -91,11 +96,13 @@ export async function isAdmin(request, env) {
 
 /* ── 횟수 제한: 같은 곳에서 같은 일을 너무 자주 하면 막는다 ──
  *   kind: [허용 횟수, 기간(초)].  RATE_WINDOW_SEC가 있으면 기간을 그 값으로 바꾼다(검사용).
- *   login     한 곳에서 틀린 비밀번호
- *   loginAll  어디서든 합친 틀린 비밀번호 (주소를 바꿔 가며 시도하는 것을 막는다)
- *   pay       한 곳에서 새 주문 제출
- *   look      한 곳에서 틀린 조회 (없는 주문번호, 없는 쿠폰). 맞는 조회는 세지 않는다 */
-const LIMITS = { login: [5, 900], loginAll: [40, 900], pay: [10, 3600], look: [20, 600] };
+ *   login   한 곳에서 틀린 비밀번호
+ *   pay     한 곳에서 새 주문 제출
+ *   look    한 곳에서 틀린 주문 조회 (없는 주문번호). 맞는 조회는 세지 않는다
+ *   coupon  한 곳에서 틀린 쿠폰 코드
+ * "어디서든 합친 로그인 실패 상한"은 두지 않는다: 누군가 일부러 틀리게 넣어 운영자의 로그인을 계속 막을 수 있어서다.
+ * 주소를 바꿔 가며 하는 시도는 긴 비밀번호(MIN_PASSWORD)로 막는다. */
+const LIMITS = { login: [5, 900], pay: [10, 3600], look: [20, 600], coupon: [20, 600] };
 const ipOf = request => (request.headers.get('cf-connecting-ip') || 'local').trim().toLowerCase();
 // 세는 단위. IPv6는 한 사람이 /64 대역을 통째로 받아 끝자리를 마음대로 바꿀 수 있으므로 앞 64비트로 묶는다.
 export function ipKey(request) {
@@ -111,9 +118,7 @@ export function ipKey(request) {
 }
 export async function overLimit(db, env, request, kind) {
   const max = LIMITS[kind][0], since = Date.now() - (Number(env.RATE_WINDOW_SEC) || LIMITS[kind][1]) * 1000;
-  const row = kind === 'loginAll'
-    ? await db.prepare("SELECT COUNT(*) AS n FROM hits WHERE kind = 'login' AND at > ?").bind(since).first()
-    : await db.prepare('SELECT COUNT(*) AS n FROM hits WHERE kind = ? AND ip = ? AND at > ?').bind(kind, ipKey(request), since).first();
+  const row = await db.prepare('SELECT COUNT(*) AS n FROM hits WHERE kind = ? AND ip = ? AND at > ?').bind(kind, ipKey(request), since).first();
   return row.n >= max;
 }
 export async function recordHit(db, request, kind) {
@@ -127,13 +132,17 @@ export async function recordHit(db, request, kind) {
 /* ── DB 행 → 화면이 쓰는 모양 ── */
 export const toService = r => ({ id: r.id, name: [r.name_id, r.name_ko], desc: [r.desc_id, r.desc_ko], cur: r.cur });
 export const toBatch = r => ({ id: r.id, svc: r.svc, no: r.no, title: r.title, month: r.month, stage: r.stage, closeDate: r.close_date, kurs: r.kurs, note: r.note });
-export const toOrder = r => ({ id: r.id, batchId: r.batch_id, buyer: r.buyer, item: r.item, qty: r.qty, base: r.base, total: r.total, pay: r.pay, method: r.method, proofName: r.proof_name, createdAt: r.created_at });
+export const toOrder = r => ({ id: r.id, batchId: r.batch_id, buyer: r.buyer, item: r.item, qty: r.qty, base: r.base, total: r.total, pay: r.pay, method: r.method, proofName: r.proof_name, createdAt: r.created_at, self: r.self ? 1 : 0, late: r.late || 0 });
+// 주문을 읽을 때는 표시(order_flags)를 함께 읽는다
+export const ORDER_SELECT = 'SELECT o.*, f.self AS self, f.late AS late FROM orders o LEFT JOIN order_flags f ON f.order_id = o.id';
+// 공개 리캡에 넣는 주문: 고객이 직접 만든 주문은 승인(결제 완료)된 뒤에만. 아무나 적은 글이 공개 화면에 바로 뜨지 않게 한다.
+export const PUBLIC_ORDERS = "FROM orders o LEFT JOIN order_flags f ON f.order_id = o.id WHERE NOT (IFNULL(f.self, 0) = 1 AND o.pay != 'paid')";
 
 /* ── 예시 데이터 넣기 (처음 실행할 때와 관리자의 "초기화") ── */
 export async function seed(db) {
   const s = GO.seed();
   const stmts = [
-    db.prepare('DELETE FROM orders'), db.prepare('DELETE FROM batches'), db.prepare('DELETE FROM services'),
+    db.prepare('DELETE FROM order_flags'), db.prepare('DELETE FROM orders'), db.prepare('DELETE FROM batches'), db.prepare('DELETE FROM services'),
     db.prepare('DELETE FROM vouchers'), db.prepare('DELETE FROM settings')
   ];
   s.services.forEach((v, i) => stmts.push(db.prepare('INSERT INTO services (id, name_id, name_ko, desc_id, desc_ko, cur, sort) VALUES (?,?,?,?,?,?,?)').bind(v.id, v.name[0], v.name[1], v.desc[0], v.desc[1], v.cur, i)));
@@ -155,13 +164,13 @@ export async function loadState(db, admin) {
     // 공개 화면에는 배치의 단계와 수량만 보낸다. 주문, 이름, 금액, 결제 상태는 싣지 않는다.
     // 품목별 수량은 고객이 배치를 열 때 /api/batch-items 로 받아 간다. 자기 주문은 주문번호로만 본다.
     const pcs = {};
-    (await db.prepare('SELECT batch_id, SUM(qty) AS pcs FROM orders GROUP BY batch_id').all()).results.forEach(r => { pcs[r.batch_id] = r.pcs; });
+    (await db.prepare('SELECT o.batch_id AS batch_id, SUM(o.qty) AS pcs ' + PUBLIC_ORDERS + ' GROUP BY o.batch_id').all()).results.forEach(r => { pcs[r.batch_id] = r.pcs; });
     state.batches = batches.map(r => Object.assign(toBatch(r), { stats: { pcs: pcs[r.id] || 0 } }));
     return state;
   }
 
   const [orders, vouchers, calc] = await Promise.all([
-    db.prepare('SELECT * FROM orders ORDER BY created_at, id').all(),
+    db.prepare(ORDER_SELECT + ' ORDER BY o.created_at, o.id').all(),
     db.prepare('SELECT * FROM vouchers').all(),
     db.prepare('SELECT value FROM settings WHERE key = ?').bind('calcDefaults').first()
   ]);

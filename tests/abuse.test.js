@@ -81,18 +81,19 @@ test('무차별 대입: IPv6 주소 끝자리만 바꿔 가며 시도해도 잠�
   assert.ok(codes.includes(429), '같은 /64 안에서 12번 틀려도 잠기지 않았다: ' + codes.join(','));
   await sleep(WINDOW);
 });
-test('무차별 대입: 주소를 계속 바꿔도 전체 실패 횟수가 넘으면 잠긴다', async () => {
+test('무차별 대입: 다른 곳에서 아무리 틀려도 운영자의 로그인은 막히지 않는다', async () => {
+  // 전체 실패 상한을 두면 누군가 일부러 틀리게 넣어 운영자를 계속 막을 수 있다. 제한은 주소 단위로만 건다.
   const tries = await Promise.all(Array.from({ length: 60 }, (_, i) => call('POST', '/login', { password: 'spray-' + i }, { ip: '10.9.' + (i % 250) + '.' + (i + 1) })));
-  const after = await call('POST', '/login', { password: 'spray-last' }, { ip: '10.77.0.1' });
-  assert.equal(after.status, 429, '60곳에서 틀린 뒤에도 새 주소가 통과했다: ' + tries.map(r => r.status).join(','));
-  await sleep(WINDOW);
-  assert.equal(await login(), 200, '기다린 뒤에는 다시 로그인된다');
+  assert.ok(tries.every(r => r.status === 401), tries.map(r => r.status).join(','));
+  assert.equal(await login(), 200, '60곳에서 틀린 직후에도 올바른 비밀번호는 통해야 한다');
   cookie = '';
 });
 test('쿠폰 훑기: 쿠폰 코드를 연달아 넣어 보면 막힌다', async () => {
   let blocked = 0;
   for (let i = 0; i < 60; i++) if ((await call('POST', '/voucher', { code: 'TEBAK' + i })).status === 429) blocked++;
   assert.ok(blocked > 0, '60번 연속으로 틀려도 막히지 않았다');
+  // 쿠폰을 틀린 것 때문에 주문 조회까지 막히지는 않는다 (따로 센다)
+  assert.equal((await call('GET', '/order?id=' + seed.orders[0].id)).status, 200);
   await sleep(WINDOW);
 });
 

@@ -1,7 +1,7 @@
 /* API 한 파일 라우터 (Cloudflare Pages Functions).  /api/... 로 오는 모든 요청이 여기로 온다.
  *
  * 누구나
- *   GET  /api/public           서비스·배치와 배치별 수량 (주문·이름·금액은 싣지 않는다). 10초 동안 저장해 두고 돌려준다
+ *   GET  /api/public           서비스·배치와 배치별 수량 (주문·이름·금액은 싣지 않는다). 60초 동안 저장해 두고 돌려준다
  *   GET  /api/batch-items?id=  배치 하나의 품목별 수량
  *   GET  /api/track?q=         주문번호로 내 주문 조회
  *   GET  /api/order?id=        주문 한 건 (결제 화면 불러오기)
@@ -18,10 +18,11 @@
  *   POST reset                 예시 데이터로 초기화 (ALLOW_RESET=1 인 곳에서만. 배포판에는 꺼져 있다)
  *   GET  log                   활동 기록
  */
-import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, startSession, endSession, clearCookie, loadState, seed, toOrder, overLimit, recordHit, logAct } from '../../server/lib.js';
+import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, startSession, endSession, clearCookie, loadState, seed, toOrder, overLimit, recordHit, logAct, canReset, weakPassword, ORDER_SELECT, PUBLIC_ORDERS } from '../../server/lib.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const PUBLIC_CACHE_SEC = 10;
+const PUBLIC_CACHE_SEC = 60;      // 서버 쪽에 저장해 두는 시간. 내용이 바뀌면 바로 지운다
+const PUBLIC_BROWSER_SEC = 10;    // 고객 브라우저가 다시 묻지 않는 시간
 
 export async function onRequest({ request, env, params }) {
   const db = env.DB;
@@ -41,23 +42,23 @@ export async function onRequest({ request, env, params }) {
     if (route === 'GET /public') {
       const hit = await caches.default.match(publicKey);
       if (hit) return hit;
-      const res = json(await loadState(db, false), 200, { 'cache-control': 'public, max-age=' + PUBLIC_CACHE_SEC });
+      const res = json(await loadState(db, false), 200, { 'cache-control': 'public, max-age=' + PUBLIC_BROWSER_SEC + ', s-maxage=' + PUBLIC_CACHE_SEC });
       await caches.default.put(publicKey, res.clone()).catch(() => {});
       return res;
     }
 
     if (route === 'GET /batch-items') {
-      const rows = await db.prepare('SELECT item, SUM(qty) AS qty FROM orders WHERE batch_id = ? GROUP BY item ORDER BY qty DESC, item LIMIT 500').bind(url.searchParams.get('id') || '').all();
+      const rows = await db.prepare('SELECT o.item AS item, SUM(o.qty) AS qty ' + PUBLIC_ORDERS + ' AND o.batch_id = ? GROUP BY o.item ORDER BY qty DESC, o.item LIMIT 500').bind(url.searchParams.get('id') || '').all();
       return json({ items: rows.results });
     }
 
-    if (route === 'GET /me') return json({ admin: await isAdmin(request, env), configured: configured(env), canReset: env.ALLOW_RESET === '1' });
+    if (route === 'GET /me') return json({ admin: await isAdmin(request, env), configured: configured(env), weak: weakPassword(env), canReset: canReset(env) });
 
     if (route === 'POST /login') {
       const b = await readJson(request);
       if (!configured(env)) return fail('Admin login is not set up yet.', 503);
-      // 잠긴 동안은 맞는 비밀번호도 받지 않는다. 한 곳에서 5번, 또는 어디서든 합쳐 40번 틀리면 잠긴다.
-      if (await overLimit(db, env, request, 'login') || await overLimit(db, env, request, 'loginAll')) return fail('Too many attempts. Try again later.', 429);
+      // 한 곳에서 5번 틀리면 15분 잠긴다. 잠긴 동안은 그곳에서 보낸 맞는 비밀번호도 받지 않는다.
+      if (await overLimit(db, env, request, 'login')) return fail('Too many attempts. Try again later.', 429);
       if (!b || !(await passwordOk(env, b.password))) { await recordHit(db, request, 'login'); await sleep(400); return fail('Wrong password.', 401); }
       await logAct(db, request, 'login', '');
       return json({ admin: true }, 200, { 'set-cookie': await startSession(db, env, request) });
@@ -73,7 +74,7 @@ export async function onRequest({ request, env, params }) {
       const id = V.orderId(url.searchParams.get('q'));
       if (!id) return json({ orders: [] });
       if (await overLimit(db, env, request, 'look')) return fail('Too many requests. Try again later.', 429);
-      const row = await db.prepare('SELECT * FROM orders WHERE id = ?').bind(id).first();
+      const row = await db.prepare(ORDER_SELECT + ' WHERE o.id = ?').bind(id).first();
       if (!row) { await recordHit(db, request, 'look'); return json({ orders: [] }); }
       return json({ orders: [Object.assign(toOrder(row), { buyer: X.maskName(row.buyer), proofName: '' })] });
     }
@@ -82,7 +83,7 @@ export async function onRequest({ request, env, params }) {
       const id = V.orderId(url.searchParams.get('id'));
       if (!id) return fail('Order not found.', 404);
       if (await overLimit(db, env, request, 'look')) return fail('Too many requests. Try again later.', 429);
-      const row = await db.prepare('SELECT * FROM orders WHERE id = ?').bind(id).first();
+      const row = await db.prepare(ORDER_SELECT + ' WHERE o.id = ?').bind(id).first();
       if (!row) { await recordHit(db, request, 'look'); return fail('Order not found.', 404); }
       const o = toOrder(row); o.proofName = ''; o.buyer = X.maskName(o.buyer);
       return json({ order: o });
@@ -90,9 +91,9 @@ export async function onRequest({ request, env, params }) {
 
     if (route === 'POST /voucher') {
       const b = await readJson(request), code = b && V.text(String(b.code || '').toUpperCase(), 30);
-      if (await overLimit(db, env, request, 'look')) return fail('Too many requests. Try again later.', 429);
+      if (await overLimit(db, env, request, 'coupon')) return fail('Too many requests. Try again later.', 429);
       const v = code && await db.prepare('SELECT * FROM vouchers WHERE code = ?').bind(code).first();
-      if (!v) { await recordHit(db, request, 'look'); return fail('Voucher not found.', 404); }
+      if (!v) { await recordHit(db, request, 'coupon'); return fail('Voucher not found.', 404); }
       return json({ code: v.code, off: v.off });
     }
 
@@ -119,7 +120,7 @@ export async function onRequest({ request, env, params }) {
       const payable = (base, id) => base - Math.min(off, base) + X.uniqueCode(id);   // 쿠폰이 금액보다 커도 0 아래로 내려가지 않는다
 
       if (b.orderId) {                               // 이미 있는 주문을 결제
-        const id = V.orderId(b.orderId), row = id && await db.prepare('SELECT * FROM orders WHERE id = ?').bind(id).first();
+        const id = V.orderId(b.orderId), row = id && await db.prepare(ORDER_SELECT + ' WHERE o.id = ?').bind(id).first();
         if (!row) return fail('Order not found.', 404);
         const total = payable(row.base, id);         // 금액은 DB에 있는 주문 금액으로만 계산한다 (고객이 보낸 값은 쓰지 않는다)
         // "아직 결제 전인 주문만"이라는 조건을 UPDATE 안에 둔다: 이미 제출된 주문이나 동시에 들어온 두 번째 요청은 바뀌는 줄이 0이다
@@ -140,11 +141,17 @@ export async function onRequest({ request, env, params }) {
       if (batch.stage === GO.LAST_STAGE) return fail('This batch is already completed.', 409);
       if (await db.prepare('SELECT 1 FROM orders WHERE id = ?').bind(id).first()) return fail('Order number is taken. Reload and try again.', 409);
       const total = payable(base, id), now = new Date().toISOString();
-      await db.prepare("INSERT INTO orders (id, batch_id, buyer, item, qty, base, total, pay, method, proof_name, created_at) VALUES (?,?,?,?,?,?,?,'pending',?,?,?)")
-        .bind(id, batch.id, buyer, item, qty, base, total, methodName, proof, now).run();
+      // 주문 마감 뒤(단계 1 이상)에 들어온 새 주문도 받는다. 다만 이미 진행 중인 배치와 같은 일정으로는 처리할 수 없으므로
+      // "마감 뒤 주문"으로 표시해 고객과 운영자 모두에게 알린다.
+      const late = batch.stage >= 1 ? batch.stage : 0;
+      await db.batch([
+        db.prepare("INSERT INTO orders (id, batch_id, buyer, item, qty, base, total, pay, method, proof_name, created_at) VALUES (?,?,?,?,?,?,?,'pending',?,?,?)")
+          .bind(id, batch.id, buyer, item, qty, base, total, methodName, proof, now),
+        db.prepare('INSERT INTO order_flags (order_id, self, late) VALUES (?, 1, ?)').bind(id, late)
+      ]);
       await recordHit(db, request, 'pay');
       await dropPublicCache();
-      return json({ order: { id, batchId: batch.id, buyer, item, qty, base, total, pay: 'pending', method: methodName, proofName: proof, createdAt: now } });
+      return json({ order: { id, batchId: batch.id, buyer, item, qty, base, total, pay: 'pending', method: methodName, proofName: proof, createdAt: now, self: 1, late } });
     }
 
     /* ── 관리자만 ── */
@@ -173,7 +180,7 @@ export async function onRequest({ request, env, params }) {
 
     if (sub === 'POST /reset') {
       // 전체 주문을 지우는 기능이라, 켜 둔 곳(내 컴퓨터, 검사 환경)에서만 된다. 배포판에는 ALLOW_RESET 이 없다.
-      if (env.ALLOW_RESET !== '1') return fail('Reset is disabled here.', 403);
+      if (!canReset(env)) return fail('Reset is disabled here.', 403);
       await seed(db); await logAct(db, request, 'reset', '');
       return json(await loadState(db, true));
     }
@@ -205,7 +212,11 @@ export async function onRequest({ request, env, params }) {
       return json({ ok: true });
     }
     if (sub === 'DELETE /batch') {
-      await db.batch([db.prepare('DELETE FROM orders WHERE batch_id = ?').bind(id), db.prepare('DELETE FROM batches WHERE id = ?').bind(id)]);
+      await db.batch([
+        db.prepare('DELETE FROM order_flags WHERE order_id IN (SELECT id FROM orders WHERE batch_id = ?)').bind(id),
+        db.prepare('DELETE FROM orders WHERE batch_id = ?').bind(id),
+        db.prepare('DELETE FROM batches WHERE id = ?').bind(id)
+      ]);
       await logAct(db, request, 'batch.delete', id);
       return json({ ok: true });
     }
@@ -230,7 +241,7 @@ export async function onRequest({ request, env, params }) {
       return json({ ok: true });
     }
     if (sub === 'DELETE /order') {
-      await db.prepare('DELETE FROM orders WHERE id = ?').bind(id).run();
+      await db.batch([db.prepare('DELETE FROM order_flags WHERE order_id = ?').bind(id), db.prepare('DELETE FROM orders WHERE id = ?').bind(id)]);
       await logAct(db, request, 'order.delete', id);
       return json({ ok: true });
     }

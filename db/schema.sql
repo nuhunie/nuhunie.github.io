@@ -74,3 +74,12 @@ CREATE TABLE IF NOT EXISTS sessions (
 
 -- 확인 대기 중인 주문을 결제 금액으로 빨리 찾기 위한 색인 (금액 겹침 확인용)
 CREATE INDEX IF NOT EXISTS orders_pending_total ON orders (total) WHERE pay = 'pending';
+
+-- 주문에 붙는 표시 (없으면 둘 다 0)
+--   self  고객이 결제 화면에서 직접 만든 주문. 운영자가 승인하기 전에는 공개 리캡에 넣지 않는다
+--   late  주문 마감 뒤에 들어온 주문이면 그때의 배치 단계(1~4). 배치와 같은 일정으로 처리할 수 없어 따로 표시한다
+CREATE TABLE IF NOT EXISTS order_flags (
+  order_id TEXT PRIMARY KEY,
+  self INTEGER NOT NULL DEFAULT 0,
+  late INTEGER NOT NULL DEFAULT 0
+);

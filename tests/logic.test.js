@@ -73,6 +73,15 @@ test('금액 겹침: 확인 대기 중인 주문끼리 결제 금액이 같으�
   assert.deepEqual(X.duplicateTotals([]), {});
 });
 
+test('공개 리캡: 고객이 직접 만든 주문은 승인된 뒤에만 들어간다', () => {
+  const orders = [
+    { id: 'A', item: 'Album', qty: 1, total: 1, pay: 'unpaid' },                  // 운영자가 넣은 주문: 결제 전에도 보인다
+    { id: 'B', item: 'Tulisan iseng', qty: 9, total: 1, pay: 'pending', self: 1 },   // 고객이 적어 낸 주문: 승인 전에는 숨긴다
+    { id: 'C', item: 'Keyring', qty: 2, total: 1, pay: 'paid', self: 1 }           // 승인되면 보인다
+  ];
+  assert.deepEqual(X.publicOrders(orders).map(o => o.id), ['A', 'C']);
+});
+
 test('집계: 예시 데이터의 Korea 11월 합계', () => {
   const db = GO.seed();
   const nov = db.batches.filter(b => b.svc === 'kr' && b.month === '2026-11');

@@ -44,6 +44,11 @@
     for (var i = 0; i < orderId.length; i++) h = (h * 31 + orderId.charCodeAt(i)) % 1000003;
     return (h % 999) + 1;
   };
+  // 공개 리캡에 넣는 주문: 고객이 직접 만든 주문(self)은 승인(결제 완료)된 뒤에만 넣는다.
+  // 아무나 적은 글이 공개 화면에 바로 뜨지 않게 하려는 것이다. 서버의 PUBLIC_ORDERS 조건과 같은 규칙.
+  X.publicOrders = function (orders) {
+    return orders.filter(function (o) { return !(o.self && o.pay !== 'paid'); });
+  };
   // 확인 대기 중인 주문 가운데 결제 금액이 같은 것들: { 금액: 건수 }. 운영자가 입금을 구분하기 어려운 경우다.
   X.duplicateTotals = function (orders) {
     var n = {}, out = {};

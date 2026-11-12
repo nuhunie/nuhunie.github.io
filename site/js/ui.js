@@ -151,8 +151,8 @@
       if (o.id) receipts[o.id] = o;
       return '<article class="card"><div class="head"><div><small>' + (o.id ? o.id + ' · ' : '') + esc(dateLabel(o.createdAt)) + '</small><h2>' + esc(o.item) + '</h2>' +
         '<p class="lead">' + esc(o.buyer) + ' · ' + o.qty + ' pcs · ' + rp(o.total) + '</p></div><div class="right">' + payBadge(o.pay) + '</div></div>' +
-        stepper(labels, p.cur, p.finished) +
-        '<p class="where">' + L('Posisi sekarang', '현재 위치') + ': <b>' + esc(o.pay === 'paid' ? LL(GO.STAGES[b.stage]) : LL(GO.PAY[o.pay])) + '</b> · <a href="#/b/' + b.id + '">' + esc(LL(s.name) + ' / ' + batchName(b)) + '</a></p>' +
+        (o.late ? '<p class="note warn">' + L('Pesanan ini masuk setelah tutup order, jadi diproses terpisah dari batch. Admin akan mengabari jadwalnya.', '이 주문은 마감 뒤에 들어와 배치와 따로 처리됩니다. 일정은 운영자가 알려 드립니다.') + '</p>' : stepper(labels, p.cur, p.finished)) +
+        '<p class="where">' + L('Posisi sekarang', '현재 위치') + ': <b>' + esc(o.late ? LL(GO.PAY[o.pay]) + ' · ' + L('diproses terpisah', '별도 처리') : o.pay === 'paid' ? LL(GO.STAGES[b.stage]) : LL(GO.PAY[o.pay])) + '</b> · <a href="#/b/' + b.id + '">' + esc(LL(s.name) + ' / ' + batchName(b)) + '</a></p>' +
         (b.note ? '<p class="note"><b>' + L('Info', '안내') + '</b> ' + esc(b.note) + '</p>' : '') +
         (o.pay === 'unpaid' || o.pay === 'rejected' ? '<a class="btn" href="#/pay/' + b.id + '/' + o.id + '">' + L('Bayar pesanan ini', '이 주문 결제하기') + '</a>'
           : '<button type="button" class="btn line" data-act="receipt" data-id="' + o.id + '">' + L('Lihat bukti pesanan', '영수증 보기') + '</button>') + '</article>';
@@ -253,7 +253,7 @@
       (P.orderId ? '<p class="note">' + L('Pesanan', '주문') + ' <b>' + P.orderId + '</b> · <a href="#/pay">' + L('Isi manual', '직접 입력하기') + '</a></p>'
         : '<div class="field"><label>' + L('Sudah punya nomor pesanan?', '주문번호가 있나요?') + '</label><div class="inline"><input id="payLookup" placeholder="' + GO.BRAND.orderPrefix + '-7K3M9Q2X" autocomplete="off"><button type="button" class="btn line" data-act="pay-lookup">' + L('Muat', '불러오기') + '</button></div><small id="lookupMsg">' + L('Data pesanan terisi otomatis.', '주문 정보가 자동으로 채워집니다.') + '</small></div>') +
       '<div class="field"><label>' + L('Pilih layanan', '서비스 선택') + ' *</label><div class="seg wide">' + svcs + '</div></div>' +
-      '<div class="field"><label>' + L('Nomor batch', '배치 번호') + ' *</label><select data-pay="batchId"' + (P.orderId ? ' disabled' : '') + '>' + bs + '</select></div>' +
+      '<div class="field"><label>' + L('Nomor batch', '배치 번호') + ' *</label><select data-pay="batchId"' + (P.orderId ? ' disabled' : '') + '>' + bs + '</select></div>' + lateNotice() +
       '<div class="grid2"><div class="field"><label>' + L('Nama / username pembeli', '구매자 이름·아이디') + ' *</label><input data-pay="buyer" value="' + esc(P.buyer) + '"' + lock + '></div>' +
       '<div class="field"><label>' + L('Jumlah (pcs)', '수량') + '</label><input type="number" min="1" data-pay="qty" value="' + P.qty + '"' + lock + '></div></div>' +
       '<div class="field"><label>Item *</label><input data-pay="item" value="' + esc(P.item) + '" placeholder="Photocard random 1 pc"' + lock + '></div>' +
@@ -266,6 +266,15 @@
       '<p class="err" id="payErr" role="alert">' + esc(P.err) + '</p>' +
       '<button class="btn block">' + L('Kirim bukti pembayaran', '결제 증빙 제출') + '</button></div></form>';
   }
+  // 주문이 마감된 배치에 새 주문을 넣으려 할 때의 안내. 이미 진행 중인 배치와 같은 처리를 해 줄 수 없다는 점을 결제 전에 알린다.
+  function lateNotice() {
+    var b = S.batch(P.batchId);
+    if (P.orderId || !b || b.stage < 1) return '';
+    return '<p class="note warn"><b>' + L('Perhatian', '주의') + '</b> ' + L('Batch ini sudah tutup order. Pesanan baru tetap diterima, tetapi diproses terpisah dari batch ini dan bisa ikut pengiriman berikutnya.', '이 배치는 주문이 마감됐습니다. 새 주문은 받지만 이 배치와 따로 처리되며 다음 배송에 포함될 수 있습니다.') +
+      ' (' + L('Tahap sekarang', '현재 단계') + ': ' + esc(LL(GO.STAGES[b.stage])) + ')</p>';
+  }
+  // 관리자 화면에서 마감 뒤 주문을 알아보게 하는 표시
+  function lateBadge(o) { return o.late ? ' <span class="badge run">' + L('Setelah tutup order', '마감 뒤 주문') + '</span>' : ''; }
   function drawQR(canvas, seedStr) {
     var n = 25, c = canvas.getContext('2d'), px = canvas.width / n, h = 7;
     for (var i = 0; i < seedStr.length; i++) h = (h * 31 + seedStr.charCodeAt(i)) >>> 0;
@@ -401,7 +410,7 @@
     return '<div class="login"><h1>' + L('Admin', '관리자') + '</h1><p class="lead">' + L('Masuk untuk mengelola batch, pesanan, dan pembayaran.', '배치·주문·결제를 관리하려면 로그인하세요.') + '</p>' +
       (S.loginReady
         ? '<form data-form="login"><div class="field"><label>' + L('Kata sandi admin', '관리자 비밀번호') + '</label><input type="password" name="password" autocomplete="current-password" required></div><p class="err" id="loginErr" role="alert"></p><button class="btn block">' + L('Masuk', '로그인') + '</button></form>'
-        : '<p class="note">' + L('Login admin belum diatur di server.', '서버에 관리자 로그인이 아직 설정되지 않았습니다.') + '</p>') + '</div>';
+        : '<p class="note">' + (S.loginWeak ? L('Login admin dimatikan karena kata sandi di server terlalu pendek (minimal 12 karakter).', '서버의 관리자 비밀번호가 너무 짧아(12자 미만) 로그인이 꺼져 있습니다.') : L('Login admin belum diatur di server.', '서버에 관리자 로그인이 아직 설정되지 않았습니다.')) + '</p>') + '</div>';
   }
   function aGuide() {
     var g = [
@@ -460,7 +469,7 @@
           : empty(L('Tidak ada baris yang bisa dibaca.', '읽을 수 있는 줄이 없습니다.')));
     }
     var list = S.ordersOf(A.batchId).map(function (o) {
-      return '<tr><td>' + o.id + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + o.qty + '</td><td class="r">' + rp(o.total) + '</td>' +
+      return '<tr><td>' + o.id + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + o.qty + '</td><td class="r">' + rp(o.total) + '</td>' +
         '<td><select data-opay="' + o.id + '" aria-label="' + L('Pembayaran', '결제') + '">' + Object.keys(GO.PAY).map(function (k) { return '<option value="' + k + '"' + (k === o.pay ? ' selected' : '') + '>' + esc(LL(GO.PAY[k])) + '</option>'; }).join('') + '</select></td>' +
         '<td><button class="link" data-act="order-del" data-id="' + o.id + '">' + L('Hapus', '삭제') + '</button></td></tr>';
     }).join('');
@@ -480,7 +489,7 @@
     if (q.length < 2) { out.innerHTML = ''; return; }
     var hits = S.db.orders.filter(function (o) { return o.id.toLowerCase().indexOf(q) >= 0 || o.buyer.toLowerCase().indexOf(q) >= 0; }).slice(0, 30);
     out.innerHTML = hits.length ? '<div class="tbl"><table><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>Batch</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">Total</th><th>' + L('Pembayaran', '결제') + '</th></tr></thead><tbody>' +
-      hits.map(function (o) { var b = S.batch(o.batchId); return '<tr><td><b>' + o.id + '</b></td><td>' + esc(b ? batchName(b) : '-') + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + rp(o.total) + '</td><td>' + payBadge(o.pay) + '</td></tr>'; }).join('') + '</tbody></table></div>'
+      hits.map(function (o) { var b = S.batch(o.batchId); return '<tr><td><b>' + o.id + '</b></td><td>' + esc(b ? batchName(b) : '-') + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + rp(o.total) + '</td><td>' + payBadge(o.pay) + '</td></tr>'; }).join('') + '</tbody></table></div>'
       : '<p class="hint">' + L('Pesanan tidak ditemukan.', '주문을 찾지 못했습니다.') + '</p>';
   }
   // 활동 기록 탭
@@ -514,7 +523,7 @@
     return list.length ? (Object.keys(dup).length ? '<p class="note warn"><b>' + L('Perhatian', '주의') + '</b> ' + L('Ada pesanan dengan nominal yang sama. Cocokkan dengan bukti dan nama sebelum menyetujui.', '결제 금액이 같은 주문이 있습니다. 승인하기 전에 증빙과 이름을 대조하세요.') + '</p>' : '') + '<div class="tbl"><table><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>Batch</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">Total</th><th>' + L('Metode', '수단') + '</th><th>' + L('Bukti', '증빙') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' +
       list.map(function (o) {
         var b = S.batch(o.batchId);
-        return '<tr><td>' + o.id + '</td><td>' + esc(batchName(b)) + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + rp(o.total) + (dup[o.total] ? ' <span class="badge pay-rejected">' + L('Nominal sama', '금액 같음') + '</span>' : '') + '</td><td>' + esc(o.method) + '</td><td>' + esc(o.proofName || '-') + '</td>' +
+        return '<tr><td>' + o.id + '</td><td>' + esc(batchName(b)) + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + rp(o.total) + (dup[o.total] ? ' <span class="badge pay-rejected">' + L('Nominal sama', '금액 같음') + '</span>' : '') + '</td><td>' + esc(o.method) + '</td><td>' + esc(o.proofName || '-') + '</td>' +
           '<td class="acts"><button class="btn sm" data-act="pay-ok" data-id="' + o.id + '">' + L('Setujui', '승인') + '</button><button class="btn line sm" data-act="pay-no" data-id="' + o.id + '">' + L('Tolak', '반려') + '</button></td></tr>';
       }).join('') + '</tbody></table></div><p class="hint">' + L('Mockup hanya menyimpan nama file bukti, bukan gambarnya.', '목업에서는 증빙 이미지가 아니라 파일 이름만 저장합니다.') + '</p>'
       : empty(L('Tidak ada pembayaran yang menunggu verifikasi.', '확인을 기다리는 결제가 없습니다.'));
@@ -522,10 +531,10 @@
 
   // 전체 주문을 스프레드시트용 CSV 파일로 내려받는다 (Excel·Google Sheets에서 열림)
   function exportOrders() {
-    var rows = [['order_no', 'date', 'service', 'month', 'batch', 'batch_stage', 'buyer', 'item', 'qty', 'total_idr', 'payment', 'method']];
+    var rows = [['order_no', 'date', 'service', 'month', 'batch', 'batch_stage', 'buyer', 'item', 'qty', 'total_idr', 'payment', 'method', 'after_close']];
     S.db.orders.forEach(function (o) {
       var b = S.batch(o.batchId), s = S.service(b.svc);
-      rows.push([o.id, o.createdAt.slice(0, 10), LL(s.name), b.month, batchName(b), LL(GO.STAGES[b.stage]), o.buyer, o.item, o.qty, o.total, LL(GO.PAY[o.pay]), o.method]);
+      rows.push([o.id, o.createdAt.slice(0, 10), LL(s.name), b.month, batchName(b), LL(GO.STAGES[b.stage]), o.buyer, o.item, o.qty, o.total, LL(GO.PAY[o.pay]), o.method, o.late ? 'yes' : '']);
     });
     var blob = new Blob(['﻿' + X.toCSV(rows)], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a');
@@ -670,7 +679,7 @@
     } else if ((k = t.getAttribute('data-pay'))) {
       if (k === 'file') { P.fileName = t.files[0] ? t.files[0].name : ''; $('#fileName').textContent = P.fileName || L('Belum ada file dipilih', '선택된 파일 없음'); return; }
       P[k] = t.value;
-      if (k === 'batchId') return;
+      if (k === 'batchId') { render(); return; }   // 마감 안내가 배치에 따라 달라진다
       if (k === 'voucher') { P.off = 0; }
       drawPay();
     } else if ((k = t.getAttribute('data-admin'))) {
