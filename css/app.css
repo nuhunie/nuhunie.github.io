@@ -35,7 +35,7 @@ section + section { margin-top: 44px; }
 /* 상단 */
 .top { border-bottom: 1px solid var(--line); position: sticky; top: 0; background: #fff; z-index: 5; }
 .bar { display: flex; align-items: center; gap: 28px; height: 56px; }
-.logo { color: var(--ink); font-weight: 800; font-size: 17px; letter-spacing: -.02em; white-space: nowrap; }
+.logo { display: flex; align-items: center; gap: 8px; color: var(--ink); font-weight: 800; font-size: 17px; letter-spacing: -.02em; white-space: nowrap; }
 .nav { display: flex; gap: 22px; flex: 1; overflow-x: auto; align-self: stretch; scrollbar-width: none; }
 .nav a { display: flex; align-items: center; white-space: nowrap; color: var(--sub); border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .nav a:hover { color: var(--text); }
@@ -86,6 +86,14 @@ section + section { margin-top: 44px; }
 .grid3 .span { grid-column: span 2; }
 .note { border: 1px solid var(--line); background: var(--soft); border-radius: var(--r); padding: 10px 14px; font-size: 13px; margin: 14px 0; }
 .note b { margin-right: 6px; }
+
+/* 홈 머리: 상호가 주인공 */
+.hero { display: flex; align-items: center; gap: 20px; padding: 28px; border: 1px solid var(--line); border-radius: var(--r); background: var(--soft); }
+.hero img { flex-shrink: 0; border-radius: var(--r); mix-blend-mode: multiply; }
+.hero h1 { font-size: 34px; color: var(--ink); letter-spacing: -.02em; margin: 0; }
+.hero p { color: var(--text); margin-top: 4px; }
+.logo img { mix-blend-mode: multiply; }
+.svc-grid + * { margin-top: 0; }
 
 /* 서비스 카드 */
 .svc-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 20px; }
@@ -226,5 +234,8 @@ input[readonly], select:disabled { background: var(--soft); color: var(--sub); }
   .steps li::before { display: none; }
   .steps em { left: 0; transform: none; }
   h1 { font-size: 21px; }
+  .hero { padding: 20px; gap: 14px; }
+  .hero h1 { font-size: 26px; }
+  .hero img { width: 56px; height: 56px; }
 }
 @media (max-width: 480px) { .grid2 { grid-template-columns: 1fr; } .qr { flex-direction: column; align-items: flex-start; } }

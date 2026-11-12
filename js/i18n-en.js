@@ -3,6 +3,7 @@
 window.GO = window.GO || {};
 GO.EN = {
   // 공통·홈
+  'Jastip Korea, Jepang, dan tiket. Order, bayar, dan lacak di satu tempat.': 'Personal shopping from Korea and Japan, plus tickets. Order, pay and track in one place.',
   'Layanan': 'Services',
   'Lacak pesanan': 'Track order',
   'Kalkulator': 'Calculator',

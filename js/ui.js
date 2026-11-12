@@ -63,7 +63,8 @@
       [L('Bayar dan kirim bukti', '결제 후 증빙 제출'), L('Scan QR dengan nominal otomatis, lalu unggah bukti.', '금액이 자동 입력된 QR로 결제하고 증빙을 올립니다.')],
       [L('Lacak pesanan', '주문 조회'), L('Cek posisi pesanan kapan saja dengan nomor pesanan.', '주문번호로 언제든 진행 상황을 확인합니다.')]
     ].map(function (h, i) { return '<li><em>' + (i + 1) + '</em><div><b>' + esc(h[0]) + '</b><p>' + esc(h[1]) + '</p></div></li>'; }).join('');
-    return '<section><h1>' + L('Layanan', '서비스') + '</h1><p class="lead">' + L('Pilih layanan untuk melihat batch bulan ini dan rekapnya.', '서비스를 고르면 이번 달 배치와 집계를 볼 수 있습니다.') + '</p><div class="svc-grid">' + cards + '</div></section>' +
+    return '<section class="hero"><img src="' + GO.BRAND.mark + '" alt="" width="72" height="72"><div><h1>' + esc(GO.BRAND.name) + '</h1><p>' + esc(LL(GO.BRAND.tagline)) + '</p></div></section>' +
+      '<section><h2>' + L('Layanan', '서비스') + '</h2><p class="lead">' + L('Pilih layanan untuk melihat batch bulan ini dan rekapnya.', '서비스를 고르면 이번 달 배치와 집계를 볼 수 있습니다.') + '</p><div class="svc-grid">' + cards + '</div></section>' +
       '<section><h2>' + L('Lacak pesanan', '주문 조회') + '</h2>' + searchForm('') + '</section>' +
       '<section><h2>' + L('Cara order', '이용 방법') + '</h2><ol class="how">' + how + '</ol></section>';
   }
@@ -428,7 +429,7 @@
     $('#jumpBottom').setAttribute('aria-label', L('Ke bawah', '맨 아래로')); $('#jumpBottom').title = L('Ke bawah', '맨 아래로');
     showJump();
     document.documentElement.lang = lang;
-    document.title = GO.BRAND.name; $('#logo').textContent = GO.BRAND.name; $('#foot').textContent = GO.BRAND.name + ' · mockup';
+    document.title = GO.BRAND.name; $('#logo').innerHTML = '<img src="' + GO.BRAND.mark + '" alt="" width="26" height="26">' + esc(GO.BRAND.name); $('#foot').textContent = GO.BRAND.name + ' · mockup';
     var theme = document.documentElement.dataset.theme || 'pink';
     $('#themes').innerHTML = THEMES.map(function (t) {
       return '<button type="button" data-act="theme" data-id="' + t[0] + '" class="' + (t[0] === theme ? 'on' : '') + '" style="background:' + t[1] + '" title="' + LL(t[2]) + '" aria-label="' + LL(t[2]) + '" aria-pressed="' + (t[0] === theme) + '"></button>';
