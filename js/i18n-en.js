@@ -158,7 +158,7 @@ GO.EN = {
   'Perbarui status batch': 'Update batch status',
   'Tab Batch → ubah tahap (dibeli, dikirim, tiba, selesai) dan tulis info. Pelanggan melihatnya saat melacak pesanan.': 'Batch tab → change the stage (purchased, shipping, arrived, completed) and write a note. Customers see it when they track an order.',
   'Hitung harga': 'Calculate prices',
-  'Menu Kalkulator → simpan rumus fee sebagai default. Harga mata uang asing di Input pesanan dihitung dengan rumus ini.': 'Calculator menu → save your fee formula as the default. Foreign-currency prices in Enter orders are converted with this formula.',
+  'Tab Kalkulator → simpan rumus fee sebagai default. Harga mata uang asing di Input pesanan dihitung dengan rumus ini.': 'Calculator tab → save your fee formula as the default. Foreign-currency prices in Enter orders are converted with this formula.',
   'Buka': 'Open',
   'Voucher contoh': 'Sample voucher',
   'Tahap': 'Stage',
@@ -194,6 +194,18 @@ GO.EN = {
   'Semua data kembali ke contoh awal. Lanjutkan?': 'All data will go back to the original sample. Continue?',
   'Hapus batch ini beserta pesanannya?': 'Delete this batch and its orders?',
   'Hapus pesanan ini?': 'Delete this order?',
+
+  // 구조 개선에서 추가된 문구
+  'Batch yang sedang berjalan': 'Ongoing batches',
+  'Total pesanan': 'Order total',
+  'Sudah dibayar': 'Paid so far',
+  'Lihat bukti pesanan': 'View receipt',
+  'Isi manual': 'Enter manually',
+  'Sudah punya nomor pesanan?': 'Already have an order number?',
+  'Muat': 'Load',
+  'Data pesanan terisi otomatis.': 'The order details will be filled in for you.',
+  'Nomor pesanan tidak ditemukan.': 'Order number not found.',
+  'Aksi': 'Actions',
 
   // 배색·이동
   'Pink': 'Pink',

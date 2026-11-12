@@ -66,10 +66,20 @@
       [L('Bayar dan kirim bukti', '결제 후 증빙 제출'), L('Scan QR dengan nominal otomatis, lalu unggah bukti.', '금액이 자동 입력된 QR로 결제하고 증빙을 올립니다.')],
       [L('Lacak pesanan', '주문 조회'), L('Cek posisi pesanan kapan saja dengan nomor pesanan.', '주문번호로 언제든 진행 상황을 확인합니다.')]
     ].map(function (h, i) { return '<li><em>' + (i + 1) + '</em><div><b>' + esc(h[0]) + '</b><p>' + esc(h[1]) + '</p></div></li>'; }).join('');
-    return '<section class="hero"><img src="' + GO.BRAND.mark + '" alt="" width="72" height="72"><div><h1>' + esc(GO.BRAND.name) + '</h1><p>' + esc(LL(GO.BRAND.tagline)) + '</p></div></section>' +
+    var ongoing = S.db.batches.filter(function (b) { return b.stage < GO.LAST_STAGE; })
+      .sort(function (a, b) { return a.stage - b.stage || (a.closeDate < b.closeDate ? -1 : 1); })
+      .map(function (b) { return batchRow(b, true); }).join('');
+    return '<section class="hero"><img src="' + GO.BRAND.mark + '" alt="" width="72" height="72"><div><h1>' + esc(GO.BRAND.name) + '</h1><p>' + esc(LL(GO.BRAND.tagline)) + '</p>' + searchForm('') + '</div></section>' +
       '<section><h2>' + L('Layanan', '서비스') + '</h2><p class="lead">' + L('Pilih layanan untuk melihat batch bulan ini dan rekapnya.', '서비스를 고르면 이번 달 배치와 집계를 볼 수 있습니다.') + '</p><div class="svc-grid">' + cards + '</div></section>' +
-      '<section><h2>' + L('Lacak pesanan', '주문 조회') + '</h2>' + searchForm('') + '</section>' +
+      '<section><h2>' + L('Batch yang sedang berjalan', '진행 중인 배치') + '</h2>' + (ongoing ? '<div class="rows">' + ongoing + '</div>' : empty(L('Belum ada batch.', '아직 배치가 없습니다.'))) + '</section>' +
       '<section><h2>' + L('Cara order', '이용 방법') + '</h2><ol class="how">' + how + '</ol></section>';
+  }
+
+  // 배치 목록의 한 줄. withSvc가 참이면 서비스 이름을 함께 적는다(홈의 진행 중 목록용).
+  function batchRow(b, withSvc) {
+    var br = X.batchRecap(b.id, S.db.orders);
+    return '<a class="row" href="#/b/' + b.id + '"><div><b>' + esc((withSvc ? LL(S.service(b.svc).name) + ' · ' : '') + batchName(b)) + '</b><small>' + L('Tutup order', '주문 마감') + ' ' + esc(dateLabel(b.closeDate)) + '</small></div>' +
+      stageBadge(b) + '<span class="num">' + br.count + ' ' + L('pesanan', '건') + '</span><span class="num">' + rp(br.total) + '</span><span class="arrow" aria-hidden="true">→</span></a>';
   }
 
   /* ── 서비스 → 월별 배치 ── */
@@ -81,16 +91,12 @@
     var tabs = months.map(function (m) { return '<a class="' + (m === month ? 'on' : '') + '" href="#/s/' + svcId + '/' + m + '">' + esc(monthLabel(m)) + '</a>'; }).join('');
     var list = month ? S.batchesOf(svcId, month) : [];
     var r = X.monthRecap(list, S.db.orders);
-    var rows = list.map(function (b) {
-      var br = X.batchRecap(b.id, S.db.orders);
-      return '<a class="row" href="#/b/' + b.id + '"><div><b>' + esc(batchName(b)) + '</b><small>' + L('Tutup order', '주문 마감') + ' ' + esc(dateLabel(b.closeDate)) + '</small></div>' +
-        stageBadge(b) + '<span class="num">' + br.count + ' ' + L('pesanan', '건') + '</span><span class="num">' + rp(br.total) + '</span><span class="arrow">→</span></a>';
-    }).join('');
+    var rows = list.map(function (b) { return batchRow(b, false); }).join('');
     return crumbs([[L('Layanan', '서비스'), '#/'], [LL(s.name)]]) +
       '<h1>' + esc(LL(s.name)) + '</h1><p class="lead">' + esc(LL(s.desc)) + '</p>' +
       (months.length ? '<div class="tabs">' + tabs + '</div>' +
         '<h2 class="sub">' + L('Rekap bulan ini', '월 집계') + ' · ' + esc(monthLabel(month)) + '</h2>' +
-        '<div class="stats">' + stat(L('Batch', '배치'), r.batches) + stat(L('Sedang berjalan', '진행 중'), r.ongoing) + stat(L('Pesanan', '주문'), r.count) + stat(L('Jumlah pcs', '수량'), r.pcs) + stat(L('Total', '합계'), rp(r.total)) + '</div>' +
+        '<div class="stats">' + stat(L('Batch', '배치'), r.batches) + stat(L('Sedang berjalan', '진행 중'), r.ongoing) + stat(L('Pesanan', '주문'), r.count) + stat(L('Total pesanan', '주문 금액'), rp(r.total)) + stat(L('Sudah dibayar', '결제 완료 금액'), rp(r.paidTotal)) + '</div>' +
         '<h2 class="sub">' + L('Daftar batch', '배치 목록') + '</h2><div class="rows">' + rows + '</div>'
         : empty(L('Belum ada batch.', '아직 배치가 없습니다.')));
   }
@@ -102,7 +108,7 @@
     var s = S.service(b.svc), r = X.batchRecap(id, S.db.orders), orders = S.ordersOf(id);
     var items = r.items.map(function (it) { return '<tr><td>' + esc(it.item) + '</td><td class="r">' + it.qty + '</td><td class="r">' + rp(it.total) + '</td></tr>'; }).join('');
     var ords = orders.map(function (o) {
-      return '<tr><td><a href="#/track/' + o.id + '">' + o.id + '</a></td><td>' + esc(X.maskName(o.buyer)) + '</td><td>' + esc(o.item) + '</td><td class="r">' + o.qty + '</td><td class="r">' + rp(o.total) + '</td><td>' + payBadge(o.pay) + '</td></tr>';
+      return '<tr><td>' + esc(X.maskName(o.buyer)) + '</td><td>' + esc(o.item) + '</td><td class="r">' + o.qty + '</td><td class="r">' + rp(o.total) + '</td><td>' + payBadge(o.pay) + '</td></tr>';
     }).join('');
     return crumbs([[L('Layanan', '서비스'), '#/'], [LL(s.name), '#/s/' + s.id + '/' + b.month], [batchName(b)]]) +
       '<div class="head"><div><h1>' + esc(batchName(b)) + '</h1><p class="lead">' + esc(monthLabel(b.month)) + ' · ' + L('Tutup order', '주문 마감') + ' ' + esc(dateLabel(b.closeDate)) + '</p></div>' +
@@ -110,9 +116,9 @@
       stepper(GO.STAGES.map(LL), b.stage, b.stage === GO.LAST_STAGE) +
       (b.note ? '<p class="note"><b>' + L('Info', '안내') + '</b> ' + esc(b.note) + '</p>' : '') +
       '<h2 class="sub">' + L('Rekap batch', '배치 집계') + '</h2>' +
-      '<div class="stats">' + stat(L('Pesanan', '주문'), r.count) + stat(L('Jumlah pcs', '수량'), r.pcs) + stat(L('Total', '합계'), rp(r.total)) + stat(L('Lunas', '결제 완료'), r.paid + ' / ' + r.count) + stat(L('Menunggu verifikasi', '확인 대기'), r.pending) + '</div>' +
+      '<div class="stats">' + stat(L('Pesanan', '주문'), r.count) + stat(L('Jumlah pcs', '수량'), r.pcs) + stat(L('Total pesanan', '주문 금액'), rp(r.total)) + stat(L('Sudah dibayar', '결제 완료 금액') + ' (' + r.paid + '/' + r.count + ')', rp(r.paidTotal)) + stat(L('Menunggu verifikasi', '확인 대기'), r.pending) + '</div>' +
       (r.count ? '<h2 class="sub">' + L('Rekap per item', '품목별 집계') + '</h2><div class="tbl"><table><thead><tr><th>Item</th><th class="r">' + L('Jumlah', '수량') + '</th><th class="r">' + L('Total', '합계') + '</th></tr></thead><tbody>' + items + '</tbody></table></div>' +
-        '<h2 class="sub">' + L('Daftar pesanan', '주문 목록') + '</h2><div class="tbl"><table><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">' + L('Jumlah', '수량') + '</th><th class="r">' + L('Total', '합계') + '</th><th>' + L('Pembayaran', '결제') + '</th></tr></thead><tbody>' + ords + '</tbody></table></div>'
+        '<h2 class="sub">' + L('Daftar pesanan', '주문 목록') + '</h2><div class="tbl"><table><thead><tr><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">' + L('Jumlah', '수량') + '</th><th class="r">' + L('Total', '합계') + '</th><th>' + L('Pembayaran', '결제') + '</th></tr></thead><tbody>' + ords + '</tbody></table></div>'
         : empty(L('Belum ada pesanan di batch ini.', '이 배치에는 아직 주문이 없습니다.')));
   }
 
@@ -122,12 +128,13 @@
     var labels = [L('Pembayaran', '결제')].concat(GO.STAGES.slice(1).map(LL));
     var cards = found.map(function (o) {
       var b = S.batch(o.batchId), s = S.service(b.svc), p = X.orderProgress(o, b);
-      return '<article class="card"><div class="head"><div><small>' + o.id + ' · ' + esc(dateLabel(o.createdAt)) + '</small><h3>' + esc(o.item) + '</h3>' +
+      return '<article class="card"><div class="head"><div><small>' + o.id + ' · ' + esc(dateLabel(o.createdAt)) + '</small><h2>' + esc(o.item) + '</h2>' +
         '<p class="lead">' + esc(X.maskName(o.buyer)) + ' · ' + o.qty + ' pcs · ' + rp(o.total) + '</p></div><div class="right">' + payBadge(o.pay) + '</div></div>' +
         stepper(labels, p.cur, p.finished) +
         '<p class="where">' + L('Posisi sekarang', '현재 위치') + ': <b>' + esc(o.pay === 'paid' ? LL(GO.STAGES[b.stage]) : LL(GO.PAY[o.pay])) + '</b> · <a href="#/b/' + b.id + '">' + esc(LL(s.name) + ' / ' + batchName(b)) + '</a></p>' +
         (b.note ? '<p class="note"><b>' + L('Info', '안내') + '</b> ' + esc(b.note) + '</p>' : '') +
-        (o.pay === 'unpaid' || o.pay === 'rejected' ? '<a class="btn" href="#/pay/' + b.id + '/' + o.id + '">' + L('Bayar pesanan ini', '이 주문 결제하기') + '</a>' : '') + '</article>';
+        (o.pay === 'unpaid' || o.pay === 'rejected' ? '<a class="btn" href="#/pay/' + b.id + '/' + o.id + '">' + L('Bayar pesanan ini', '이 주문 결제하기') + '</a>'
+          : '<button type="button" class="btn line" data-act="receipt" data-id="' + o.id + '">' + L('Lihat bukti pesanan', '영수증 보기') + '</button>') + '</article>';
     }).join('');
     return '<h1>' + L('Lacak pesanan', '주문 조회') + '</h1><p class="lead">' + L('Masukkan nomor pesanan atau username untuk melihat posisi dan status pesanan.', '주문번호나 아이디를 입력하면 주문 위치와 상태를 볼 수 있습니다.') + '</p>' + searchForm(q) +
       (q ? (found.length ? '<p class="count">' + found.length + ' ' + L('pesanan ditemukan', '건 찾음') + '</p>' + cards : empty(L('Pesanan tidak ditemukan. Periksa lagi nomor pesanan atau username.', '주문을 찾지 못했습니다. 주문번호나 아이디를 다시 확인해 주세요.')))
@@ -151,7 +158,7 @@
     function fee(key, label) {
       return '<div class="field"><div class="lab"><label>' + label + '</label>' + seg(key, C[key].mode) + '</div><input type="number" step="any" data-calc="' + key + '.val" value="' + C[key].val + '" aria-label="' + label + '"><small>' + modeHint(C[key].mode) + '</small></div>';
     }
-    return '<div class="head"><div><h1>' + L('Kalkulator harga', '가격 계산기') + '</h1><p class="lead">' + L('Atur cara hitung tiap biaya: persen, nominal per pcs, atau pengali.', '수수료마다 퍼센트·개당 금액·배수 중에서 고를 수 있습니다.') + '</p></div>' +
+    return '<div class="head sub-head"><div><h2>' + L('Kalkulator harga', '가격 계산기') + '</h2><p class="lead">' + L('Atur cara hitung tiap biaya: persen, nominal per pcs, atau pengali.', '수수료마다 퍼센트·개당 금액·배수 중에서 고를 수 있습니다.') + '</p></div>' +
       '<div class="btns"><button class="btn line" data-act="calc-reset">' + L('Muat default', '기본값 불러오기') + '</button><button class="btn" data-act="calc-save">' + L('Simpan sebagai default', '기본값으로 저장') + '</button></div></div>' +
       '<div class="two"><div class="panel"><h2>' + L('Data harga', '계산 입력') + '</h2><div class="grid2">' +
       '<div class="field"><label>' + L('Mata uang', '통화') + '</label><select data-calc="cur">' + Object.keys(GO.CURRENCIES).map(function (k) { return '<option value="' + k + '"' + (k === C.cur ? ' selected' : '') + '>' + GO.CURRENCIES[k].label + '</option>'; }).join('') + '</select></div>' +
@@ -196,7 +203,8 @@
     var lock = P.orderId ? ' readonly' : '';
     return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="lead">' + L('Isi data pesanan, bayar lewat QR, lalu unggah bukti pembayaran.', '주문 정보를 입력하고 QR로 결제한 뒤 증빙을 올려 주세요.') + '</p>' +
       '<form class="two" data-form="pay"><div class="panel"><h2>' + L('Data pesanan', '주문 정보') + '</h2>' +
-      (P.orderId ? '<p class="note">' + L('Pesanan', '주문') + ' <b>' + P.orderId + '</b></p>' : '') +
+      (P.orderId ? '<p class="note">' + L('Pesanan', '주문') + ' <b>' + P.orderId + '</b> · <a href="#/pay">' + L('Isi manual', '직접 입력하기') + '</a></p>'
+        : '<div class="field"><label>' + L('Sudah punya nomor pesanan?', '주문번호가 있나요?') + '</label><div class="inline"><input id="payLookup" placeholder="' + S.db.orders[0].id + '" autocomplete="off"><button type="button" class="btn line" data-act="pay-lookup">' + L('Muat', '불러오기') + '</button></div><small id="lookupMsg">' + L('Data pesanan terisi otomatis.', '주문 정보가 자동으로 채워집니다.') + '</small></div>') +
       '<div class="field"><label>' + L('Pilih layanan', '서비스 선택') + ' *</label><div class="seg wide">' + svcs + '</div></div>' +
       '<div class="field"><label>' + L('Nomor batch', '배치 번호') + ' *</label><select data-pay="batchId"' + (P.orderId ? ' disabled' : '') + '>' + bs + '</select></div>' +
       '<div class="grid2"><div class="field"><label>' + L('Nama / username pembeli', '구매자 이름·아이디') + ' *</label><input data-pay="buyer" value="' + esc(P.buyer) + '"' + lock + '></div>' +
@@ -308,12 +316,12 @@
   var A = { batchId: '', text: '', rows: null, engine: '' };
   function vAdmin(tab) {
     tab = tab || 'guide';
-    var tabs = [['guide', L('Panduan', '사용 안내')], ['batch', L('Batch', '배치')], ['order', L('Input pesanan', '주문 입력')], ['pay', L('Verifikasi pembayaran', '결제 확인')]];
+    var tabs = [['guide', L('Panduan', '사용 안내')], ['batch', L('Batch', '배치')], ['order', L('Input pesanan', '주문 입력')], ['pay', L('Verifikasi pembayaran', '결제 확인')], ['calc', L('Kalkulator', '계산기')]];
     var pendingN = S.db.orders.filter(function (o) { return o.pay === 'pending'; }).length;
     return '<div class="head"><div><h1>' + L('Admin', '관리자') + '</h1><p class="lead">' + L('Data yang diisi di sini langsung tampil di halaman pelanggan.', '여기서 입력한 내용이 고객 화면에 바로 나타납니다.') + '</p></div><div class="btns"><button class="btn" data-act="export">' + L('Unduh CSV pesanan', '주문 CSV 내려받기') + '</button><button class="btn line" data-act="reset">' + L('Reset data contoh', '예시 데이터로 초기화') + '</button></div></div>' +
       '<p class="note">' + L('Mockup: belum ada login admin dan data hanya tersimpan di browser ini.', '목업: 관리자 로그인이 아직 없고, 데이터는 이 브라우저에만 저장됩니다.') + '</p>' +
       '<div class="tabs">' + tabs.map(function (t) { return '<a class="' + (t[0] === tab ? 'on' : '') + '" href="#/admin/' + t[0] + '">' + esc(t[1]) + (t[0] === 'pay' && pendingN ? ' <i class="dot">' + pendingN + '</i>' : '') + '</a>'; }).join('') + '</div>' +
-      ({ guide: aGuide, batch: aBatch, order: aOrder, pay: aPay }[tab] || aGuide)();
+      ({ guide: aGuide, batch: aBatch, order: aOrder, pay: aPay, calc: vCalc }[tab] || aGuide)();
   }
   function aGuide() {
     var g = [
@@ -321,10 +329,10 @@
       [L('Masukkan pesanan', '주문 넣기'), L('Tab Input pesanan → tempel daftar order dari chat. Sistem memisahkan pembeli, item, jumlah, dan harga secara otomatis. Periksa lalu simpan.', '주문 입력 탭에 채팅의 주문 목록을 붙여 넣으면 구매자·품목·수량·가격을 자동으로 나눕니다. 확인 후 저장합니다.'), 'order'],
       [L('Verifikasi pembayaran', '결제 확인'), L('Tab Verifikasi → setujui atau tolak bukti yang dikirim pelanggan.', '결제 확인 탭에서 고객이 보낸 증빙을 승인하거나 반려합니다.'), 'pay'],
       [L('Perbarui status batch', '배치 상태 갱신'), L('Tab Batch → ubah tahap (dibeli, dikirim, tiba, selesai) dan tulis info. Pelanggan melihatnya saat melacak pesanan.', '배치 탭에서 단계(구매·배송·도착·완료)를 바꾸고 안내를 적습니다. 고객이 주문 조회에서 봅니다.'), 'batch'],
-      [L('Hitung harga', '가격 계산'), L('Menu Kalkulator → simpan rumus fee sebagai default. Harga mata uang asing di Input pesanan dihitung dengan rumus ini.', '계산기 메뉴에서 수수료 수식을 기본값으로 저장합니다. 주문 입력의 외화 가격은 이 수식으로 환산됩니다.'), null]
+      [L('Hitung harga', '가격 계산'), L('Tab Kalkulator → simpan rumus fee sebagai default. Harga mata uang asing di Input pesanan dihitung dengan rumus ini.', '계산기 탭에서 수수료 수식을 기본값으로 저장합니다. 주문 입력의 외화 가격은 이 수식으로 환산됩니다.'), null]
     ];
     return '<ol class="how">' + g.map(function (x, i) {
-      return '<li><em>' + (i + 1) + '</em><div><b>' + esc(x[0]) + '</b><p>' + esc(x[1]) + '</p>' + (x[2] ? '<a href="#/admin/' + x[2] + '">' + L('Buka', '열기') + ' →</a>' : '<a href="#/calc">' + L('Buka', '열기') + ' →</a>') + '</div></li>';
+      return '<li><em>' + (i + 1) + '</em><div><b>' + esc(x[0]) + '</b><p>' + esc(x[1]) + '</p>' + (x[2] ? '<a href="#/admin/' + x[2] + '">' + L('Buka', '열기') + ' →</a>' : '<a href="#/admin/calc">' + L('Buka', '열기') + ' →</a>') + '</div></li>';
     }).join('') + '</ol><p class="hint">' + L('Voucher contoh', '예시 쿠폰') + ': ' + S.db.vouchers.map(function (v) { return v.code + ' (−' + rp(v.off) + ')'; }).join(', ') + '</p>';
   }
   function svcOptions(sel) { return S.db.services.map(function (s) { return '<option value="' + s.id + '"' + (s.id === sel ? ' selected' : '') + '>' + esc(LL(s.name)) + '</option>'; }).join(''); }
@@ -345,7 +353,7 @@
       '<div class="field"><label>' + L('Kurs', '환율') + '</label><input name="kurs" type="number" step="any" value="11.5"></div>' +
       '<div class="field span"><label>' + L('Info untuk pelanggan', '고객 안내 문구') + '</label><input name="note"></div>' +
       '<div class="field"><label>&nbsp;</label><button class="btn">' + L('Tambah', '추가') + '</button></div></form><p class="err" id="batchErr" role="alert"></p></div>' +
-      '<h2 class="sub">' + L('Semua batch', '전체 배치') + '</h2><div class="tbl"><table class="edit"><thead><tr><th>' + L('Bulan', '월') + '</th><th>' + L('Layanan', '서비스') + '</th><th>Batch</th><th>' + L('Tahap', '단계') + '</th><th>Info</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+      '<h2 class="sub">' + L('Semua batch', '전체 배치') + '</h2><div class="tbl"><table class="edit"><thead><tr><th>' + L('Bulan', '월') + '</th><th>' + L('Layanan', '서비스') + '</th><th>Batch</th><th>' + L('Tahap', '단계') + '</th><th>Info</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
   }
   function aOrder() {
     if (!S.batch(A.batchId)) A.batchId = (S.db.batches.filter(function (b) { return b.stage === 0; })[0] || S.db.batches[0] || {}).id || '';
@@ -353,7 +361,7 @@
     var prev = '';
     if (A.rows) {
       prev = '<h2 class="sub">' + L('Hasil pemisahan', '분류 결과') + ' <small>(' + (A.engine === 'ai' ? 'AI' : L('aturan otomatis', '규칙 기반 자동 분류')) + ')</small></h2>' +
-        (A.rows.length ? '<div class="tbl"><table class="edit"><thead><tr><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th>' + L('Jumlah', '수량') + '</th><th>' + L('Harga asli', '원래 가격') + '</th><th>Total (Rp)</th><th></th></tr></thead><tbody>' +
+        (A.rows.length ? '<div class="tbl"><table class="edit"><thead><tr><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th>' + L('Jumlah', '수량') + '</th><th>' + L('Harga asli', '원래 가격') + '</th><th>Total (Rp)</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' +
           A.rows.map(function (r, i) {
             function cell(f, type) { return '<td class="' + (r.missing.indexOf(f) >= 0 || (f === 'total' && !r.total) ? 'miss' : '') + '"><input ' + (type ? 'type="number" ' : '') + 'data-row="' + i + '" data-f="' + f + '" value="' + esc(r[f] == null ? '' : r[f]) + '" aria-label="' + f + '"></td>'; }
             return '<tr>' + cell('buyer') + cell('item') + cell('qty', 1) + '<td class="src">' + (r.price != null ? esc((GO.CURRENCIES[r.cur] || {}).sym + ' ' + r.price.toLocaleString('id-ID')) : '-') + '</td>' + cell('total', 1) + '<td><button class="link" data-act="row-del" data-id="' + i + '">' + L('Hapus', '삭제') + '</button></td></tr>';
@@ -372,7 +380,7 @@
       '<div class="field"><label>' + L('Masuk ke batch', '넣을 배치') + '</label><select data-admin="batchId">' + batchOptions(A.batchId) + '</select></div>' +
       '<div class="field"><label>' + L('Teks order', '주문 글') + '</label><textarea rows="7" data-admin="text" placeholder="' + esc(sample) + '">' + esc(A.text) + '</textarea></div>' +
       '<div class="btns"><button class="btn" data-act="classify">' + L('Pisahkan otomatis', '자동으로 분류') + '</button><button class="btn line" data-act="sample">' + L('Isi contoh', '예시 채우기') + '</button></div></div>' + prev +
-      '<h2 class="sub">' + L('Pesanan di batch ini', '이 배치의 주문') + '</h2>' + (list ? '<div class="tbl"><table class="edit"><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">' + L('Jumlah', '수량') + '</th><th class="r">Total</th><th>' + L('Pembayaran', '결제') + '</th><th></th></tr></thead><tbody>' + list + '</tbody></table></div>' : empty(L('Belum ada pesanan.', '아직 주문이 없습니다.')));
+      '<h2 class="sub">' + L('Pesanan di batch ini', '이 배치의 주문') + '</h2>' + (list ? '<div class="tbl"><table class="edit"><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">' + L('Jumlah', '수량') + '</th><th class="r">Total</th><th>' + L('Pembayaran', '결제') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' + list + '</tbody></table></div>' : empty(L('Belum ada pesanan.', '아직 주문이 없습니다.')));
   }
   function rowTotal(r, batch) {
     if (r.price == null) return '';
@@ -384,7 +392,7 @@
   }
   function aPay() {
     var list = S.db.orders.filter(function (o) { return o.pay === 'pending'; });
-    return list.length ? '<div class="tbl"><table><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>Batch</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">Total</th><th>' + L('Metode', '수단') + '</th><th>' + L('Bukti', '증빙') + '</th><th></th></tr></thead><tbody>' +
+    return list.length ? '<div class="tbl"><table><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>Batch</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">Total</th><th>' + L('Metode', '수단') + '</th><th>' + L('Bukti', '증빙') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' +
       list.map(function (o) {
         var b = S.batch(o.batchId);
         return '<tr><td>' + o.id + '</td><td>' + esc(batchName(b)) + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + rp(o.total) + '</td><td>' + esc(o.method) + '</td><td>' + esc(o.proofName || '-') + '</td>' +
@@ -410,6 +418,17 @@
   function showJump() { $('#jump').hidden = document.documentElement.scrollHeight < window.innerHeight + 300; }
   window.addEventListener('resize', showJump);
 
+  // 접근성: 화면을 그린 뒤 각 입력칸을 그 위의 제목(label)과 연결한다
+  var labelSeq = 0;
+  function linkLabels() {
+    document.querySelectorAll('#app .field').forEach(function (f) {
+      var label = f.querySelector('label'), ctrl = f.querySelector('input, select, textarea');
+      if (!label || !ctrl || label.htmlFor) return;
+      if (!ctrl.id) ctrl.id = 'f' + (++labelSeq);
+      label.htmlFor = ctrl.id;
+    });
+  }
+
   /* ── 라우터 ── */
   function route() { return location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent); }
   function render() {
@@ -417,16 +436,17 @@
     var payKey = (r[1] || '') + '/' + (r[2] || '');
     if (page === 'pay' && (!P || P._key !== payKey)) { initPay(r[1], r[2]); P._key = payKey; }
     if (page !== 'pay') P = null;
+    if (page === 'calc') { page = 'admin'; r[1] = 'calc'; }   // 예전 주소 #/calc도 계속 열리게
     if (page === 's') html = vService(r[1], r[2]);
     else if (page === 'b') html = vBatch(r[1]);
     else if (page === 'track') html = vTrack(r[1] || '');
-    else if (page === 'calc') html = vCalc();
     else if (page === 'pay') html = vPay();
     else if (page === 'admin') html = vAdmin(r[1]);
     else { page = 'home'; html = vHome(); }
     $('#app').innerHTML = html;
+    linkLabels();
     var navKey = page === 's' || page === 'b' ? 'home' : page;
-    $('#nav').innerHTML = [['home', '#/', L('Layanan', '서비스')], ['track', '#/track', L('Lacak pesanan', '주문 조회')], ['calc', '#/calc', L('Kalkulator', '계산기')], ['pay', '#/pay', L('Konfirmasi pembayaran', '결제 확인')], ['admin', '#/admin', L('Admin', '관리자')]]
+    $('#nav').innerHTML = [['home', '#/', L('Layanan', '서비스')], ['track', '#/track', L('Lacak pesanan', '주문 조회')], ['pay', '#/pay', L('Konfirmasi pembayaran', '결제 확인')], ['admin', '#/admin', L('Admin', '관리자')]]
       .map(function (n) { return '<a href="' + n[1] + '"' + (n[0] === navKey ? ' class="on" aria-current="page"' : '') + '>' + n[2] + '</a>'; }).join('');
     $('#langs').innerHTML = [['id', 'ID', 'Bahasa Indonesia'], ['en', 'EN', 'English'], ['ko', 'KO', '한국어']].map(function (l) { return '<button type="button" class="link' + (l[0] === lang ? ' on' : '') + '" data-act="lang" data-id="' + l[0] + '" title="' + l[2] + '" aria-label="' + l[2] + '" aria-pressed="' + (l[0] === lang) + '">' + l[1] + '</button>'; }).join('');
     $('#jumpTop').setAttribute('aria-label', L('Ke atas', '맨 위로')); $('#jumpTop').title = L('Ke atas', '맨 위로');
@@ -440,7 +460,7 @@
     $('#themes').innerHTML = THEMES.map(function (t) {
       return '<button type="button" data-act="theme" data-id="' + t[0] + '" class="' + (t[0] === theme ? 'on' : '') + '" style="background:' + t[1] + '" title="' + LL(t[2]) + '" aria-label="' + LL(t[2]) + '" aria-pressed="' + (t[0] === theme) + '"></button>';
     }).join('');
-    if (page === 'calc') drawCalc();
+    if (page === 'admin' && r[1] === 'calc') drawCalc();
     if (page === 'pay') drawPay();
   }
 
@@ -472,11 +492,17 @@
     else if (act === 'calc-save') { S.setCalcDefaults(C); t.textContent = L('Tersimpan', '저장됨'); }
     else if (act === 'pay-svc') { P.svc = id; P.batchId = (S.batchesOf(id)[0] || {}).id; render(); }
     else if (act === 'pay-method') { P.method = id; render(); }
+    else if (act === 'pay-lookup') {
+      var found = S.order($('#payLookup').value.trim());
+      if (found) go('#/pay/' + found.batchId + '/' + found.id);
+      else { $('#lookupMsg').textContent = L('Nomor pesanan tidak ditemukan.', '주문번호를 찾을 수 없습니다.'); $('#lookupMsg').className = 'err'; }
+    }
     else if (act === 'pay-voucher') {
       var v = S.voucher(P.voucher); P.off = v ? v.off : 0;
       $('#vMsg').textContent = v ? L('Voucher aktif', '쿠폰 적용됨') + ': −' + rp(v.off) : L('Kode voucher tidak ditemukan.', '쿠폰 코드를 찾을 수 없습니다.');
       drawPay();
     }
+    else if (act === 'receipt') showReceipt(id);
     else if (act === 'modal-close') t.closest('.modal').remove();
     else if (act === 'receipt-save') saveReceipt(id);
     else if (act === 'export') exportOrders();
