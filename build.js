@@ -5,4 +5,6 @@ const out = path.join(__dirname, 'dist');
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out);
 for (const name of ['index.html', '_headers', 'admin', 'css', 'js', 'assets']) fs.cpSync(path.join(__dirname, name), path.join(out, name), { recursive: true });
+// 지금 올라가 있는 것이 어느 커밋인지 확인할 수 있게 적어 둔다 (/version.txt)
+fs.writeFileSync(path.join(out, 'version.txt'), process.env.GITHUB_SHA || 'local');
 console.log('dist ready');
