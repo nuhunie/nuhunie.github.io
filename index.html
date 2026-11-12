@@ -5,8 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Nuhunie</title>
 <link rel="icon" type="image/png" href="assets/mark-a.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&family=Nunito:wght@400;600;700;800&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <link rel="stylesheet" href="css/app.css">
-<script>try { document.documentElement.dataset.theme = localStorage.getItem('go-theme') || 'pink'; } catch (e) {}</script>
+<script>try { document.documentElement.dataset.theme = localStorage.getItem('go-theme') || 'pink'; document.documentElement.dataset.font = localStorage.getItem('go-font') || 'jakarta'; } catch (e) {}</script>
 </head>
 <body>
 <header class="top">
@@ -19,7 +23,7 @@
 </header>
 <main id="app" class="wrap"></main>
 <div id="jump" class="jump"><button type="button" id="jumpTop" data-act="top">↑</button><button type="button" id="jumpBottom" data-act="bottom">↓</button></div>
-<footer class="wrap foot" id="foot">Nuhunie · mockup</footer>
+<footer class="wrap foot"><span id="foot">Nuhunie · mockup</span><span id="fonts" class="fonts" role="group" aria-label="Font"></span></footer>
 
 <!-- 불러오는 순서 = 층 순서: 데이터 모델 → 알고리즘 → 저장소 → 화면 -->
 <script src="js/data.js"></script>

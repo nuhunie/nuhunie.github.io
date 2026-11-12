@@ -20,6 +20,9 @@
     ['violet', '#6d45c4', ['Ungu', '바이올렛']], ['mono', '#111', ['Hitam putih', '흑백']]
   ];
 
+  // 글씨체 후보: [이름, 표시 이름]. 실제 글꼴 값은 css/app.css의 [data-font]에 있다.
+  var FONTS = [['jakarta', 'Plus Jakarta Sans'], ['pretendard', 'Pretendard'], ['nunito', 'Nunito'], ['system', 'System']];
+
   /* ── 공통 도구 ── */
   function L(id, ko) { return lang === 'ko' ? ko : lang === 'en' ? (GO.EN[id] || id) : id; }
   function LL(pair) { return L(pair[0], pair[1]); }
@@ -431,6 +434,8 @@
     showJump();
     document.documentElement.lang = lang;
     document.title = GO.BRAND.name; $('#logo').innerHTML = '<img src="' + GO.BRAND.mark + '" alt="" width="26" height="26">' + esc(GO.BRAND.name); $('#foot').textContent = GO.BRAND.name + ' · mockup';
+    var font = document.documentElement.dataset.font || 'jakarta';
+    $('#fonts').innerHTML = FONTS.map(function (f) { return '<button type="button" class="link' + (f[0] === font ? ' on' : '') + '" data-act="font" data-id="' + f[0] + '" aria-pressed="' + (f[0] === font) + '">' + f[1] + '</button>'; }).join('');
     var theme = document.documentElement.dataset.theme || 'pink';
     $('#themes').innerHTML = THEMES.map(function (t) {
       return '<button type="button" data-act="theme" data-id="' + t[0] + '" class="' + (t[0] === theme ? 'on' : '') + '" style="background:' + t[1] + '" title="' + LL(t[2]) + '" aria-label="' + LL(t[2]) + '" aria-pressed="' + (t[0] === theme) + '"></button>';
@@ -461,6 +466,7 @@
     if (act === 'top') window.scrollTo({ top: 0, behavior: 'smooth' });
     else if (act === 'bottom') window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
     else if (act === 'lang') { lang = id; try { localStorage.setItem('go-lang', lang); } catch (x) {} render(); }
+    else if (act === 'font') { document.documentElement.dataset.font = id; try { localStorage.setItem('go-font', id); } catch (x) {} render(); }
     else if (act === 'theme') { document.documentElement.dataset.theme = id; try { localStorage.setItem('go-theme', id); } catch (x) {} render(); }
     else if (act === 'calc-reset') { C = null; render(); }
     else if (act === 'calc-save') { S.setCalcDefaults(C); t.textContent = L('Tersimpan', '저장됨'); }
