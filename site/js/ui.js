@@ -167,8 +167,11 @@
     var list = month ? S.batchesOf(svcId, month) : [];
     var r = S.monthRecap(list);
     var rows = list.map(function (b) { return batchRow(b, false); }).join('');
+    // 달 탭은 가장 최근 달부터 열리므로, 다른 달에 있는 접수 중 배치를 놓치지 않게 맨 위에 모아 보여 준다
+    var open = S.batchesOf(svcId).filter(function (b) { return b.stage === 0; });
     return crumbs([[L('Layanan', '서비스'), '#/'], [LL(s.name)]]) +
       '<h1>' + esc(LL(s.name)) + '</h1><p class="lead">' + esc(LL(s.desc)) + '</p>' +
+      (open.length ? '<h2 class="sub">' + L('Sedang menerima order', '지금 주문 받는 배치') + '</h2><div class="rows" id="openBatches">' + open.map(function (b) { return batchRow(b, false); }).join('') + '</div>' : '') +
       (months.length ? '<div class="tabs">' + tabs + '</div>' +
         '<h2 class="sub">' + L('Rekap bulan ini', '월 집계') + ' · ' + esc(monthLabel(month)) + '</h2>' +
         '<div class="stats three">' + stat(L('Batch', '배치'), r.batches) + stat(L('Sedang berjalan', '진행 중'), r.ongoing) + stat(L('Jumlah pcs', '수량'), r.pcs) + '</div>' +
@@ -424,7 +427,8 @@
       '<div class="field"><label>' + L('Jumlah (pcs)', '수량') + '</label><input type="number" min="1" max="' + GO.LIMITS.qty + '" data-pay="qty" value="' + P.qty + '"' + lock + '></div></div>' +
       '<div class="field"><label>Item *</label><input data-pay="item" maxlength="' + GO.LIMITS.item + '" value="' + esc(P.item) + '" placeholder="Photocard random 1 pc"' + lock + '></div>' +
       '<div class="field"><label>' + L('Total harga (Rp)', '총 금액 (Rp)') + ' *</label><input type="number" data-pay="base" value="' + P.base + '"' + lock + '></div>' +
-      '<div class="field"><label>' + L('Voucher diskon', '할인 쿠폰') + '</label><div class="inline"><input data-pay="voucher" value="' + esc(P.voucher) + '" placeholder="' + L('Kode voucher', '쿠폰 코드') + '"' + (P.fixed ? ' readonly' : '') + '><button type="button" class="btn line" data-act="pay-voucher"' + (P.fixed ? ' disabled' : '') + '>' + L('Pakai', '적용') + '</button></div><small id="vMsg">' + (P.off ? L('Voucher aktif', '쿠폰 적용됨') + ': −' + rp(P.off) : L('Tidak ada voucher dipakai', '적용된 쿠폰 없음')) + '</small></div>' +
+      (P.fixed ? '<div class="field"><label>' + L('Voucher diskon', '할인 쿠폰') + '</label><p class="fixedval" id="vMsg">' + (P.off ? L('Voucher aktif', '쿠폰 적용됨') + ': −' + rp(P.off) : L('Tidak ada voucher dipakai', '적용된 쿠폰 없음')) + '</p></div>' :
+      '<div class="field"><label>' + L('Voucher diskon', '할인 쿠폰') + '</label><div class="inline"><input data-pay="voucher" value="' + esc(P.voucher) + '" placeholder="' + L('Kode voucher', '쿠폰 코드') + '"' + (P.fixed ? ' readonly' : '') + '><button type="button" class="btn line" data-act="pay-voucher"' + (P.fixed ? ' disabled' : '') + '>' + L('Pakai', '적용') + '</button></div><small id="vMsg">' + (P.off ? L('Voucher aktif', '쿠폰 적용됨') + ': −' + rp(P.off) : L('Tidak ada voucher dipakai', '적용된 쿠폰 없음')) + '</small></div>') +
       '</div>' + payPanel() + '</form>';
   }
   // 주문이 마감된 배치에 새 주문을 넣으려 할 때의 안내. 이미 진행 중인 배치와 같은 처리를 해 줄 수 없다는 점을 결제 전에 알린다.
@@ -827,8 +831,8 @@
     return waitingNote() + (list.length ? (Object.keys(dup).length ? '<p class="note warn"><b>' + L('Perhatian', '주의') + '</b> ' + L('Ada pesanan dengan nominal yang sama. Cocokkan dengan bukti dan nama sebelum menyetujui.', '결제 금액이 같은 주문이 있습니다. 승인하기 전에 증빙과 이름을 대조하세요.') + '</p>' : '') + '<div class="tbl"><table><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>Batch</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">Total</th><th>' + L('Metode', '수단') + '</th><th>' + L('Bukti', '증빙') + '</th><th>' + L('Nama pengirim', '입금자 이름') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' +
       list.map(function (o) {
         var b = S.batch(o.batchId);
-        return '<tr><td>' + o.id + '</td><td>' + esc(batchName(b)) + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + rp(o.total) + (dup[o.total] ? ' <span class="badge pay-rejected">' + L('Nominal sama', '금액 같음') + '</span>' : '') + '</td><td>' + esc(o.method) + '</td><td>' + esc(o.proofName || '-') + '</td>' +
-          '<td><input data-payer="' + o.id + '" value="' + esc(A.payers[o.id] != null ? A.payers[o.id] : (o.payer || '')) + '" maxlength="' + GO.LIMITS.payer + '" placeholder="' + L('sesuai mutasi bank', '은행 입금 내역대로') + '" aria-label="' + L('Nama pengirim', '입금자 이름') + '">' +
+        return '<tr><td>' + o.id + '</td><td class="wrap">' + esc(batchName(b)) + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td class="wrap">' + esc(o.item) + '</td><td class="r">' + rp(o.total) + (dup[o.total] ? ' <span class="badge pay-rejected">' + L('Nominal sama', '금액 같음') + '</span>' : '') + '</td><td>' + esc(o.method) + '</td><td class="wrap">' + esc(o.proofName || '-') + '</td>' +
+          '<td class="payer"><input data-payer="' + o.id + '" value="' + esc(A.payers[o.id] != null ? A.payers[o.id] : (o.payer || '')) + '" maxlength="' + GO.LIMITS.payer + '" placeholder="' + L('sesuai mutasi bank', '은행 입금 내역대로') + '" aria-label="' + L('Nama pengirim', '입금자 이름') + '">' +
             (o.voucher ? '<small class="vby">Voucher ' + esc(o.voucher) + '</small>' : '') + '<small class="rowwarn" data-payerwarn="' + o.id + '" hidden></small></td>' +
           '<td class="acts"><button class="btn sm" data-act="pay-ok" data-id="' + o.id + '">' + L('Setujui', '승인') + '</button><button class="btn line sm" data-act="pay-no" data-id="' + o.id + '">' + L('Tolak', '반려') + '</button></td></tr>';
       }).join('') + '</tbody></table></div><p class="hint">' + L('Mockup hanya menyimpan nama file bukti, bukan gambarnya.', '목업에서는 증빙 이미지가 아니라 파일 이름만 저장합니다.') + '</p>'

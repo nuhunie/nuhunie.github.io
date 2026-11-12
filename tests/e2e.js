@@ -31,7 +31,7 @@ window.runE2E = async function () {
 
   $('.svc[href="#/s/kr"]').click(); await wait(80);
   const nov = S.batchesOf('kr', '2026-11'), rec = X.monthRecap(nov, S.db.orders);
-  check('서비스: 월 탭과 배치 목록이 나온다', $$('.tabs a').length === 2 && $$('.rows .row').length === nov.length);
+  check('서비스: 월 탭과 배치 목록이 나온다', $$('.tabs a').length === 2 && $$('.rows:not(#openBatches) .row').length === nov.length);
   check('서비스: 월 집계에 수량이 나온다', num($$('.stat b')[2].textContent) === rec.pcs, $$('.stat b')[2].textContent);
   check('서비스: 고객 화면에 금액이 없다', !/Rp\s?\d/.test($('#app').innerText), $('#app').innerText.match(/Rp\s?[\d.]+/));
 
@@ -40,6 +40,9 @@ window.runE2E = async function () {
   check('배치: 주문번호가 공개 화면에 보이지 않는다', !S.ordersOf('kr-5').some(o => $('#app').innerText.includes(o.id)));
   check('배치: 이름·금액·결제 상태 없이 품목별 수량만 나온다', $$('#batchOut table').length === 1 && !/Rp\s?\d/.test($('#app').innerText) && !$('#batchOut .badge') && !S.ordersOf('kr-5').some(o => $('#app').innerText.includes(X.maskName(o.buyer))));
 
+  await go('#/s/kr/' + S.batch('kr-1').month);
+  check('서비스: 다른 달을 보고 있어도 지금 주문 받는 배치가 맨 위에 모인다', S.batchesOf('kr').filter(b => b.stage === 0).every(b => !!$('#openBatches a[href="#/b/' + b.id + '"]')) && !$$('#openBatches a').some(a => S.batch(a.getAttribute('href').split('/')[2]).stage !== 0));
+  await go('#/b/kr-5');
   check('배치: 접수 중인 배치에는 주문하기(진한 단추)와 결제 확인하기(선 단추)가 있다', !!$('#app a.btn[href="#/pay/kr-5"]:not(.line)') && !!$('#app a.btn.line[href="#/confirm"]'));
   check('메뉴: 주문하기와 결제 확인이 따로 있다', !!$('#nav a[href="#/pay"]') && !!$('#nav a[href="#/confirm"]'));
   await go('#/b/kr-4');
@@ -94,7 +97,8 @@ window.runE2E = async function () {
   await go('#/track'); await go('#/pay');
   check('결제: 결제를 마치지 않은 주문을 이어서 할 수 있게 알려 준다', !!$('a[href="#/pay/kr-5/' + o2.id + '"]') && $('[data-pay=buyer]').value === '');
   await go('#/pay/kr-5/' + o2.id); await wait(60);
-  check('결제: 다시 열어도 주문번호와 결제 금액이 그대로다', num($('#payOut .total b').textContent) === shown && $('[data-pay=base]').readOnly && $('[data-pay=voucher]').readOnly);
+  check('결제: 다시 열어도 주문번호와 결제 금액이 그대로다', num($('#payOut .total b').textContent) === shown && $('[data-pay=base]').readOnly);
+  check('결제: 접수된 주문은 빈 쿠폰 입력칸 대신 적용된 할인만 보여 준다', !$('[data-pay=voucher]') && /5\.000/.test($('.fixedval').textContent), $('.fixedval') && $('.fixedval').textContent);
   attach(); $('form[data-form=pay] .btn.block').click(); await wait(120);
   check('결제: 증빙을 내면 확인 대기가 되고 금액은 접수 때와 같다', S.order(o2.id).pay === 'pending' && S.order(o2.id).total === shown, JSON.stringify(S.order(o2.id)));
   $('.modal') && $('.modal').remove();

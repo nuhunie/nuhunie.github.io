@@ -379,6 +379,7 @@ GO.EN = {
   'Kode layanan itu sudah ada.': 'That service code already exists.',
   'Periksa kembali data layanan.': 'Check the service fields.',
   // 주문하기 / 결제 확인하기 입구
+  'Sedang menerima order': 'Taking orders now',
   'Pesan': 'Order',
   'Konfirmasi': 'Confirm payment',
   'Pesan sekarang': 'Order now',
