@@ -26,13 +26,13 @@
 
   X.calcPrice = function (c) {
     var qty = Math.max(1, Number(c.qty) || 1);
-    var conv = (Number(c.price) || 0) * qty * (Number(c.kurs) || 0); // 1) 환산가
+    var conv = Math.max(0, Number(c.price) || 0) * qty * Math.max(0, Number(c.kurs) || 0); // 1) 환산가 (음수 원가·환율은 0으로 본다)
     var feeGo = X.fee(c.feeGo, conv, qty);                           // 2) GO 수수료
     var feeCo = X.fee(c.feeCo, conv, qty);                           // 3) CO 수수료
     var taxBase = c.tax.base === 'convfee' ? conv + feeGo + feeCo : conv;
     var tax = X.fee(c.tax, taxBase, qty);                            // 4) 세금
     var extra = Number(c.extra) || 0;                                // 5) 기타 비용
-    var total = Math.round(conv + feeGo + feeCo + tax + extra);
+    var total = Math.max(0, Math.round(conv + feeGo + feeCo + tax + extra));
     return { qty: qty, conv: conv, feeGo: feeGo, feeCo: feeCo, tax: tax, extra: extra, total: total, perPcs: Math.round(total / qty) };
   };
 
@@ -107,6 +107,18 @@
    * 숫자 6자리는 훑어서 맞힐 수 있어, 영문+숫자 8자리(32^8 ≈ 1조 가지)로 쓴다.
    * 헷갈리는 글자(0 O 1 I)는 쓰지 않는다. */
   X.ORDER_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  // 고객이 적은 주문번호를 맞춰 준다: 소문자, 띄어쓰기, 빠진 하이픈 ("nuh usmtqleg" → "NUH-USMTQLEG").
+  // 글자를 바꾸거나 채워 주지는 않는다. 앞머리까지 번호 전체가 맞아야 찾는 것은 그대로다.
+  X.normOrderId = function (v) {
+    var p = GO.BRAND.orderPrefix, s = String(v == null ? '' : v).toUpperCase().replace(/[\s\-_.]/g, '');
+    return s.indexOf(p) === 0 ? p + '-' + s.slice(p.length) : s;
+  };
+  // 가게 시간(자카르타) 기준 날짜 'YYYY-MM-DD'. 서버가 적은 시각은 세계 표준시(끝에 Z)라 그대로 자르면
+  // 자카르타 새벽 주문이 전날로 찍힌다. 시간대 표시가 없는 값(예시 데이터)은 이미 가게 시간으로 적힌 것으로 본다.
+  X.shopDate = function (iso) {
+    var s = String(iso || ''), t = /(Z|[+\-]\d\d:?\d\d)$/i.test(s) ? Date.parse(s) : NaN;
+    return isNaN(t) ? s.slice(0, 10) : new Date(t + GO.BRAND.utcOffset * 3600000).toISOString().slice(0, 10);
+  };
   X.isOrderId = function (v) {
     return new RegExp('^' + GO.BRAND.orderPrefix + '-[' + X.ORDER_CHARS + ']{8}$').test(String(v || ''));
   };
@@ -149,7 +161,7 @@
   X.searchOrders = function (orders, q) {
     // 주문번호 전체가 맞아야 찾는다. 주문번호는 본인만 아는 열쇠다.
     // 아이디로는 찾지 않는다: 아이디는 공개된 값이라 남의 주문을 보게 된다.
-    q = String(q || '').trim().toUpperCase();
+    q = X.normOrderId(q);
     var out = [];
     orders.forEach(function (o) {
       if (o.id !== q) return;
@@ -281,7 +293,7 @@
     return rows.map(function (r) {
       return r.map(function (v) {
         v = String(v == null ? '' : v);
-        if (/^[=+\-@]/.test(v)) v = "'" + v;           // 수식으로 실행되지 않게 막는다
+        if (/^[\s]*[=+\-@]/.test(v) || /^[\t\r]/.test(v)) v = "'" + v;   // 수식으로 실행되지 않게 막는다 (앞에 탭·공백을 둔 것도)
         return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
       }).join(',');
     }).join('\r\n');

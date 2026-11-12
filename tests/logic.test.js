@@ -146,6 +146,27 @@ test('조회: 주문번호 전체로만 찾는다. 아이디로는 찾지 않는
     assert.equal(X.searchOrders(db.orders, q).length, 0, q);
   assert.equal(db.orders[0].buyer, first.buyer);   // 원본은 바뀌지 않는다
 });
+test('조회: 주문번호를 소문자·띄어쓰기·하이픈 없이 적어도 찾는다. 글자가 다르면 찾지 않는다', () => {
+  const o = GO.seed().orders[0], code = o.id.split('-')[1], pre = GO.BRAND.orderPrefix;
+  for (const q of [o.id, o.id.toLowerCase(), pre + code, pre + ' ' + code, ' ' + pre.toLowerCase() + ' - ' + code.toLowerCase() + ' ', pre + '-' + code.slice(0, 4) + ' ' + code.slice(4)])
+    assert.equal(X.searchOrders(GO.seed().orders, q).length, 1, JSON.stringify(q));
+  for (const q of [code, code.slice(0, 7), o.id + 'A', pre, '', 'XX-' + code, code.slice(0, 7) + (code[7] === 'A' ? 'B' : 'A')])
+    assert.equal(X.searchOrders(GO.seed().orders, q).length, 0, JSON.stringify(q));
+  assert.equal(X.normOrderId('nuh usmtqleg'), 'NUH-USMTQLEG');
+});
+test('CSV 날짜: 서버가 적은 시각은 자카르타 시간으로 바꾼다', () => {
+  assert.equal(X.shopDate('2026-11-12T17:30:00.000Z'), '2026-11-13');   // 자카르타 00:30
+  assert.equal(X.shopDate('2026-11-12T16:59:59.000Z'), '2026-11-12');   // 자카르타 23:59
+  assert.equal(X.shopDate('2026-12-31T20:00:00Z'), '2027-01-01');
+  assert.equal(X.shopDate('2026-11-03T21:22:00'), '2026-11-03');        // 시간대 표시가 없으면 적힌 날짜 그대로
+  assert.equal(X.shopDate(''), '');
+});
+test('계산기: 음수 원가나 환율을 넣어도 음수 금액이 나오지 않는다', () => {
+  assert.equal(X.calcPrice(withv({ price: -2000 })).total >= 0, true);
+  assert.equal(X.calcPrice(withv({ price: -2000 })).conv, 0);
+  assert.equal(X.calcPrice(withv({ kurs: -110 })).conv, 0);
+  assert.equal(X.calcPrice(withv({ extra: -99999999 })).total, 0);
+});
 test('진행 단계: 결제 전에는 결제 칸, 결제 후에는 배치 단계 칸', () => {
   assert.deepEqual(X.orderProgress({ pay: 'unpaid' }, { stage: 3 }), { cur: 0, finished: false });
   assert.deepEqual(X.orderProgress({ pay: 'pending' }, { stage: 3 }), { cur: 0, finished: false });
@@ -194,6 +215,10 @@ test('자동 분류: "Batch N" 제목 줄은 주문이 아니고 아래 줄의 �
   assert.deepEqual(rows.map(r => r.batchNo), [4, 4]);
 });
 
+test('CSV: 탭이나 공백 뒤에 숨긴 수식도 막는다', () => {
+  for (const v of ['\t=1+1', ' =1+1', '\r=1+1', '\t@SUM(A1)', '  +1']) assert.equal(X.toCSV([[v]]).replace(/^"/, '')[0], "'", JSON.stringify(v));
+  assert.equal(X.toCSV([['Album mini']]), 'Album mini');
+});
 test('CSV: 쉼표·따옴표·줄바꿈을 감싸고, 수식으로 시작하는 값은 막는다', () => {
   assert.equal(X.toCSV([['a', 'b,c', 'say "hi"'], ['=SUM(A1)', 5, 'x\ny']]), 'a,"b,c","say ""hi"""\r\n\'=SUM(A1),5,"x\ny"');
 });

@@ -66,6 +66,8 @@ window.runE2E = async function () {
   $('.card [data-act=receipt]').click(); await wait(40);
   check('조회: 영수증을 다시 볼 수 있다', !!$('.modal .receipt')); $('.modal') && $('.modal').remove();
 
+  await go('#/track/' + encodeURIComponent(o1.id.replace('-', ' ').toLowerCase())); await wait(80);
+  check('조회: 주문번호를 띄어 쓰고 소문자로 적어도 찾는다', $$('.card').length === 1, $$('.card').length);
   await go('#/pay/kr-5');
   const before = S.db.orders.length;
   type('[data-pay=buyer]', '@tester'); type('[data-pay=item]', 'Keyring uji'); type('[data-pay=base]', '50000');

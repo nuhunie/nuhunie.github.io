@@ -179,6 +179,7 @@ export async function onRequest({ request, env, params }) {
     const sub = method + ' /' + path.slice(1, 2).join('/');
     let id = '';
     try { id = path[2] ? decodeURIComponent(path[2]) : ''; } catch (e) { return fail('Bad address.'); }   // 깨진 %형식
+    if (path[1] === 'order' && id) id = V.orderId(id) || id;                                               // 소문자로 적은 주문번호도 찾는다
     const b = method === 'GET' || method === 'DELETE' ? {} : await readJson(request);
     if (!b) return fail('Bad request.');
 
@@ -218,11 +219,12 @@ export async function onRequest({ request, env, params }) {
       return json({ ok: true });
     }
     if (sub === 'DELETE /batch') {
-      await db.batch([
+      const gone = await db.batch([
         db.prepare('DELETE FROM order_flags WHERE order_id IN (SELECT id FROM orders WHERE batch_id = ?)').bind(id),
         db.prepare('DELETE FROM orders WHERE batch_id = ?').bind(id),
         db.prepare('DELETE FROM batches WHERE id = ?').bind(id)
       ]);
+      if (!gone[2].meta.changes) return fail('Batch not found.', 404);     // 없는 배치: 지운 것이 없으니 기록하지 않는다
       await logAct(db, request, 'batch.delete', id);
       return json({ ok: true });
     }
@@ -247,7 +249,8 @@ export async function onRequest({ request, env, params }) {
       return json({ ok: true });
     }
     if (sub === 'DELETE /order') {
-      await db.batch([db.prepare('DELETE FROM order_flags WHERE order_id = ?').bind(id), db.prepare('DELETE FROM orders WHERE id = ?').bind(id)]);
+      const gone = await db.batch([db.prepare('DELETE FROM order_flags WHERE order_id = ?').bind(id), db.prepare('DELETE FROM orders WHERE id = ?').bind(id)]);
+      if (!gone[1].meta.changes) return fail('Order not found.', 404);     // 없는 주문
       await logAct(db, request, 'order.delete', id);
       return json({ ok: true });
     }

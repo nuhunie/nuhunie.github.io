@@ -42,7 +42,7 @@ export const V = {
     const d = new Date(v + 'T00:00:00Z');
     return !isNaN(d) && d.toISOString().slice(0, 10) === v ? v : null;
   },
-  orderId(v) { v = typeof v === 'string' ? v.trim().toUpperCase() : ''; return X.isOrderId(v) ? v : null; }
+  orderId(v) { v = typeof v === 'string' ? X.normOrderId(v) : ''; return X.isOrderId(v) ? v : null; }   // 소문자·띄어쓰기·빠진 하이픈은 맞춰 준다
 };
 export const PAY = Object.keys(GO.PAY);
 

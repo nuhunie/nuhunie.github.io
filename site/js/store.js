@@ -87,7 +87,7 @@
     /* ── 읽기 (db에서 바로) ── */
     service: function (id) { return find(db.services, id); },
     batch: function (id) { return find(db.batches, id); },
-    order: function (id) { return find(db.orders, String(id || '').toUpperCase()); },
+    order: function (id) { return find(db.orders, X.normOrderId(id)); },
     batchesOf: function (svc, month) {
       return db.batches.filter(function (b) { return b.svc === svc && (!month || b.month === month); })
         .sort(function (a, b) { return b.no - a.no; });

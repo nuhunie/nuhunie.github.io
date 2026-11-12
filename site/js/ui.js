@@ -22,6 +22,40 @@
   /* ── 공통 도구 ── */
   function L(id, ko) { return lang === 'ko' ? ko : lang === 'en' ? (GO.EN[id] || id) : id; }
   function LL(pair) { return L(pair[0], pair[1]); }
+  /* 서버는 오류를 영어 문장으로 보낸다. 화면 언어에 맞춰 바꿔 보여 준다: [인도네시아어, 한국어].
+   * 영어는 다른 문구와 같이 i18n-en.js 에서 찾는다. 표에 없는 문장은 상태 번호로 고르고, 그것도 없으면 서버 문장을 그대로 보여 준다. */
+  var MANY = ['Terlalu banyak percobaan. Coba lagi nanti.', '시도가 너무 많습니다. 잠시 뒤 다시 시도해 주세요.'];
+  var SERVER_MSG = {
+    'Too many new orders from here. Try again later.': ['Terlalu banyak pesanan baru dari sini. Coba lagi nanti.', '여기서 새 주문을 너무 많이 넣었습니다. 잠시 뒤 다시 시도해 주세요.'],
+    'Too many requests. Try again later.': MANY,
+    'Too many attempts. Try again later.': MANY,
+    'Voucher not found.': ['Kode voucher tidak ditemukan.', '쿠폰 코드를 찾을 수 없습니다.'],
+    'Order not found.': ['Nomor pesanan tidak ditemukan.', '주문번호를 찾을 수 없습니다.'],
+    'Batch not found.': ['Batch tidak ditemukan.', '배치를 찾을 수 없습니다.'],
+    'Service not found.': ['Layanan tidak ditemukan.', '서비스를 찾을 수 없습니다.'],
+    'This batch is already completed.': ['Batch ini sudah selesai.', '이 배치는 이미 완료됐습니다.'],
+    'This order has already been submitted.': ['Bukti pembayaran untuk pesanan ini sudah dikirim.', '이 주문은 결제 증빙을 이미 제출했습니다.'],
+    'Buyer, item, quantity and total are required.': ['Lengkapi nama pembeli, item, jumlah, dan total harga.', '구매자, 품목, 수량, 총 금액을 확인해 주세요.'],
+    'Check the order fields.': ['Periksa kembali data pesanan.', '주문 내용을 다시 확인해 주세요.'],
+    'Payment method and proof are required.': ['Pilih metode pembayaran dan unggah bukti.', '결제 수단을 고르고 증빙을 올려 주세요.'],
+    'Create the order first.': ['Buat pesanan terlebih dahulu.', '먼저 주문을 접수해 주세요.'],
+    'Check the batch fields.': ['Periksa kembali data batch.', '배치 내용을 다시 확인해 주세요.'],
+    'That batch number already exists.': ['Nomor batch itu sudah ada.', '그 배치 번호는 이미 있습니다.'],
+    'Note is too long.': ['Info terlalu panjang.', '안내문이 너무 깁니다.'],
+    'Bad stage.': ['Tahap tidak valid.', '단계 값이 올바르지 않습니다.'],
+    'Bad payment status.': ['Status pembayaran tidak valid.', '결제 상태 값이 올바르지 않습니다.'],
+    'Order number is taken.': ['Nomor pesanan sudah dipakai.', '이미 쓰인 주문번호입니다.'],
+    'Already exists.': ['Sudah ada.', '이미 있습니다.'],
+    'Admin sign-in required.': ['Sesi admin berakhir. Silakan masuk lagi.', '관리자 로그인이 끝났습니다. 다시 로그인해 주세요.'],
+    'Reset is disabled here.': ['Reset dimatikan di sini.', '여기서는 초기화가 꺼져 있습니다.'],
+    'Server error.': ['Terjadi kesalahan di server. Coba lagi.', '서버에 문제가 생겼습니다. 다시 시도해 주세요.']
+  };
+  var STATUS_MSG = { 404: ['Tidak ditemukan.', '찾을 수 없습니다.'], 409: ['Sudah berubah. Muat ulang halaman.', '내용이 이미 바뀌었습니다. 새로 고쳐 주세요.'], 429: MANY, 500: SERVER_MSG['Server error.'] };
+  function errText(e) {
+    if (!e) return '';
+    var p = SERVER_MSG[e.message] || STATUS_MSG[e.status >= 500 ? 500 : e.status];
+    return p ? LL(p) : String(e.message || '');
+  }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function rp(n) { return 'Rp' + Math.round(n || 0).toLocaleString('id-ID'); }
   function loc() { return { ko: 'ko-KR', en: 'en-GB' }[lang] || 'id-ID'; }
@@ -200,8 +234,8 @@
       '<div class="btns"><button class="btn line" data-act="calc-reset">' + L('Muat default', '기본값 불러오기') + '</button><button class="btn" data-act="calc-save">' + L('Simpan sebagai default', '기본값으로 저장') + '</button></div></div>' +
       '<div class="two"><div class="panel"><h2>' + L('Data harga', '계산 입력') + '</h2><div class="grid2">' +
       '<div class="field"><label>' + L('Mata uang', '통화') + '</label><select data-calc="cur">' + Object.keys(GO.CURRENCIES).map(function (k) { return '<option value="' + k + '"' + (k === C.cur ? ' selected' : '') + '>' + GO.CURRENCIES[k].label + '</option>'; }).join('') + '</select></div>' +
-      '<div class="field"><label>' + L('Kurs manual', '환율 직접 입력') + ' (1 ' + C.cur + ' = ? IDR)</label><input type="number" step="any" data-calc="kurs" value="' + C.kurs + '"></div>' +
-      '<div class="field"><label>' + L('Harga asli per pcs', '개당 원가') + ' (' + cur.sym + ')</label><input type="number" step="any" data-calc="price" value="' + C.price + '"></div>' +
+      '<div class="field"><label>' + L('Kurs manual', '환율 직접 입력') + ' (1 ' + C.cur + ' = ? IDR)</label><input type="number" step="any" min="0" data-calc="kurs" value="' + C.kurs + '"></div>' +
+      '<div class="field"><label>' + L('Harga asli per pcs', '개당 원가') + ' (' + cur.sym + ')</label><input type="number" step="any" min="0" data-calc="price" value="' + C.price + '"></div>' +
       '<div class="field"><label>' + L('Jumlah (pcs)', '수량') + '</label><input type="number" min="1" data-calc="qty" value="' + C.qty + '"></div>' +
       fee('feeGo', 'Fee jastip') + fee('feeCo', 'Fee CO') + fee('tax', L('Pajak', '세금')) +
       '<div class="field"><div class="lab"><label>' + L('Dasar pajak', '세금 기준') + '</label></div><select data-calc="tax.base"><option value="conv"' + (C.tax.base === 'conv' ? ' selected' : '') + '>' + L('Dari harga konversi', '환산가 기준') + '</option><option value="convfee"' + (C.tax.base === 'convfee' ? ' selected' : '') + '>' + L('Dari harga konversi + fee', '환산가 + 수수료 기준') + '</option></select></div>' +
@@ -263,7 +297,7 @@
     S.fetchOrder(orderId).then(function (o) {
       if (P !== mine) return;
       P.loading = false;
-      if (!o) { P.missing = true; forgetOpen(String(orderId).toUpperCase()); render(); return; }
+      if (!o) { P.missing = true; forgetOpen(X.normOrderId(orderId)); render(); return; }
       var ob = S.batch(o.batchId) || b, base = o.base || o.total;
       // 고객이 접수한 주문(self)은 결제 금액이 이미 정해져 있다. 쿠폰은 접수할 때 적용된 만큼만 보여 준다.
       Object.assign(P, { svc: ob.svc, batchId: ob.id, orderId: o.id, id: o.id, buyer: o.buyer, item: o.item, qty: o.qty, base: base, pay: o.pay, total: o.total, fixed: !!o.self });
@@ -400,7 +434,7 @@
       go('#/pay/' + o.batchId + '/' + o.id);
     }, function (e) {
       btn.disabled = false;
-      $('#payErr').textContent = L('Gagal membuat pesanan. Coba lagi.', '주문을 접수하지 못했습니다. 다시 시도해 주세요.') + ' (' + e.message + ')';
+      $('#payErr').textContent = L('Gagal membuat pesanan. Coba lagi.', '주문을 접수하지 못했습니다. 다시 시도해 주세요.') + ' (' + errText(e) + ')';
     });
   }
   function submitPay() {
@@ -420,7 +454,7 @@
       showReceipt(o.id);
     }, function (e) {
       btn.disabled = false;
-      $('#payErr').textContent = L('Gagal mengirim. Coba lagi.', '제출하지 못했습니다. 다시 시도해 주세요.') + ' (' + e.message + ')';
+      $('#payErr').textContent = L('Gagal mengirim. Coba lagi.', '제출하지 못했습니다. 다시 시도해 주세요.') + ' (' + errText(e) + ')';
     });
   }
 
@@ -650,7 +684,7 @@
     var rows = [['order_no', 'date', 'service', 'month', 'batch', 'batch_stage', 'buyer', 'item', 'qty', 'total_idr', 'payment', 'method', 'after_close']];
     S.db.orders.forEach(function (o) {
       var b = S.batch(o.batchId), s = S.service(b.svc);
-      rows.push([o.id, o.createdAt.slice(0, 10), LL(s.name), b.month, batchName(b), LL(GO.STAGES[b.stage]), o.buyer, o.item, o.qty, o.total, LL(GO.PAY[o.pay]), o.method, o.late ? 'yes' : '']);
+      rows.push([o.id, X.shopDate(o.createdAt), LL(s.name), b.month, batchName(b), LL(GO.STAGES[b.stage]), o.buyer, o.item, o.qty, o.total, LL(GO.PAY[o.pay]), o.method, o.late ? 'yes' : '']);
     });
     var blob = new Blob(['﻿' + X.toCSV(rows)], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a');
@@ -824,7 +858,7 @@
     render(); window.scrollTo(0, 0);
     S.refresh().then(function (changed) { if (changed && !typing()) render(); });
   });
-  GO.onStoreError = function (e) { render(); alert(L('Perubahan tidak tersimpan: ', '변경 내용이 저장되지 않았습니다: ') + e.message); };
+  GO.onStoreError = function (e) { render(); alert(L('Perubahan tidak tersimpan: ', '변경 내용이 저장되지 않았습니다: ') + errText(e)); };
   GO.render = render;
   S.init().then(render);
 })(window.GO);

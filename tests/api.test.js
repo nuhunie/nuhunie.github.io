@@ -80,6 +80,14 @@ test('조회: 주문번호 전체로만 찾는다. 아이디로는 찾지 않는
     assert.equal((await call('GET', '/track?q=' + encodeURIComponent(q))).json.orders.length, 0, q);
 });
 
+test('조회: 주문번호를 소문자·띄어쓰기·하이픈 없이 적어도 찾는다', async () => {
+  const o = GO.seed().orders[1], code = o.id.split('-')[1];
+  for (const q of [o.id.toLowerCase(), GO.BRAND.orderPrefix + code, GO.BRAND.orderPrefix + ' ' + code]) {
+    assert.equal((await call('GET', '/track?q=' + encodeURIComponent(q))).json.orders.length, 1, q);
+    assert.equal((await call('GET', '/order?id=' + encodeURIComponent(q))).json.order.id, o.id, q);
+  }
+});
+
 test('결제: 있는 주문은 금액 = 주문 금액 − 쿠폰 + 고유 코드, 두 번 내도 금액이 불어나지 않는다', async () => {
   const o = GO.seed().orders[0];
   assert.equal((await call('GET', '/order?id=' + o.id)).json.order.total, o.total);
@@ -204,7 +212,11 @@ test('관리자: 주문 추가·결제 승인·삭제', async () => {
   assert.equal(st.orders.find(o => o.id === id).buyer, 'dinda');          // 관리자는 전체 이름을 본다
   const id2 = GO.BRAND.orderPrefix + '-' + X.orderCode(888002);
   assert.equal((await admin('POST', '/admin/order', { id: id2, batchId: 'kr-9', buyer: 'rara', item: 'Keyring', qty: 1, total: 50000 })).status, 200);
+  assert.equal((await admin('PATCH', '/admin/order/' + id2.toLowerCase(), { pay: 'unpaid' })).status, 200);   // 운영자가 소문자로 적어도 찾는다
   assert.equal((await admin('DELETE', '/admin/order/' + id2)).status, 200);
+  assert.equal((await admin('DELETE', '/admin/order/' + id2)).status, 404);        // 이미 없는 주문
+  assert.equal((await admin('DELETE', '/admin/batch/zz-99')).status, 404);         // 없는 배치
+  assert.equal((await admin('GET', '/admin/log')).json.log.some(l => /zz-99/.test(JSON.stringify(l))), false, '없는 것을 지운 일은 기록하지 않는다');
   assert.equal((await admin('GET', '/admin/state')).json.orders.some(o => o.id === id2), false);
   assert.equal((await admin('DELETE', '/admin/batch/kr-9')).status, 200); // 배치를 지우면 그 주문도 지워진다
   assert.equal((await admin('GET', '/admin/state')).json.orders.some(o => o.id === id), false);
