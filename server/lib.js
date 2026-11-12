@@ -141,7 +141,8 @@ export async function recordHit(db, request, kind) {
 }
 
 /* ── DB 행 → 화면이 쓰는 모양 ── */
-export const toService = r => ({ id: r.id, name: [r.name_id, r.name_ko], desc: [r.desc_id, r.desc_ko], cur: r.cur });
+export const toService = r => ({ id: r.id, name: [r.name_id, r.name_ko], desc: [r.desc_id, r.desc_ko], cur: r.cur, hidden: r.hidden ? 1 : 0 });   // hidden: 고객 화면에서 내린 서비스
+const SERVICE_SELECT = 'SELECT s.*, h.svc_id IS NOT NULL AS hidden FROM services s LEFT JOIN service_hidden h ON h.svc_id = s.id ORDER BY s.sort';
 // 쿠폰과 사용 한도·사용 횟수. 첫 번째 값으로 "세지 않을 주문번호"를 넣는다(같은 주문이 다시 낼 때 자기 자신을 세지 않게).
 // 지워진 주문과 반려된 주문은 세지 않는다.
 export const VOUCHER_USED = "SELECT COUNT(*) FROM voucher_uses u LEFT JOIN orders o ON o.id = u.order_id WHERE u.code = ? AND IFNULL(o.pay, '') != 'rejected' AND u.order_id != ?";
@@ -233,7 +234,7 @@ export async function seed(db) {
   const s = GO.seed();
   const stmts = [
     db.prepare('DELETE FROM order_flags'), db.prepare('DELETE FROM orders'), db.prepare('DELETE FROM batches'), db.prepare('DELETE FROM services'),
-    db.prepare('DELETE FROM vouchers'), db.prepare('DELETE FROM voucher_limits'), db.prepare('DELETE FROM voucher_uses'), db.prepare('DELETE FROM voucher_notes'), db.prepare('DELETE FROM order_payer'), db.prepare('DELETE FROM proof_images'), db.prepare('DELETE FROM push_links'), db.prepare('DELETE FROM push_subs'), db.prepare('DELETE FROM push_queue'), db.prepare('DELETE FROM settings')
+    db.prepare('DELETE FROM vouchers'), db.prepare('DELETE FROM voucher_limits'), db.prepare('DELETE FROM voucher_uses'), db.prepare('DELETE FROM voucher_notes'), db.prepare('DELETE FROM order_payer'), db.prepare('DELETE FROM proof_images'), db.prepare('DELETE FROM push_links'), db.prepare('DELETE FROM push_subs'), db.prepare('DELETE FROM push_queue'), db.prepare('DELETE FROM service_hidden'), db.prepare('DELETE FROM settings')
   ];
   s.services.forEach((v, i) => stmts.push(db.prepare('INSERT INTO services (id, name_id, name_ko, desc_id, desc_ko, cur, sort) VALUES (?,?,?,?,?,?,?)').bind(v.id, v.name[0], v.name[1], v.desc[0], v.desc[1], v.cur, i)));
   s.batches.forEach(b => stmts.push(db.prepare('INSERT INTO batches (id, svc, no, title, month, stage, close_date, kurs, note) VALUES (?,?,?,?,?,?,?,?,?)').bind(b.id, b.svc, b.no, b.title, b.month, b.stage, b.closeDate, b.kurs, b.note)));
@@ -252,8 +253,8 @@ export async function seedServices(db) {
  * 서비스 표가 비어 있으면(새 DB) 채운다. 예시 주문까지 넣는 것은 초기화가 허용된 곳(내 컴퓨터, GitHub 검사)뿐이고,
  * 배포판에서는 서비스 종류만 넣는다: 예시 주문번호는 공개된 코드로 계산할 수 있어 실제 사이트에 다시 생기면 안 된다. */
 export async function loadState(db, admin, env) {
-  let services = (await db.prepare('SELECT * FROM services ORDER BY sort').all()).results;
-  if (!services.length) { await (canReset(env) ? seed(db) : seedServices(db)); services = (await db.prepare('SELECT * FROM services ORDER BY sort').all()).results; }
+  let services = (await db.prepare(SERVICE_SELECT).all()).results;
+  if (!services.length) { await (canReset(env) ? seed(db) : seedServices(db)); services = (await db.prepare(SERVICE_SELECT).all()).results; }
   const batches = (await db.prepare('SELECT * FROM batches').all()).results;
   const state = { services: services.map(toService) };
 

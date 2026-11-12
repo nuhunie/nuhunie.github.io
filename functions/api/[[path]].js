@@ -30,6 +30,7 @@ import * as Push from '../../server/push.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const NO_VOUCHER = 'Voucher not found.';
+const SVC_CLOSED = 'This service is not taking orders now.';
 const VOUCHER_GONE_WHILE_REJECTED = 'The voucher on this order was used up while it was rejected.';
 const PUBLIC_CACHE_SEC = 60;      // 서버 쪽에 저장해 두는 시간. 내용이 바뀌면 바로 지운다
 const PUBLIC_BROWSER_SEC = 10;    // 고객 브라우저가 다시 묻지 않는 시간
@@ -127,9 +128,10 @@ export async function onRequest({ request, env, params, waitUntil }) {
       const buyer = V.text(typeof b.buyer === 'string' ? b.buyer.trim().replace(/^@/, '') : null, GO.LIMITS.buyer), item = V.text(b.item, GO.LIMITS.item);
       const qty = V.int(b.qty, 1, GO.LIMITS.qty), base = V.int(b.base, 1, GO.LIMITS.amount);
       if (!buyer || !item || qty === null || base === null) return fail('Buyer, item, quantity and total are required.');
-      const batch = await db.prepare('SELECT id, stage FROM batches WHERE id = ?').bind(typeof b.batchId === 'string' ? b.batchId : '').first();
+      const batch = await db.prepare('SELECT b.id AS id, b.stage AS stage, h.svc_id AS hidden FROM batches b LEFT JOIN service_hidden h ON h.svc_id = b.svc WHERE b.id = ?').bind(typeof b.batchId === 'string' ? b.batchId : '').first();
       if (!batch) return fail('Batch not found.', 404);
       if (batch.stage === GO.LAST_STAGE) return fail('This batch is already completed.', 409);
+      if (batch.hidden) return fail(SVC_CLOSED, 409);     // 운영자가 고객 화면에서 내린 서비스는 새 주문을 받지 않는다
       const vr = await voucherFor(b.voucher, '');
       if (vr.err) return fail(vr.err, vr.err === NO_VOUCHER ? 400 : 409);
       const off = vr.off;
@@ -446,12 +448,19 @@ export async function onRequest({ request, env, params, waitUntil }) {
         if (!r.meta.changes) return fail('Service not found.', 404);
         await logAct(db, request, 'service.update', sid + ' ' + f.nameId);
       }
-      return json({ service: toService({ id: sid, name_id: f.nameId, name_ko: f.nameKo, desc_id: f.descId, desc_ko: f.descKo, cur: f.cur }) });
+      // 고객 화면에 보이기/숨기기 (보내지 않으면 그대로 둔다)
+      let hidden = false;
+      if (typeof b.hidden === 'boolean') {
+        await db.prepare(b.hidden ? 'INSERT OR IGNORE INTO service_hidden (svc_id) VALUES (?)' : 'DELETE FROM service_hidden WHERE svc_id = ?').bind(sid).run();
+        hidden = b.hidden;
+        await logAct(db, request, 'service.' + (b.hidden ? 'hide' : 'show'), sid);
+      } else hidden = !!(await db.prepare('SELECT 1 FROM service_hidden WHERE svc_id = ?').bind(sid).first());
+      return json({ service: toService({ id: sid, name_id: f.nameId, name_ko: f.nameKo, desc_id: f.descId, desc_ko: f.descKo, cur: f.cur, hidden: hidden ? 1 : 0 }) });
     }
     if (sub === 'DELETE /service') {
       // 배치가 남아 있는 서비스는 지우지 않는다(배치와 그 주문이 갈 곳이 없어진다)
       if (await db.prepare('SELECT 1 FROM batches WHERE svc = ? LIMIT 1').bind(id).first()) return fail('This service still has batches.', 409);
-      const r = await db.prepare('DELETE FROM services WHERE id = ?').bind(id).run();
+      const r = (await db.batch([db.prepare('DELETE FROM services WHERE id = ?').bind(id), db.prepare('DELETE FROM service_hidden WHERE svc_id = ?').bind(id)]))[0];
       if (!r.meta.changes) return fail('Service not found.', 404);
       await logAct(db, request, 'service.delete', id);
       return json({ ok: true });

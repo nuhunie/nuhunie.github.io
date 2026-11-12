@@ -293,8 +293,8 @@
     },
     updateService: function (id, s) {
       var cur = find(db.services, id); if (!cur) return null;
-      Object.assign(cur, { name: s.name, desc: s.desc, cur: s.cur }); save();
-      push('PATCH', '/admin/service/' + encodeURIComponent(id), { nameId: s.name[0], nameKo: s.name[1], descId: s.desc[0], descKo: s.desc[1], cur: s.cur });
+      Object.assign(cur, { name: s.name, desc: s.desc, cur: s.cur, hidden: s.hidden ? 1 : 0 }); save();
+      push('PATCH', '/admin/service/' + encodeURIComponent(id), { nameId: s.name[0], nameKo: s.name[1], descId: s.desc[0], descKo: s.desc[1], cur: s.cur, hidden: !!s.hidden });
       return cur;
     },
     // 배치가 남아 있으면 지우지 않고 false

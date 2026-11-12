@@ -329,7 +329,7 @@ test('서비스: 운영자가 더하고 고치고, 배치가 없을 때만 지�
   assert.equal((await admin('POST', '/admin/service', s)).status, 200);
   assert.equal((await admin('POST', '/admin/service', s)).status, 409);
   let pub = (await call('GET', '/public')).json.services;
-  assert.deepEqual(pub[pub.length - 1], { id: 'cn', name: ['Jastip China', '중국 구매대행'], desc: ['Barang dari China', '중국 상품'], cur: 'IDR' });
+  assert.deepEqual(pub[pub.length - 1], { id: 'cn', name: ['Jastip China', '중국 구매대행'], desc: ['Barang dari China', '중국 상품'], cur: 'IDR', hidden: 0 });
   assert.equal((await admin('PATCH', '/admin/service/cn', Object.assign({}, s, { nameId: 'Jastip Tiongkok', cur: 'KRW' }))).status, 200);
   assert.equal((await admin('PATCH', '/admin/service/zz', s)).status, 404);
   pub = (await call('GET', '/public')).json.services;
@@ -439,6 +439,19 @@ test('웹 푸시: 공개 열쇠를 주고, 알림 회사 주소와 있는 주문
   assert.equal((await sub({})).status, 200, '같은 기기가 다시 켜도 된다');
   assert.equal((await call('POST', '/push/unsubscribe', { endpoint, orderId })).status, 200);
   assert.equal((await call('POST', '/push/unsubscribe', { endpoint: 5 })).status, 400);
+});
+test('서비스 숨기기: 숨긴 서비스는 공개 목록에 표시되고 새 주문을 받지 않는다. 다시 보이면 받는다', async () => {
+  const jp = GO.seed().services.find(s => s.id === 'jp'), body = { nameId: jp.name[0], nameKo: jp.name[1], descId: jp.desc[0], descKo: jp.desc[1], cur: jp.cur };
+  const order = { batchId: 'jp-2', buyer: 'jepang', item: 'Merch', qty: 1, base: 20000 };
+  assert.equal((await admin('PATCH', '/admin/service/jp', Object.assign({ hidden: true }, body))).json.service.hidden, 1);
+  assert.equal((await call('GET', '/public')).json.services.find(s => s.id === 'jp').hidden, 1);
+  await nap(WINDOW_MS);
+  const no = await call('POST', '/order', order);
+  assert.equal(no.status, 409); assert.equal(no.json.error, 'This service is not taking orders now.');
+  assert.equal((await admin('PATCH', '/admin/service/jp', body)).json.service.hidden, 1, 'hidden 을 보내지 않으면 그대로 둔다');
+  assert.equal((await admin('PATCH', '/admin/service/jp', Object.assign({ hidden: false }, body))).json.service.hidden, 0);
+  assert.equal((await call('GET', '/public')).json.services.find(s => s.id === 'jp').hidden, 0);
+  assert.equal((await call('POST', '/order', order)).status, 200);
 });
 test('로그아웃하면 같은 쿠키를 다시 써도 막힌다. 끝으로 예시 데이터로 되돌린다', async () => {
   assert.equal((await call('GET', '/me')).json.canReset, true);              // 내 컴퓨터에서만 초기화가 켜져 있다

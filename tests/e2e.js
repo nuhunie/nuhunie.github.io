@@ -143,6 +143,29 @@ window.runE2E = async function () {
   check('가게 설정: 배치가 있는 서비스는 지우지 않는다', !!S.service('kr') && $('#svcDelErr').textContent.length > 0);
   $('[data-act=svc-del][data-id="cn"]').click(); await wait(40);
   check('가게 설정: 배치가 없는 서비스는 지운다', !S.service('cn'));
+  // 서비스 숨기기 (2026-11-13: 포스터가 한국 전용이라 일본·티켓을 고객 화면에서 내림)
+  type('[data-svc="jp"][data-f="show"]', '0'); await wait(20);
+  check('서비스 숨기기: 저장 전에는 그대로 보인다', !S.service('jp').hidden && !$('[data-act=svc-save][data-id="jp"]').disabled);
+  $('[data-act=svc-save][data-id="jp"]').click(); await wait(60);
+  check('서비스 숨기기: 저장하면 숨겨진다', S.service('jp').hidden === 1);
+  await go('#/');
+  check('서비스 숨기기: 고객 첫 화면의 서비스 칸·진행 중 배치·아래쪽 목록에 나오지 않는다', !$$('.svc-grid .svc').some(a => /#\/s\/jp$/.test(a.getAttribute('href'))) && !$$('.rows a').some(a => /#\/b\/jp-/.test(a.getAttribute('href'))) && !$$('.foot-links a').some(a => /#\/s\/jp$/.test(a.getAttribute('href'))));
+  try { sessionStorage.removeItem('nuh-pay-draft'); } catch (e) {}
+  await go('#/pay/jp-2');
+  check('서비스 숨기기: 숨긴 서비스의 주문 주소로 와도 그 배치로 주문하지 않는다', !$('[data-act=pay-svc][data-id="jp"]') && !/^jp-/.test($('[data-pay=batchId]').value), ($('[data-pay=batchId]') || {}).value);
+  check('서비스 숨기기: 그때 안내는 "배치가 끝났다"가 아니라 "주문을 받지 않는다"고 한다', /Layanan ini sedang tidak menerima order/.test(($('#oldQr') || {}).textContent) && !/sudah selesai/.test(($('#oldQr') || {}).textContent), ($('#oldQr') || {}).textContent);
+  await go('#/b/jp-2');
+  check('서비스 숨기기: 배치 화면에 주문하기 단추가 없다', !$$('a.btn').some(a => /^#\/pay\/jp-/.test(a.getAttribute('href'))));
+  await go('#/s/jp');
+  check('서비스 숨기기: 서비스 화면은 주문을 받지 않는다고 알린다', !!$('.note.warn') && !$('#openBatches'));
+  await go('#/s/kr');
+  check('서비스 화면: 사 드리는 한국 사이트 목록이 글자로 나온다', !!$('#svcSites') && /weverse/.test($('#svcSites').textContent) && /Million Music/.test($('#svcSites').textContent));
+  await go('#/admin/shop');
+  type('[data-svc="jp"][data-f="show"]', '1'); await wait(20);
+  $('[data-act=svc-save][data-id="jp"]').click(); await wait(60);
+  await go('#/');
+  check('서비스 숨기기: 다시 보이게 하면 첫 화면에 돌아온다', !S.service('jp').hidden && $$('.svc-grid .svc').some(a => /#\/s\/jp$/.test(a.getAttribute('href'))));
+  await go('#/admin/shop');
   await go('#/admin/voucher');
   check('관리자: 위 탭은 5개 묶음이고, 판매 설정 아래에 배치·쿠폰·가게 설정이 있다', $$('.tabs a').length === 5 && $('.tabs a.on').getAttribute('href') === '#/admin/batch' && $$('.subtabs a').map(a => a.getAttribute('href')).join() === '#/admin/batch,#/admin/voucher,#/admin/shop' && $('.subtabs a.on').getAttribute('href') === '#/admin/voucher');
   check('쿠폰 탭: 쿠폰 칸은 쿠폰 탭에 있고 가게 설정에는 없다', !!$('form[data-form=voucher]') && !!$('form[data-form=vbulk]') && !$('form[data-form=svc]'));

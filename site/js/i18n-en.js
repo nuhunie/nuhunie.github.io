@@ -4,7 +4,7 @@
 globalThis.GO = globalThis.GO || {};
 globalThis.GO.EN = {
   // 공통·홈
-  'Jastip Korea, Jepang, dan tiket. Order, bayar, dan lacak di satu tempat.': 'Personal shopping from Korea and Japan, plus tickets. Order, pay and track in one place.',
+  'Firsthand, handcarry dari Korea. Order, bayar, dan lacak di satu tempat.': 'Bought firsthand and hand-carried from Korea. Order, pay and track in one place.',
   'Layanan': 'Services',
   'Lacak pesanan': 'Track order',
   'Kalkulator': 'Calculator',
@@ -23,7 +23,17 @@ globalThis.GO.EN = {
   'Cari pesanan': 'Search orders',
   'Cari': 'Search',
   'Jastip Korea': 'Korea Jastip',
-  'Album, photocard, merch resmi dari Korea': 'Albums, photocards and official merch from Korea',
+  'Album, photocard, merch resmi dari Korea': 'Albums, photocards and official merch from Korea',   // 예전 설명 (배포판 DB 를 바꾸기 전까지 쓰인다)
+  'Album, photocard & merch resmi. Bantu checkout semua web Korea.': 'Official albums, photocards & merch. We check out from any Korean site for you.',
+  'Bisa checkout dari': 'We can buy from',
+  'dll.': 'etc.',
+  'Layanan ini sedang tidak menerima order. Pesanan yang sudah masuk tetap bisa dilacak.': 'This service is not taking orders right now. Existing orders can still be tracked.',
+  'Layanan ini sedang tidak menerima order.': 'This service is not taking orders right now.',
+  'Layanan ini sedang tidak menerima order': 'This service is not taking orders right now',
+  'Di halaman pelanggan': 'On customer site',
+  'Tampil': 'Show',
+  'Sembunyi': 'Hide',
+  'Layanan yang disembunyikan tidak tampil di halaman pelanggan dan tidak menerima order baru; pesanan lama tetap bisa dilacak.': 'Hidden services do not appear on the customer site and take no new orders; existing orders can still be tracked.',
   'Jastip Jepang': 'Japan Jastip',
   'Merch, lucky draw, dan barang toko Jepang': 'Merch, lucky draws and store items from Japan',
   'Jastip Tiket': 'Ticket Jastip',

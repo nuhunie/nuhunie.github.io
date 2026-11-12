@@ -46,6 +46,7 @@
     'Bad subscription.': ['Browser ini tidak bisa menerima notifikasi.', '이 브라우저는 알림을 받을 수 없습니다.'],
     'Too many orders on this device.': ['Notifikasi di perangkat ini sudah untuk terlalu banyak pesanan. Matikan untuk pesanan lama dulu.', '이 기기에서 알림을 켠 주문이 너무 많습니다. 오래된 주문의 알림을 먼저 꺼 주세요.'],
     'Batch not found.': ['Batch tidak ditemukan.', '배치를 찾을 수 없습니다.'],
+    'This service is not taking orders now.': ['Layanan ini sedang tidak menerima order.', '이 서비스는 지금 주문을 받지 않습니다.'],
     'Service not found.': ['Layanan tidak ditemukan.', '서비스를 찾을 수 없습니다.'],
     'This batch is already completed.': ['Batch ini sudah selesai.', '이 배치는 이미 완료됐습니다.'],
     'This order has already been submitted.': ['Bukti pembayaran untuk pesanan ini sudah dikirim.', '이 주문은 결제 증빙을 이미 제출했습니다.'],
@@ -135,9 +136,13 @@
     return '<form class="search" data-form="track"><input name="q" value="' + esc(q || '') + '" placeholder="' + L('Nomor pesanan', '주문번호') + '" aria-label="' + L('Cari pesanan', '주문 검색') + '"><button class="btn">' + L('Cari', '조회') + '</button></form>';
   }
 
+  /* 고객 화면에 내놓은 서비스 (운영자가 "가게 설정"에서 숨긴 서비스는 목록·주문 화면에 나오지 않는다. 이미 받은 주문의 조회는 그대로) */
+  function shownServices() { return S.db.services.filter(function (s) { return !s.hidden; }); }
+  function svcShown(id) { var s = S.service(id); return !!s && !s.hidden; }
+
   /* ── 홈 ── */
   function vHome() {
-    var cards = S.db.services.map(function (s) {
+    var cards = shownServices().map(function (s) {
       var ongoing = S.batchesOf(s.id).filter(function (b) { return b.stage < GO.LAST_STAGE; }).length;
       return '<a class="svc" href="#/s/' + s.id + '"><h3>' + esc(LL(s.name)) + '</h3><p>' + esc(LL(s.desc)) + '</p>' +
         '<span class="meta">' + L('Batch berjalan', '진행 중 배치') + ' <b>' + ongoing + '</b></span><span class="more">' + L('Lihat batch', '배치 보기') + ' →</span></a>';
@@ -147,7 +152,7 @@
       [L('Bayar dan kirim bukti', '결제 후 증빙 제출'), L('Transfer tepat sesuai nominal, lalu unggah foto bukti.', '안내된 금액을 그대로 이체하고 증빙 사진을 올립니다.')],
       [L('Lacak pesanan', '주문 조회'), L('Cek posisi pesanan kapan saja dengan nomor pesanan.', '주문번호로 언제든 진행 상황을 확인합니다.')]
     ].map(function (h, i) { return '<li><em>' + (i + 1) + '</em><div><b>' + esc(h[0]) + '</b><p>' + esc(h[1]) + '</p></div></li>'; }).join('');
-    var ongoing = S.db.batches.filter(function (b) { return b.stage < GO.LAST_STAGE; })
+    var ongoing = S.db.batches.filter(function (b) { return b.stage < GO.LAST_STAGE && svcShown(b.svc); })
       .sort(function (a, b) { return a.stage - b.stage || (a.closeDate < b.closeDate ? -1 : 1); })
       .map(function (b) { return batchRow(b, true); }).join('');
     return '<section class="hero"><img src="' + GO.BRAND.mark + '" alt="" width="72" height="72"><div><h1>' + esc(GO.BRAND.name) + '</h1><p>' + esc(LL(GO.BRAND.tagline)) + '</p>' + searchForm('') + '</div></section>' +
@@ -173,9 +178,12 @@
     var r = S.monthRecap(list);
     var rows = list.map(function (b) { return batchRow(b, false); }).join('');
     // 달 탭은 가장 최근 달부터 열리므로, 다른 달에 있는 접수 중 배치를 놓치지 않게 맨 위에 모아 보여 준다
-    var open = S.batchesOf(svcId).filter(function (b) { return b.stage === 0; });
+    var open = s.hidden ? [] : S.batchesOf(svcId).filter(function (b) { return b.stage === 0; });
+    var sites = GO.SVC_SITES[svcId] || [];
     return crumbs([[L('Layanan', '서비스'), '#/'], [LL(s.name)]]) +
       '<h1>' + esc(LL(s.name)) + '</h1><p class="lead">' + esc(LL(s.desc)) + '</p>' +
+      (s.hidden ? '<p class="note warn">' + L('Layanan ini sedang tidak menerima order. Pesanan yang sudah masuk tetap bisa dilacak.', '이 서비스는 지금 주문을 받지 않습니다. 이미 한 주문은 그대로 조회할 수 있습니다.') + '</p>' : '') +
+      (sites.length ? '<p class="sites" id="svcSites"><b>' + L('Bisa checkout dari', '이런 사이트에서 사 드려요') + '</b> ' + sites.map(esc).join(' · ') + ' · ' + L('dll.', '등') + '</p>' : '') +
       (open.length ? '<h2 class="sub">' + L('Sedang menerima order', '지금 주문 받는 배치') + '</h2><div class="rows" id="openBatches">' + open.map(function (b) { return batchRow(b, false); }).join('') + '</div>' : '') +
       (months.length ? '<div class="tabs">' + tabs + '</div>' +
         '<h2 class="sub">' + L('Rekap bulan ini', '월 집계') + ' · ' + esc(monthLabel(month)) + '</h2>' +
@@ -188,7 +196,7 @@
   /* 배치 화면의 "주문하기" 단추. 처음 주문하는 사람이 들어가는 문이다.
    * 마감된 배치(단계 1 이상)는 새 주문을 받되 따로 처리되므로 단추에 그 말을 넣는다. 완료된 배치는 새 주문을 받지 않아 단추가 없다. */
   function orderButton(b) {
-    if (b.stage === GO.LAST_STAGE) return '';
+    if (b.stage === GO.LAST_STAGE || !svcShown(b.svc)) return '';   // 고객 화면에서 내린 서비스도 새 주문을 받지 않는다
     return '<a class="btn" href="#/pay/' + b.id + '">' + (b.stage >= 1 ? L('Pesan untuk pengiriman berikutnya', '다음 배송으로 주문하기') : L('Pesan sekarang', '주문하기')) + '</a>';
   }
   /* 결제 확인하기: 이미 주문한 사람이 주문번호를 넣어 그 주문의 결제 화면으로 간다. 결제 화면은 주문하기와 같은 화면이다. */
@@ -418,13 +426,14 @@
     return '<p class="note">' + L('Ada pesanan yang belum selesai dibayar', '결제를 마치지 않은 주문이 있습니다') + ': <b>' + o.id + '</b> · <a href="#/pay/' + encodeURIComponent(o.batchId || '-') + '/' + o.id + '">' + L('Lanjutkan pembayaran', '이어서 결제하기') + '</a></p>';
   }
   function initPay(batchId, orderId) {
-    var b = S.batch(batchId), fromLink = !!b && b.stage < GO.LAST_STAGE;
+    var b = S.batch(batchId), fromLink = !!b && b.stage < GO.LAST_STAGE && svcShown(b.svc);
     var asked = batchId && batchId !== '-' ? batchId : '';
     if (!fromLink) {
-      // 같은 서비스에서 지금 주문 받는 배치를 먼저 고른다 (예전 달의 QR 을 찍은 손님이 엉뚱한 서비스로 가지 않게)
-      var svc = b ? b.svc : asked.split('-')[0], open = S.db.batches.filter(function (x) { return x.stage < GO.LAST_STAGE; });
+      // 같은 서비스에서 지금 주문 받는 배치를 먼저 고른다 (예전 달의 QR 을 찍은 손님이 엉뚱한 서비스로 가지 않게).
+      // 새 주문이면 고객 화면에서 내린 서비스의 배치는 고르지 않고, 주문 받는 배치가 하나도 없으면 "주문할 배치 없음"이 된다.
+      var svc = b ? b.svc : asked.split('-')[0], open = S.db.batches.filter(function (x) { return x.stage < GO.LAST_STAGE && (orderId || svcShown(x.svc)); });
       b = open.filter(function (x) { return x.svc === svc && x.stage === 0; })[0] || open.filter(function (x) { return x.svc === svc; })[0] ||
-        open.filter(function (x) { return x.stage === 0; })[0] || open[0] || S.db.batches[0];
+        open.filter(function (x) { return x.stage === 0; })[0] || open[0] || (orderId ? S.db.batches[0] : null);
     }
     P = { svc: b ? b.svc : '', batchId: b ? b.id : '', orderId: '', id: '', buyer: '', item: '', qty: 1, base: '', voucher: '', off: 0, method: payMethods()[0] || 'Transfer bank', fileName: '', file: null, err: '',
       oldBatch: !orderId && asked && !fromLink ? asked : '',   // 끝났거나 없어진 배치의 주문 주소(예전 QR)로 들어왔다
@@ -485,8 +494,11 @@
   function oldQrNotice() {
     if (!P.oldBatch || P.orderId) return '';
     var ob = S.batch(P.oldBatch), nb = S.batch(P.batchId);
-    return '<p class="note warn" id="oldQr"><b>' + L('Perhatian', '주의') + '</b> ' +
-      L('Batch dari QR ini sudah selesai', '이 QR의 배치는 이미 끝났습니다') + (ob ? ': ' + esc(batchName(ob) + ' · ' + monthLabel(ob.month)) : '') + '. ' +
+    // 배치가 끝난 것이 아니라 그 서비스를 고객 화면에서 내린 경우에는 그렇게 알린다
+    var why = ob && ob.stage < GO.LAST_STAGE && !svcShown(ob.svc)
+      ? L('Layanan ini sedang tidak menerima order', '이 서비스는 지금 주문을 받지 않습니다') + ': ' + esc(LL(S.service(ob.svc).name))
+      : L('Batch dari QR ini sudah selesai', '이 QR의 배치는 이미 끝났습니다') + (ob ? ': ' + esc(batchName(ob) + ' · ' + monthLabel(ob.month)) : '');
+    return '<p class="note warn" id="oldQr"><b>' + L('Perhatian', '주의') + '</b> ' + why + '. ' +
       (nb ? L('Kami pilihkan batch yang sedang buka', '지금 주문 받는 배치로 바꿨습니다') + ': <b>' + esc(batchName(nb) + ' · ' + monthLabel(nb.month)) + '</b>. ' + L('Periksa sebelum memesan.', '주문하기 전에 확인해 주세요.') : '') + '</p>';
   }
   function vPay() {
@@ -494,7 +506,7 @@
     if (P.failed) return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1>' + empty(L('Gagal memuat. Coba lagi.', '불러오지 못했습니다. 다시 시도해 주세요.'));
     if (P.empty) return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1>' + empty(L('Belum ada batch yang bisa dipesan.', '주문할 수 있는 배치가 아직 없습니다.'));
     if (P.missing) return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="note warn">' + (P.gone ? goneText() : L('Nomor pesanan tidak ditemukan.', '주문번호를 찾을 수 없습니다.')) + '</p><a class="btn line" href="#/pay">' + L('Isi manual', '직접 입력하기') + '</a>';
-    var svcs = S.db.services.map(function (s) { return '<button type="button" class="' + (s.id === P.svc ? 'on' : '') + '" data-act="pay-svc" data-id="' + s.id + '"' + (P.orderId ? ' disabled' : '') + '>' + esc(LL(s.name)) + '</button>'; }).join('');
+    var svcs = S.db.services.filter(function (s) { return !s.hidden || (P.orderId && s.id === P.svc); }).map(function (s) { return '<button type="button" class="' + (s.id === P.svc ? 'on' : '') + '" data-act="pay-svc" data-id="' + s.id + '"' + (P.orderId ? ' disabled' : '') + '>' + esc(LL(s.name)) + '</button>'; }).join('');
     var bs = S.batchesOf(P.svc).filter(function (b) { return b.stage < GO.LAST_STAGE || (P.orderId && b.id === P.batchId); }).map(function (b) { return '<option value="' + b.id + '"' + (b.id === P.batchId ? ' selected' : '') + '>' + esc(batchName(b)) + ' (' + esc(monthLabel(b.month)) + ')</option>'; }).join('');
     var lock = P.orderId ? ' readonly' : '';
     return (P.orderId
@@ -702,7 +714,7 @@
   }
   // 서비스 표: 저장된 값과 화면 값 (열쇠 's:서비스')
   function voucherByCode(code) { return S.db.vouchers.filter(function (v) { return v.code === code; })[0]; }
-  function svcFields(s) { return { nameId: s.name[0], nameKo: s.name[1], descId: s.desc[0], descKo: s.desc[1], cur: s.cur }; }
+  function svcFields(s) { return { nameId: s.name[0], nameKo: s.name[1], descId: s.desc[0], descKo: s.desc[1], cur: s.cur, show: s.hidden ? '0' : '1' }; }
   function svcSame(s, d) { var f = svcFields(s); return Object.keys(f).every(function (k) { return f[k] === d[k]; }); }
   function saveCell(act, id, key) {
     return '<button class="btn sm' + (A.edit[key] ? '' : ' line') + '" data-act="' + act + '" data-id="' + id + '"' + (A.edit[key] ? '' : ' disabled') + '>' + L('Simpan', '저장') + '</button>' +
@@ -789,10 +801,11 @@
       function inp(f, max) { return '<td><input data-svc="' + s.id + '" data-f="' + f + '" value="' + esc(d[f]) + '" maxlength="' + max + '" aria-label="' + f + '"></td>'; }
       return '<tr' + (A.edit[key] ? ' class="dirty"' : '') + '><td><b>' + esc(s.id) + '</b></td>' + inp('nameId', GO.LIMITS.svcName) + inp('nameKo', GO.LIMITS.svcName) + inp('descId', GO.LIMITS.svcDesc) + inp('descKo', GO.LIMITS.svcDesc) +
         '<td><select data-svc="' + s.id + '" data-f="cur" aria-label="cur">' + curOpts(d.cur) + '</select></td>' +
+        '<td><select data-svc="' + s.id + '" data-f="show" aria-label="' + L('Di halaman pelanggan', '고객 화면') + '"><option value="1"' + (d.show === '1' ? ' selected' : '') + '>' + L('Tampil', '보이기') + '</option><option value="0"' + (d.show === '0' ? ' selected' : '') + '>' + L('Sembunyi', '숨기기') + '</option></select></td>' +
         '<td class="acts">' + saveCell('svc-save', s.id, key) + '<button class="link" data-act="svc-del" data-id="' + s.id + '">' + L('Hapus', '삭제') + '</button></td></tr>';
     }).join('');
-    return '<div class="panel"><h2>' + L('Layanan', '서비스') + '</h2><p class="lead">' + L('Nama dan keterangan tampil di halaman pelanggan. Layanan yang masih punya batch tidak bisa dihapus.', '이름과 설명은 고객 화면에 나옵니다. 배치가 남아 있는 서비스는 지울 수 없습니다.') + '</p>' +
-      '<div class="tbl"><table class="edit"><thead><tr><th>' + L('Kode', '코드') + '</th><th>' + L('Nama (ID)', '이름 (인도네시아어)') + '</th><th>' + L('Nama (KO)', '이름 (한국어)') + '</th><th>' + L('Keterangan (ID)', '설명 (인도네시아어)') + '</th><th>' + L('Keterangan (KO)', '설명 (한국어)') + '</th><th>' + L('Mata uang', '통화') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' + svcRows + '</tbody></table></div>' +
+    return '<div class="panel"><h2>' + L('Layanan', '서비스') + '</h2><p class="lead">' + L('Nama dan keterangan tampil di halaman pelanggan. Layanan yang masih punya batch tidak bisa dihapus.', '이름과 설명은 고객 화면에 나옵니다. 배치가 남아 있는 서비스는 지울 수 없습니다.') + ' ' + L('Layanan yang disembunyikan tidak tampil di halaman pelanggan dan tidak menerima order baru; pesanan lama tetap bisa dilacak.', '숨긴 서비스는 고객 화면에 나오지 않고 새 주문을 받지 않습니다. 이미 받은 주문은 그대로 조회됩니다.') + '</p>' +
+      '<div class="tbl"><table class="edit"><thead><tr><th>' + L('Kode', '코드') + '</th><th>' + L('Nama (ID)', '이름 (인도네시아어)') + '</th><th>' + L('Nama (KO)', '이름 (한국어)') + '</th><th>' + L('Keterangan (ID)', '설명 (인도네시아어)') + '</th><th>' + L('Keterangan (KO)', '설명 (한국어)') + '</th><th>' + L('Mata uang', '통화') + '</th><th>' + L('Di halaman pelanggan', '고객 화면') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' + svcRows + '</tbody></table></div>' +
       '<p class="err" id="svcDelErr" role="alert"></p>' +
       '<h3 class="sub">' + L('Tambah layanan', '서비스 추가') + '</h3><form data-form="svc" class="grid3">' +
       '<div class="field"><label>' + L('Kode', '코드') + ' (a-z, 2–10)</label><input name="id" required pattern="[a-zA-Z][a-zA-Z0-9]{1,9}" placeholder="cn"></div>' +
@@ -1071,9 +1084,9 @@
     ];
     return '<div class="foot-grid">' + brand +
       '<div><h3>' + L('Cara order', '이용 순서') + '</h3><ol class="foot-steps">' + steps.map(function (x, i) { return '<li><em>' + (i + 1) + '</em><div><a href="' + x[2] + '">' + esc(x[0]) + '</a><p>' + esc(x[1]) + '</p></div></li>'; }).join('') + '</ol></div>' +
-      '<div><h3>' + L('Layanan', '서비스') + '</h3><ul class="foot-links">' + S.db.services.map(function (s) { return '<li><a href="#/s/' + s.id + '">' + esc(LL(s.name)) + '</a></li>'; }).join('') + '</ul>' +
+      '<div><h3>' + L('Layanan', '서비스') + '</h3><ul class="foot-links">' + shownServices().map(function (s) { return '<li><a href="#/s/' + s.id + '">' + esc(LL(s.name)) + '</a></li>'; }).join('') + '</ul>' +
       '<p class="foot-tip">' + L('Nomor pesanan ada di struk. Simpan baik-baik.', '주문번호는 영수증에 있습니다. 잘 보관해 주세요.') + '</p></div></div>' +
-      '<p class="foot-note">© ' + year + ' ' + esc(GO.BRAND.name) + ' · ' + S.db.services.map(function (s) { return esc(LL(s.name)); }).join(' · ') + mock + '</p>';
+      '<p class="foot-note">© ' + year + ' ' + esc(GO.BRAND.name) + ' · ' + shownServices().map(function (s) { return esc(LL(s.name)); }).join(' · ') + mock + '</p>';
   }
   // 화면이 짧아 스크롤할 것이 없으면 이동 버튼을 숨긴다
   function showJump() { $('#jump').hidden = document.documentElement.scrollHeight < window.innerHeight + 300; }
@@ -1289,7 +1302,7 @@
       var sd = A.edit['s:' + id];
       if (sd) {
         if (!sd.nameId || !sd.nameKo) { GO.onStoreError({ message: 'Check the service fields.' }); return; }
-        S.updateService(id, { name: [sd.nameId, sd.nameKo], desc: [sd.descId, sd.descKo], cur: sd.cur }); saved('s:' + id);
+        S.updateService(id, { name: [sd.nameId, sd.nameKo], desc: [sd.descId, sd.descKo], cur: sd.cur, hidden: sd.show === '0' ? 1 : 0 }); saved('s:' + id);
       }
     }
     else if (act === 'svc-del') {

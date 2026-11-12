@@ -75,6 +75,12 @@ CREATE TABLE IF NOT EXISTS order_payer (
   name TEXT NOT NULL
 );
 
+-- 고객 화면에서 내린 서비스(2026-11-13 사용자 결정: 포스터가 한국 전용이라 일본·티켓을 내림).
+-- 여기 있는 서비스는 고객 사이트의 목록·주문 화면에 나오지 않고 새 주문(/api/order)을 받지 않는다. 이미 받은 주문의 조회는 그대로 된다.
+CREATE TABLE IF NOT EXISTS service_hidden (
+  svc_id TEXT PRIMARY KEY
+);
+
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL                       -- JSON

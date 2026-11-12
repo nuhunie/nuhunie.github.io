@@ -1,6 +1,6 @@
 /* 1층: 데이터 모델 — 화면·계산과 무관한 "무엇을 저장하는가"만 정의한다.
  *
- * Service  { id, name[id,ko], desc[id,ko], cur }
+ * Service  { id, name[id,ko], desc[id,ko], cur, hidden(1이면 고객 화면에서 내림: 목록·주문 화면에 안 나오고 새 주문을 받지 않는다) }
  * Batch    { id, svc→Service, no, title, month'YYYY-MM', stage(0~5), closeDate, kurs, note }
  * Order    { id('NUH-8자리'), batchId→Batch, buyer, item, qty, base, total(IDR), pay, method, proofName, createdAt }
  *          + self(고객이 접수한 주문), late(마감 뒤에 접수한 단계), payBy(입금 기한: 고객이 접수하고 증빙을 낸 적 없는 결제 전 주문에만)
@@ -13,7 +13,12 @@ var GO = globalThis.GO;
 
 // 상호와 주문번호 머리글자. 가게 이름이 정해지면 여기 두 값만 바꾸면 화면·영수증 전체에 반영된다.
 GO.BRAND = { name: 'Nuhunie', orderPrefix: 'NUH', mark: 'assets/mark-a.png', markQr: 'assets/mark-a-cut.png', qris: '', bank: { name: 'BCA', number: '2801662821', holder: 'Indah Purnama Devi' }, utcOffset: 7,
-  tagline: ['Jastip Korea, Jepang, dan tiket. Order, bayar, dan lacak di satu tempat.', '한국·일본 구매대행과 티켓 대행. 주문, 결제, 조회를 한곳에서.'] };
+  tagline: ['Firsthand, handcarry dari Korea. Order, bayar, dan lacak di satu tempat.', '한국에서 직접 사서 핸드캐리. 주문, 결제, 조회를 한곳에서.'] };
+// tagline: 2026-11-13 홍보 포스터("Firsthand, handcarry dari Korea")에 맞춰 바꿈. 일본·티켓은 고객 화면에서 내렸다.
+
+// 서비스 화면에 "이런 사이트에서 사 드린다"로 보여 주는 한국 쇼핑몰 (2026-11-13 포스터 "OPEN FOR:" 목록). 글자로만 쓴다(로고 그림은 쓰지 않는다).
+// 열쇠는 서비스 코드. 목록이 없는 서비스는 아무것도 나오지 않는다.
+GO.SVC_SITES = { kr: ['weverse', 'Olive Young', 'Ktown4u', 'Musinsa', 'Naver', 'Makestar', 'Coupang', 'Million Music'] };
 // mark: 로고·탭 아이콘에 쓰는 마크 (다른 시안: assets/mark-b.png).  markQr: QR 위에 얹는 마크(바탕이 투명한 그림)
 // 결제는 계좌 이체만 쓴다(2026-11-12 요청자 결정: QR 은 쓰지 않음). qris 를 비워 두면 QR 은 나오지 않는다.
 // bank: 가게 입금 계좌. 번호가 비어 있으면 계좌 이체 안내를 숨기고 "운영자가 채팅으로 알려 준다"고 안내한다(예시 계좌를 보여 주지 않는다).
@@ -64,7 +69,7 @@ GO.CURRENCIES = {
 
 GO.seed = function () {
   var services = [
-    { id: 'kr', name: ['Jastip Korea', '한국 구매대행'], desc: ['Album, photocard, merch resmi dari Korea', '한국 앨범·포토카드·공식 굿즈'], cur: 'KRW' },
+    { id: 'kr', name: ['Jastip Korea', '한국 구매대행'], desc: ['Album, photocard & merch resmi. Bantu checkout semua web Korea.', '앨범·포토카드·공식 굿즈. 한국 모든 사이트 결제 대행.'], cur: 'KRW' },
     { id: 'jp', name: ['Jastip Jepang', '일본 구매대행'], desc: ['Merch, lucky draw, dan barang toko Jepang', '일본 굿즈·럭키드로우·매장 상품'], cur: 'JPY' },
     { id: 'tix', name: ['Jastip Tiket', '티켓 대행'], desc: ['Tiket konser dan fanmeeting', '콘서트·팬미팅 티켓'], cur: 'KRW' }
   ];

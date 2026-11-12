@@ -312,3 +312,7 @@ input[readonly], select:disabled { background: var(--soft); color: var(--sub); }
 /* 웹 푸시 알림 받기 (조회 카드) */
 .note.push .btn { margin-left: 6px; }
 .note.push .err { display: block; margin-top: 6px; }
+
+/* 서비스 화면: "이런 사이트에서 사 드려요" 목록 (글자만) */
+.sites { margin: 12px 0 18px; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--r); font-size: 14px; color: var(--sub); line-height: 1.7; }
+.sites b { color: var(--ink); margin-right: 6px; }
