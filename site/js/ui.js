@@ -45,6 +45,7 @@
     'Notifications are not set up.': ['Notifikasi belum tersedia di toko ini.', '이 가게는 아직 알림을 쓸 수 없습니다.'],
     'Bad subscription.': ['Browser ini tidak bisa menerima notifikasi.', '이 브라우저는 알림을 받을 수 없습니다.'],
     'Too many orders on this device.': ['Notifikasi di perangkat ini sudah untuk terlalu banyak pesanan. Matikan untuk pesanan lama dulu.', '이 기기에서 알림을 켠 주문이 너무 많습니다. 오래된 주문의 알림을 먼저 꺼 주세요.'],
+    'Too many devices on this order.': ['Notifikasi untuk pesanan ini sudah aktif di terlalu banyak perangkat.', '이 주문의 알림을 켠 기기가 너무 많습니다.'],
     'Batch not found.': ['Batch tidak ditemukan.', '배치를 찾을 수 없습니다.'],
     'This service is not taking orders now.': ['Layanan ini sedang tidak menerima order.', '이 서비스는 지금 주문을 받지 않습니다.'],
     'Service not found.': ['Layanan tidak ditemukan.', '서비스를 찾을 수 없습니다.'],
@@ -445,7 +446,8 @@
       if (d) {
         DRAFT_FIELDS.forEach(function (k) { if (d[k] != null) P[k] = d[k]; });
         var db = S.batch(P.batchId);
-        if (fromLink || !db || db.stage === GO.LAST_STAGE) { P.svc = b.svc; P.batchId = b.id; } else P.svc = db.svc;
+        // 입력하던 배치의 서비스를 그 사이 고객 화면에서 내렸으면, 그 배치로 되살리지 않는다(서버가 받지 않아 막다른 길이 된다)
+        if (fromLink || !db || db.stage === GO.LAST_STAGE || !svcShown(db.svc)) { P.svc = b.svc; P.batchId = b.id; } else P.svc = db.svc;
       }
       return;
     }
@@ -880,7 +882,8 @@
       g.strokeStyle = '#d6336c'; g.lineWidth = 2; g.strokeRect(W / 2 - bw / 2, 140, bw, 50);
       g.fillStyle = '#d6336c'; g.fillText(band, W / 2, 176);
       g.fillStyle = '#111'; g.font = 'bold 34px Nunito, sans-serif';
-      g.fillText(b ? batchName(b) : 'Jastip Korea · Jepang · Tiket', W / 2, 262);
+      // 가게 전체 QR 에는 고객 화면에 내놓은 서비스 이름만 적는다(숨긴 서비스는 뺀다). 길면 그림 너비에 맞춰 줄인다
+      g.fillText(b ? batchName(b) : shownServices().map(function (s) { return s.name[0]; }).join(' · '), W / 2, 262, W - 120);
       if (b) { g.fillStyle = '#666'; g.font = '26px Nunito, sans-serif'; g.fillText(S.service(b.svc).name[0] + (b.closeDate ? ' · Tutup order ' + b.closeDate : ''), W / 2, 302); }
       g.drawImage(src, 140, 330, 620, 620);
       g.fillStyle = '#d6336c'; g.font = 'bold 44px Nunito, sans-serif'; g.fillText('Scan untuk pesan', W / 2, 1030);
@@ -1094,7 +1097,8 @@
   // 휴대폰(좁은 화면)에서는 이동 버튼이 글을 가리지 않게, 스크롤하는 동안만 보이고 멈추면 잠시 뒤 사라진다 (CSS 의 .jump.on)
   var jumpTimer = 0;
   function wakeJump() { var j = $('#jump'); if (!j) return; j.classList.add('on'); clearTimeout(jumpTimer); jumpTimer = setTimeout(function () { j.classList.remove('on'); }, 2500); }
-  window.addEventListener('scroll', wakeJump, { passive: true });
+  // 화면을 그린 뒤에 내용이 늦게 채워져 길어진 화면(주문 조회 결과)에서도 나오도록, 스크롤할 때 숨김 여부를 다시 본다
+  window.addEventListener('scroll', function () { showJump(); wakeJump(); }, { passive: true });
 
   // 접근성: 화면을 그린 뒤 각 입력칸을 그 위의 제목(label)과 연결한다
   var labelSeq = 0;

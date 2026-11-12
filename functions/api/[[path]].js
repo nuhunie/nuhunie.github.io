@@ -25,7 +25,7 @@
  *   POST reset                 예시 데이터로 초기화 (ALLOW_RESET=1 인 곳에서만. 배포판에는 꺼져 있다)
  *   GET  log                   활동 기록
  */
-import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, startSession, endSession, clearCookie, loadState, seed, toOrder, overLimit, recordHit, logAct, canReset, weakPassword, ORDER_SELECT, PUBLIC_ORDERS, withDeadline, expired, purgeExpired, canUnpay, VOUCHER_SELECT, toService, reserveVoucher, VOUCHER_FULL_FOR, photoOk, toBase64, fromBase64 } from '../../server/lib.js';
+import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, startSession, endSession, clearCookie, loadState, seed, toOrder, overLimit, recordHit, logAct, canReset, weakPassword, ORDER_SELECT, PUBLIC_ORDERS, withDeadline, expired, purgeExpired, canUnpay, VOUCHER_SELECT, toService, reserveVoucher, VOUCHER_USED, VOUCHER_FULL_FOR, photoOk, toBase64, fromBase64 } from '../../server/lib.js';
 import * as Push from '../../server/push.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -197,19 +197,33 @@ export async function onRequest({ request, env, params, waitUntil }) {
       const vr = row.self ? { off: 0, code: '' } : await voucherFor(b.voucher, id);
       if (vr.err) return fail(vr.err, vr.err === NO_VOUCHER ? 400 : 409);
       const total = row.self ? row.total : X.payable(row.base, vr.off, id);
-      const before = row.self ? null : await db.prepare('SELECT code FROM voucher_uses WHERE order_id = ?').bind(id).first();
-      if (!row.self) {
-        if (vr.code) { if (!(await reserveVoucher(db, vr.code, id, vr.max))) return fail('This voucher has been used up.', 409); }
-        else await db.prepare('DELETE FROM voucher_uses WHERE order_id = ?').bind(id).run();
-      }
       // "아직 결제 전인 주문만"이라는 조건을 UPDATE 안에 둔다: 이미 제출된 주문이나 동시에 들어온 두 번째 요청은 바뀌는 줄이 0이다
-      const done = await db.prepare("UPDATE orders SET total = ?, pay = 'pending', method = ?, proof_name = ? WHERE id = ? AND pay IN ('unpaid', 'rejected') AND NOT (pay = 'rejected' AND " + VOUCHER_FULL_FOR + ')').bind(total, methodName, proof, id, id).run();
+      const OPEN = "pay IN ('unpaid', 'rejected')", STILL_OPEN = 'EXISTS (SELECT 1 FROM orders WHERE id = ? AND ' + OPEN + ')';
+      const SUBMIT = "UPDATE orders SET total = ?, pay = 'pending', method = ?, proof_name = ? WHERE id = ? AND " + OPEN + " AND NOT (pay = 'rejected' AND " + VOUCHER_FULL_FOR + ')';
+      let done, reserved = true;
+      if (row.self) done = await db.prepare(SUBMIT).bind(total, methodName, proof, id, id).run();
+      else {
+        // 운영자가 넣은 주문: 쿠폰 기록을 바꾸는 것과 주문을 '확인 대기'로 바꾸는 것을 한 묶음(트랜잭션)으로 한다.
+        // 따로 하면, 같은 제출이 동시에 두 번 왔을 때 진 쪽이 쿠폰 기록을 "되돌리다가" 이긴 쪽의 기록을 지웠다
+        // (한 장짜리 쿠폰을 다른 주문이 또 쓸 수 있었다. 2026-11-13 QA). 두 문장 모두 아직 결제 전인 주문일 때만 바꾸므로 진 쪽은 아무것도 바꾸지 않는다.
+        const LIMIT_OK = '(? = 0 OR (' + VOUCHER_USED + ') < ?)';
+        const res = await db.batch(vr.code ? [
+          db.prepare('INSERT OR REPLACE INTO voucher_uses (order_id, code) SELECT ?, ? WHERE ' + LIMIT_OK + ' AND ' + STILL_OPEN).bind(id, vr.code, vr.max, vr.code, id, vr.max, id),
+          db.prepare(SUBMIT + ' AND ' + LIMIT_OK + ' AND EXISTS (SELECT 1 FROM voucher_uses WHERE order_id = ? AND code = ?)').bind(total, methodName, proof, id, id, vr.max, vr.code, id, vr.max, id, vr.code)
+        ] : [
+          db.prepare('DELETE FROM voucher_uses WHERE order_id = ? AND ' + STILL_OPEN).bind(id, id),
+          db.prepare(SUBMIT + ' AND NOT EXISTS (SELECT 1 FROM voucher_uses WHERE order_id = ?)').bind(total, methodName, proof, id, id, id)
+        ]);
+        done = res[1]; reserved = !vr.code || !!res[0].meta.changes;
+      }
       if (!done.meta.changes) {
-        // 반려된 사이 이 주문의 쿠폰을 다른 주문이 다 썼다 (고객이 접수 때 쓴 쿠폰은 금액에 들어가 있어 다시 고를 수 없다)
-        const full = row.pay === 'rejected' && await db.prepare('SELECT ' + VOUCHER_FULL_FOR + ' AS f').bind(id).first();
-        if (full && full.f) { if (!row.self) await (before ? db.prepare('INSERT OR REPLACE INTO voucher_uses (order_id, code) VALUES (?, ?)').bind(id, before.code) : db.prepare('DELETE FROM voucher_uses WHERE order_id = ?').bind(id)).run(); return fail(VOUCHER_GONE_WHILE_REJECTED, 409); }
-        // 이미 제출된 주문: 쿠폰 기록을 제출 전으로 되돌린다
-        if (!row.self) await (before ? db.prepare('INSERT OR REPLACE INTO voucher_uses (order_id, code) VALUES (?, ?)').bind(id, before.code) : db.prepare('DELETE FROM voucher_uses WHERE order_id = ?').bind(id)).run();
+        const now = await db.prepare('SELECT pay FROM orders WHERE id = ?').bind(id).first();
+        if (now && (now.pay === 'unpaid' || now.pay === 'rejected')) {
+          if (!reserved) return fail('This voucher has been used up.', 409);
+          // 반려된 사이 이 주문의 쿠폰을 다른 주문이 다 썼다 (고객이 접수 때 쓴 쿠폰은 금액에 들어가 있어 다시 고를 수 없다)
+          const full = now.pay === 'rejected' && await db.prepare('SELECT ' + VOUCHER_FULL_FOR + ' AS f').bind(id).first();
+          if (full && full.f) return fail(VOUCHER_GONE_WHILE_REJECTED, 409);
+        }
         return fail('This order has already been submitted.', 409);
       }
       await dropPublicCache();
@@ -230,6 +244,7 @@ export async function onRequest({ request, env, params, waitUntil }) {
       const id = V.orderId(b.orderId), row = id && await db.prepare('SELECT 1 FROM orders WHERE id = ?').bind(id).first();
       if (!row) { await recordHit(db, request, 'look'); return fail('Order not found.', 404); }   // 틀린 번호는 조회처럼 센다
       await recordHit(db, request, 'push');
+      if (await Push.orderFull(db, id, b.endpoint)) return fail('Too many devices on this order.', 409);
       if (!(await Push.subscribe(db, b.endpoint, keys.p256dh, keys.auth, V.oneOf(b.lang, ['id', 'en', 'ko']) || 'id', id))) return fail('Too many orders on this device.', 409);
       return json({ ok: true });
     }

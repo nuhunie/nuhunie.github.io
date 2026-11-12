@@ -455,6 +455,7 @@ globalThis.GO.EN = {
   'Notifikasi belum tersedia di toko ini.': 'Notifications are not available for this shop yet.',
   'Browser ini tidak bisa menerima notifikasi.': 'This browser cannot receive notifications.',
   'Notifikasi di perangkat ini sudah untuk terlalu banyak pesanan. Matikan untuk pesanan lama dulu.': 'This device already gets notifications for too many orders. Turn them off for older orders first.',
+  'Notifikasi untuk pesanan ini sudah aktif di terlalu banyak perangkat.': 'Notifications for this order are already on for too many devices.',
   'Notifikasi aktif.': 'Notifications are on.',
   'Kami kabari saat batch pindah tahap.': 'We will let you know when the batch moves to the next stage.',
   'Matikan': 'Turn off',

@@ -65,7 +65,7 @@ test('RFC 8292 VAPID: 서명을 Node 의 별도 구현으로 검증할 수 있�
 
 test('받는 주소: 알림 회사 주소만 받는다 (서버가 아무 곳에나 요청을 보내지 않게)', async () => {
   const P = await load();
-  for (const ok of ['https://fcm.googleapis.com/fcm/send/x', 'https://updates.push.services.mozilla.com/wpush/v2/x', 'https://web.push.apple.com/QK', 'https://db5p.notify.windows.com/w/?token=x'])
+  for (const ok of ['https://fcm.googleapis.com/fcm/send/x', 'https://jmt17.google.com/fcm/send/x','https://updates.push.services.mozilla.com/wpush/v2/x', 'https://web.push.apple.com/QK', 'https://db5p.notify.windows.com/w/?token=x'])
     assert.equal(P.endpointOk(ok, {}), true, ok);
   for (const bad of ['http://fcm.googleapis.com/x', 'https://fcm.googleapis.com:8443/x', 'https://evil.com/fcm.googleapis.com', 'https://fcm.googleapis.com.evil.com/x', 'https://user@fcm.googleapis.com/x',
     'https://notify.windows.com.evil.com/x', 'http://localhost:8899/x', 'https://169.254.169.254/', 'javascript:alert(1)', '', null, 12, 'https://fcm.googleapis.com/' + 'a'.repeat(1000)])

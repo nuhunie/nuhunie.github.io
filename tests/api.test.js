@@ -437,6 +437,11 @@ test('웹 푸시: 공개 열쇠를 주고, 알림 회사 주소와 있는 주문
   assert.equal((await sub({ orderId: GO.BRAND.orderPrefix + '-ZZZZZZZZ' })).status, 404);
   assert.equal((await sub({})).status, 200);
   assert.equal((await sub({})).status, 200, '같은 기기가 다시 켜도 된다');
+  // 주문 하나에 붙는 기기는 10대까지 (가짜 기기를 잔뜩 붙여 알림 줄을 막지 못하게). 이미 붙은 기기가 다시 신청하는 것은 된다
+  for (let i = 0; i < 9; i++) assert.equal((await sub({ endpoint: endpoint + '-d' + i })).status, 200, '기기 ' + (i + 2) + '번째');
+  const over = await sub({ endpoint: endpoint + '-d9' });
+  assert.equal(over.status, 409); assert.equal(over.json.error, 'Too many devices on this order.');
+  assert.equal((await sub({})).status, 200, '이미 붙은 기기는 한도와 상관없이 다시 켤 수 있다');
   assert.equal((await call('POST', '/push/unsubscribe', { endpoint, orderId })).status, 200);
   assert.equal((await call('POST', '/push/unsubscribe', { endpoint: 5 })).status, 400);
 });

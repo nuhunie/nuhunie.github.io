@@ -39,7 +39,8 @@ const concat = (...parts) => { const out = new Uint8Array(parts.reduce((n, p) =>
 /* ── 받는 쪽 확인 ──
  * 서버가 이 주소로 직접 요청을 보내므로, 아무 주소나 받으면 우리 서버를 남의 서버를 두드리는 데 쓸 수 있다.
  * 브라우저들이 실제로 쓰는 알림 회사 주소만 받는다. 검사 환경(ALLOW_RESET=1)에서만 PUSH_TEST_ORIGIN 의 가짜 알림 서버를 더 받는다. */
-const PUSH_HOSTS = ['fcm.googleapis.com', 'updates.push.services.mozilla.com', 'web.push.apple.com'];
+// jmt17.google.com: 크롬이 일부 사용자에게 fcm.googleapis.com 대신 내준다고 알려진 구글 주소(확인은 못 했다. 구글 주소라 받아도 위험은 없다)
+const PUSH_HOSTS = ['fcm.googleapis.com', 'jmt17.google.com', 'updates.push.services.mozilla.com', 'web.push.apple.com'];
 const PUSH_SUFFIX = ['.notify.windows.com', '.push.apple.com'];
 export function endpointOk(endpoint, env) {
   if (typeof endpoint !== 'string' || endpoint.length > 1000) return false;
@@ -156,6 +157,13 @@ export async function drainQueue(db, env, origin, sendFetch) {
   return out;
 }
 
+/* 주문 하나에 붙일 수 있는 기기 수를 넘었는가 (이미 붙어 있는 기기가 다시 신청하는 것은 세지 않는다).
+ * 한도가 없으면 주문번호 하나로 가짜 기기를 얼마든지 붙여, 한 번에 8건씩 보내는 줄을 막을 수 있다(2026-11-13 QA). */
+const MAX_DEVICES_PER_ORDER = 10;
+export async function orderFull(db, orderId, endpoint) {
+  const n = await db.prepare('SELECT COUNT(*) AS n FROM push_links WHERE order_id = ? AND endpoint != ?').bind(orderId, endpoint).first();
+  return n.n >= MAX_DEVICES_PER_ORDER;
+}
 /* 신청: 이 기기(endpoint)가 이 주문의 알림을 받는다. 같은 기기는 주문 MAX_ORDERS_PER_DEVICE 개까지. */
 export async function subscribe(db, endpoint, p256dh, auth, lang, orderId) {
   const at = new Date().toISOString();
