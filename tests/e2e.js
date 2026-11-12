@@ -40,7 +40,15 @@ window.runE2E = async function () {
   check('배치: 주문번호가 공개 화면에 보이지 않는다', !S.ordersOf('kr-5').some(o => $('#app').innerText.includes(o.id)));
   check('배치: 이름·금액·결제 상태 없이 품목별 수량만 나온다', $$('#batchOut table').length === 1 && !/Rp\s?\d/.test($('#app').innerText) && !$('#batchOut .badge') && !S.ordersOf('kr-5').some(o => $('#app').innerText.includes(X.maskName(o.buyer))));
 
+  check('배치: 접수 중인 배치에는 주문하기(진한 단추)와 결제 확인하기(선 단추)가 있다', !!$('#app a.btn[href="#/pay/kr-5"]:not(.line)') && !!$('#app a.btn.line[href="#/confirm"]'));
+  check('메뉴: 주문하기와 결제 확인이 따로 있다', !!$('#nav a[href="#/pay"]') && !!$('#nav a[href="#/confirm"]'));
+  await go('#/b/kr-4');
+  check('배치: 마감된 배치의 주문하기에는 따로 처리된다는 말이 있다', /berikutnya|다음 배송|next shipment/i.test(($('#app a.btn[href="#/pay/kr-4"]') || {}).textContent || ''), ($('#app a.btn[href="#/pay/kr-4"]') || {}).textContent);
+  await go('#/b/kr-1');
+  check('배치: 완료된 배치에는 주문하기가 없고 결제 확인하기는 있다', !$('#app a.btn[href="#/pay/kr-1"]') && !!$('#app a.btn[href="#/confirm"]'));
+  await go('#/b/kr-5');
   $('#app a.btn[href="#/pay/kr-5"]').click(); await wait(80);
+  check('주문하기: 메뉴의 주문하기가 켜진다', !!$('#nav a.on[href="#/pay"]'));
   check('결제: 배치가 미리 선택되어 있다', $('[data-pay=batchId]').value === 'kr-5');
   check('결제: 완료된 배치는 고를 수 없다', !$$('[data-pay=batchId] option').some(o => S.batch(o.value).stage === GO.LAST_STAGE));
   check('결제: 접수 중인 배치에는 마감 안내가 없다', !$('.note.warn'));
@@ -48,9 +56,12 @@ window.runE2E = async function () {
   check('결제: 마감된 배치를 고르면 따로 처리된다는 안내가 나온다', !!$('.note.warn') && $('[data-pay=batchId]').value === 'kr-4');
   type('[data-pay=batchId]', 'kr-5'); await wait(60);
   const o1 = S.db.orders[0], base1 = o1.total;
-  type('#payLookup', 'TIDAK-ADA'); $('[data-act=pay-lookup]').click(); await wait(60);
-  check('결제: 없는 주문번호는 안내가 나온다', $('#lookupMsg').className === 'err');
-  type('#payLookup', o1.id.toLowerCase()); $('[data-act=pay-lookup]').click(); await wait(100);
+  await go('#/confirm');
+  const confirmWith = async v => { $('#confirmId').value = v; $('form[data-form=confirm]').dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })); await wait(100); };
+  await confirmWith('TIDAK-ADA');
+  check('결제 확인: 없는 주문번호는 안내가 나온다', $('#confirmMsg').className === 'err' && location.hash === '#/confirm');
+  await confirmWith(o1.id.toLowerCase());
+  check('결제 확인: 주문번호를 넣으면 그 주문의 결제 화면으로 가고 메뉴의 결제 확인이 켜진다', location.hash === '#/pay/' + o1.batchId + '/' + o1.id && !!$('#nav a.on[href="#/confirm"]'), location.hash);
   check('결제: 주문번호로 불러오면 내용이 채워지고 잠긴다', $('[data-pay=buyer]').value === X.maskName(o1.buyer) && $('[data-pay=buyer]').readOnly && num($('[data-pay=base]').value) === base1);
   check('결제: QR과 결제 금액이 나온다', $('#qrC') && num($('#payOut .total b').textContent) === base1 + X.uniqueCode(o1.id), $('#payOut') && $('#payOut').innerText);
   await wait(300);

@@ -6,7 +6,9 @@
  *  #/b/:batchId          배치 상세: 진행 단계 + 리캡
  *  #/track/:query        주문 조회 결과
  *  #/calc                계산기
- *  #/pay/:batchId/:order 결제 확인(입금 증빙 제출) → 영수증
+ *  #/pay/:batchId        주문하기: 그 배치가 골라진 접수 양식 (처음 주문하는 사람)
+ *  #/pay/:batchId/:order 접수된 주문의 결제(금액·QR·입금 증빙 제출) → 영수증
+ *  #/confirm             결제 확인하기: 주문번호를 넣어 그 주문의 결제 화면으로 (이미 주문한 사람)
  *  #/admin/:tab          관리자: guide | batch | order | pay
  */
 (function (GO) {
@@ -174,13 +176,28 @@
   }
 
   /* ── 배치 상세 + 리캡 ── */
+  /* 배치 화면의 "주문하기" 단추. 처음 주문하는 사람이 들어가는 문이다.
+   * 마감된 배치(단계 1 이상)는 새 주문을 받되 따로 처리되므로 단추에 그 말을 넣는다. 완료된 배치는 새 주문을 받지 않아 단추가 없다. */
+  function orderButton(b) {
+    if (b.stage === GO.LAST_STAGE) return '';
+    return '<a class="btn" href="#/pay/' + b.id + '">' + (b.stage >= 1 ? L('Pesan untuk pengiriman berikutnya', '다음 배송으로 주문하기') : L('Pesan sekarang', '주문하기')) + '</a>';
+  }
+  /* 결제 확인하기: 이미 주문한 사람이 주문번호를 넣어 그 주문의 결제 화면으로 간다. 결제 화면은 주문하기와 같은 화면이다. */
+  function vConfirm() {
+    var open = openOrder();
+    return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="lead">' + L('Sudah memesan? Masukkan nomor pesanan untuk melihat nominal dan QR, lalu unggah bukti pembayaran.', '이미 주문하셨나요? 주문번호를 넣으면 결제 금액과 QR이 나오고, 증빙을 올릴 수 있습니다.') + '</p>' +
+      (open ? '<p class="note">' + L('Ada pesanan yang belum selesai dibayar', '결제를 마치지 않은 주문이 있습니다') + ': <b>' + open.id + '</b> · <a href="#/pay/' + encodeURIComponent(open.batchId || '-') + '/' + open.id + '">' + L('Lanjutkan pembayaran', '이어서 결제하기') + '</a></p>' : '') +
+      '<form class="panel" data-form="confirm"><div class="field"><label for="confirmId">' + L('Nomor pesanan', '주문번호') + '</label><div class="inline"><input id="confirmId" name="q" placeholder="' + GO.BRAND.orderPrefix + '-7K3M9Q2X" autocomplete="off" required><button class="btn">' + L('Muat', '불러오기') + '</button></div>' +
+      '<small id="confirmMsg" role="status">' + L('Nomor pesanan ada di bukti pesanan (struk).', '주문번호는 주문 영수증에 있습니다.') + '</small></div></form>' +
+      '<p class="hint">' + L('Belum punya pesanan?', '아직 주문하지 않으셨나요?') + ' <a href="#/pay">' + L('Pesan sekarang', '주문하기') + ' →</a></p>';
+  }
   function vBatch(id) {
     var b = S.batch(id);
     if (!b) return empty(L('Batch tidak ditemukan.', '배치를 찾을 수 없습니다.'));
     var s = S.service(b.svc), r = S.recap(id);
     return crumbs([[L('Layanan', '서비스'), '#/'], [LL(s.name), '#/s/' + s.id + '/' + b.month], [batchName(b)]]) +
       '<div class="head"><div><h1>' + esc(batchName(b)) + '</h1><p class="lead">' + esc(monthLabel(b.month)) + ' · ' + L('Tutup order', '주문 마감') + ' ' + esc(dateLabel(b.closeDate)) + '</p></div>' +
-      '<a class="btn" href="#/pay/' + b.id + '">' + L('Konfirmasi pembayaran', '결제 확인하기') + '</a></div>' +
+      '<div class="btns">' + orderButton(b) + '<a class="btn line" href="#/confirm">' + L('Konfirmasi pembayaran', '결제 확인하기') + '</a></div></div>' +
       stepper(GO.STAGES.map(LL), b.stage, b.stage === GO.LAST_STAGE) +
       (b && b.note ? '<p class="note"><b>' + L('Info', '안내') + '</b> ' + esc(b.note) + '</p>' : '') +
       '<div id="batchOut">' + (r.pcs ? '<p class="hint">' + L('Memuat…', '불러오는 중…') + '</p>' : empty(L('Belum ada pesanan di batch ini.', '이 배치에는 아직 주문이 없습니다.'))) + '</div>';
@@ -393,11 +410,13 @@
     var svcs = S.db.services.map(function (s) { return '<button type="button" class="' + (s.id === P.svc ? 'on' : '') + '" data-act="pay-svc" data-id="' + s.id + '"' + (P.orderId ? ' disabled' : '') + '>' + esc(LL(s.name)) + '</button>'; }).join('');
     var bs = S.batchesOf(P.svc).filter(function (b) { return b.stage < GO.LAST_STAGE || (P.orderId && b.id === P.batchId); }).map(function (b) { return '<option value="' + b.id + '"' + (b.id === P.batchId ? ' selected' : '') + '>' + esc(batchName(b)) + ' (' + esc(monthLabel(b.month)) + ')</option>'; }).join('');
     var lock = P.orderId ? ' readonly' : '';
-    return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="lead">' + L('Isi data pesanan, bayar lewat QR, lalu unggah bukti pembayaran.', '주문 정보를 입력하고 QR로 결제한 뒤 증빙을 올려 주세요.') + '</p>' +
+    return (P.orderId
+        ? '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="lead">' + L('Bayar lewat QR atau transfer, lalu unggah bukti pembayaran.', 'QR이나 이체로 결제한 뒤 증빙을 올려 주세요.') + '</p>'
+        : '<h1>' + L('Pesan sekarang', '주문하기') + '</h1><p class="lead">' + L('Isi data pesanan, lalu tekan "Buat pesanan & lihat nominal". Setelah itu bayar lewat QR dan unggah bukti.', '주문 정보를 적고 "주문 접수하고 결제 금액 보기"를 누르세요. 그다음 QR로 결제하고 증빙을 올립니다.') + '</p>') +
       '<form class="two" data-form="pay"><div class="panel"><h2>' + L('Data pesanan', '주문 정보') + '</h2>' +
       openNotice() +
       (P.orderId ? '<p class="note">' + L('Pesanan', '주문') + ' <b>' + P.orderId + '</b> · <a href="#/pay">' + L('Isi manual', '직접 입력하기') + '</a><br>' + L('Simpan nomor ini untuk melanjutkan pembayaran atau melacak pesanan.', '이 번호를 보관해 두세요. 결제를 이어서 하거나 조회할 때 씁니다.') + '</p>'
-        : '<div class="field"><label>' + L('Sudah punya nomor pesanan?', '주문번호가 있나요?') + '</label><div class="inline"><input id="payLookup" placeholder="' + GO.BRAND.orderPrefix + '-7K3M9Q2X" autocomplete="off"><button type="button" class="btn line" data-act="pay-lookup">' + L('Muat', '불러오기') + '</button></div><small id="lookupMsg">' + L('Data pesanan terisi otomatis.', '주문 정보가 자동으로 채워집니다.') + '</small></div>') +
+        : '<p class="hint">' + L('Sudah punya nomor pesanan?', '주문번호가 있나요?') + ' <a href="#/confirm">' + L('Konfirmasi pembayaran', '결제 확인하기') + ' →</a></p>') +
       '<div class="field"><label>' + L('Pilih layanan', '서비스 선택') + ' *</label><div class="seg wide">' + svcs + '</div></div>' +
       '<div class="field"><label>' + L('Nomor batch', '배치 번호') + ' *</label><select data-pay="batchId"' + (P.orderId ? ' disabled' : '') + '>' + bs + '</select></div>' + lateNotice() +
       '<div class="grid2"><div class="field"><label>' + L('Nama / username pembeli', '구매자 이름·아이디') + ' *</label><input data-pay="buyer" maxlength="' + GO.LIMITS.buyer + '" value="' + esc(P.buyer) + '"' + lock + '></div>' +
@@ -887,15 +906,17 @@
     else if (page === 'b') html = vBatch(r[1]);
     else if (page === 'track') html = vTrack(r[1] || '');
     else if (page === 'pay') html = vPay();
+    else if (page === 'confirm') html = vConfirm();
     else if (page === 'admin') html = vAdmin(r[1]);
     else { page = 'home'; html = vHome(); }
     $('#app').innerHTML = html;
     linkLabels();
-    var navKey = page === 's' || page === 'b' ? 'home' : page;
+    // 결제 화면은 주문번호가 주소에 있으면 "결제 확인", 없으면 "주문하기" 메뉴에 속한다
+    var navKey = page === 's' || page === 'b' ? 'home' : page === 'pay' ? (r[2] ? 'confirm' : 'order') : page;
     $('#nav').innerHTML = (GO.app === 'admin'
       // 고객 사이트 보기는 새 탭으로 연다: 관리자 사이트가 그대로 남아 있어 돌아오기 쉽다
       ? [['site', ROOT, L('Lihat situs pelanggan', '고객 사이트 보기') + ' ↗', true]]
-      : [['home', '#/', L('Layanan', '서비스')], ['track', '#/track', L('Lacak pesanan', '주문 조회')], ['pay', '#/pay', L('Konfirmasi pembayaran', '결제 확인')]]
+      : [['home', '#/', L('Layanan', '서비스')], ['order', '#/pay', L('Pesan', '주문하기')], ['track', '#/track', L('Lacak pesanan', '주문 조회')], ['confirm', '#/confirm', L('Konfirmasi', '결제 확인')]]
           // 로그인한 운영자에게만 관리자 사이트로 돌아가는 길을 보여 준다 (고객에게는 보이지 않는다)
           .concat(S.mode === 'server' && S.isAdmin ? [['admin', 'admin/', L('Kembali ke admin', '관리자로 돌아가기')]] : []))
       .map(function (n) { return '<a href="' + n[1] + '"' + (n[3] ? ' target="_blank" rel="noopener"' : '') + (n[0] === navKey ? ' class="on" aria-current="page"' : '') + '>' + n[2] + '</a>'; }).join('');
@@ -918,6 +939,13 @@
     e.preventDefault();
     if (f === 'track') go('#/track/' + encodeURIComponent(e.target.q.value.trim()));
     else if (f === 'pay') submitPay();
+    else if (f === 'confirm') {
+      var cq = e.target.q.value, cm = $('#confirmMsg');
+      S.fetchOrder(cq).then(function (found) {
+        if (found && !found.gone) go('#/pay/' + found.batchId + '/' + found.id);
+        else { var cid = X.normOrderId(cq); if (found && found.gone) markGone(cid); cm.textContent = isGone(cid) ? goneText() : L('Nomor pesanan tidak ditemukan.', '주문번호를 찾을 수 없습니다.'); cm.className = 'err'; }
+      }, function () { cm.textContent = L('Gagal memuat. Coba lagi.', '불러오지 못했습니다. 다시 시도해 주세요.'); cm.className = 'err'; });
+    }
     else if (f === 'login') {
       S.login(e.target.password.value).then(render, function (err) {
         $('#loginErr').textContent = err.status === 401 ? L('Kata sandi salah.', '비밀번호가 맞지 않습니다.') : L('Gagal masuk. Coba lagi.', '로그인하지 못했습니다. 다시 시도해 주세요.');
@@ -953,12 +981,6 @@
     else if (act === 'calc-save') { S.setCalcDefaults(C); t.textContent = L('Tersimpan', '저장됨'); }
     else if (act === 'pay-svc') { P.svc = id; P.batchId = (S.batchesOf(id).filter(function (b) { return b.stage < GO.LAST_STAGE; })[0] || {}).id; saveDraft(); render(); }
     else if (act === 'pay-method') { P.method = id; render(); }
-    else if (act === 'pay-lookup') {
-      S.fetchOrder($('#payLookup').value).then(function (found) {
-        if (found && !found.gone) go('#/pay/' + found.batchId + '/' + found.id);
-        else { var lid = X.normOrderId($('#payLookup').value); if (found && found.gone) markGone(lid); $('#lookupMsg').textContent = isGone(lid) ? goneText() : L('Nomor pesanan tidak ditemukan.', '주문번호를 찾을 수 없습니다.'); $('#lookupMsg').className = 'err'; }
-      }, function () { $('#lookupMsg').textContent = L('Gagal memuat. Coba lagi.', '불러오지 못했습니다. 다시 시도해 주세요.'); $('#lookupMsg').className = 'err'; });
-    }
     else if (act === 'pay-voucher') {
       S.checkVoucher(P.voucher).then(function (v) {
         if (!P) return;

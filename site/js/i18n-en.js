@@ -377,5 +377,15 @@ GO.EN = {
   'Kode voucher itu sudah ada.': 'That voucher code already exists.',
   'Periksa kembali data voucher.': 'Check the voucher fields.',
   'Kode layanan itu sudah ada.': 'That service code already exists.',
-  'Periksa kembali data layanan.': 'Check the service fields.'
+  'Periksa kembali data layanan.': 'Check the service fields.',
+  // 주문하기 / 결제 확인하기 입구
+  'Pesan': 'Order',
+  'Konfirmasi': 'Confirm payment',
+  'Pesan sekarang': 'Order now',
+  'Pesan untuk pengiriman berikutnya': 'Order for the next shipment',
+  'Sudah memesan? Masukkan nomor pesanan untuk melihat nominal dan QR, lalu unggah bukti pembayaran.': 'Already ordered? Enter your order number to see the amount and QR, then upload your payment proof.',
+  'Nomor pesanan ada di bukti pesanan (struk).': 'Your order number is on your order receipt.',
+  'Belum punya pesanan?': 'No order yet?',
+  'Bayar lewat QR atau transfer, lalu unggah bukti pembayaran.': 'Pay by QR or transfer, then upload your payment proof.',
+  'Isi data pesanan, lalu tekan "Buat pesanan & lihat nominal". Setelah itu bayar lewat QR dan unggah bukti.': 'Fill in your order, then press "Create order & see amount". After that, pay by QR and upload your proof.'
 };
