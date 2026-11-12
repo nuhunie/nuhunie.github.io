@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nuhunie</title>
+<link rel="stylesheet" href="css/app.css">
+<script>try { document.documentElement.dataset.theme = localStorage.getItem('go-theme') || 'pink'; } catch (e) {}</script>
+</head>
+<body>
+<header class="top">
+  <div class="wrap bar">
+    <a class="logo" id="logo" href="#/">Nuhunie</a>
+    <nav id="nav" class="nav" aria-label="Menu"></nav>
+    <div id="themes" class="themes" role="group" aria-label="Tema warna"></div>
+    <div id="langs" class="langs" role="group" aria-label="Language"></div>
+  </div>
+</header>
+<main id="app" class="wrap"></main>
+<div id="jump" class="jump"><button type="button" id="jumpTop" data-act="top">↑</button><button type="button" id="jumpBottom" data-act="bottom">↓</button></div>
+<footer class="wrap foot" id="foot">Nuhunie · mockup</footer>
+
+<!-- 불러오는 순서 = 층 순서: 데이터 모델 → 알고리즘 → 저장소 → 화면 -->
+<script src="js/data.js"></script>
+<script src="js/i18n-en.js"></script>
+<script src="js/logic.js"></script>
+<script src="js/store.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>
