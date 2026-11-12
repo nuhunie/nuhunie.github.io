@@ -101,7 +101,8 @@ export function pushText(batch, stage, lang) {
   const st = GO.STAGES[stage] || ['', ''];
   return {
     title: pick('Update pesanan', '주문 진행 알림') + ' · ' + GO.BRAND.name,
-    body: batch.title + ' #' + batch.no + ': ' + pick(st[0], st[1]) + '. ' + pick('Ketuk untuk lihat pesananmu.', '눌러서 내 주문을 확인하세요.')
+    // 배치 이름은 사이트와 같게 (ui.js 의 batchName: "Batch 4 · Handcarry Korea")
+    body: 'Batch ' + batch.no + ' · ' + batch.title + ': ' + pick(st[0], st[1]) + '. ' + pick('Ketuk untuk lihat pesananmu.', '눌러서 내 주문을 확인하세요.')
   };
 }
 

@@ -83,8 +83,8 @@ test('받는 주소: 알림 회사 주소만 받는다 (서버가 아무 곳에�
 
 test('알림 문구: 고른 언어로, 배치와 단계만 넣는다', async () => {
   const P = await load(), b = { title: 'Handcarry Korea', no: 4 };
-  assert.deepEqual(P.pushText(b, 3, 'id'), { title: 'Update pesanan · Nuhunie', body: 'Handcarry Korea #4: Dikirim ke Indonesia. Ketuk untuk lihat pesananmu.' });
-  assert.equal(P.pushText(b, 3, 'ko').body, 'Handcarry Korea #4: 인도네시아로 배송 중. 눌러서 내 주문을 확인하세요.');
+  assert.deepEqual(P.pushText(b, 3, 'id'), { title: 'Update pesanan · Nuhunie', body: 'Batch 4 · Handcarry Korea: Dikirim ke Indonesia. Ketuk untuk lihat pesananmu.' });
+  assert.equal(P.pushText(b, 3, 'ko').body, 'Batch 4 · Handcarry Korea: 인도네시아로 배송 중. 눌러서 내 주문을 확인하세요.');
   const en = P.pushText(b, 3, 'en');
   assert.ok(!/pesanan|Ketuk/.test(en.title + en.body), '영어 문구가 다 있어야 한다: ' + JSON.stringify(en));
   assert.deepEqual(globalThis.GO.PUSH_STAGES.every(s => s > 0 && s <= globalThis.GO.LAST_STAGE), true);
