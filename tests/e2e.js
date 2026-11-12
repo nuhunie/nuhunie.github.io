@@ -6,7 +6,8 @@ window.runE2E = async function () {
   const S = GO.store, X = GO.logic, out = [];
   const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
   const wait = ms => new Promise(r => setTimeout(r, ms));
-  const go = async h => { location.hash = h; await wait(80); };
+  // 주소가 관리자 화면이면 관리자 사이트로, 아니면 고객 사이트로 바꿔 그린다 (실제로는 서로 다른 페이지다)
+  const go = async h => { GO.app = /^#\/(admin|calc)/.test(h) ? 'admin' : 'site'; location.hash = h; await wait(80); GO.render(); await wait(20); };
   const type = (sel, v, ev) => { const e = typeof sel === 'string' ? $(sel) : sel; e.value = v; e.dispatchEvent(new Event(ev || 'input', { bubbles: true })); };
   const check = (name, ok, detail) => out.push({ name, ok: !!ok, detail: ok ? '' : String(detail) });
   const num = t => Number(String(t).replace(/[^\d]/g, ''));
@@ -22,7 +23,10 @@ window.runE2E = async function () {
   check('홈: 서비스 3개', $$('.svc').length === 3, $$('.svc').length);
   const ongoing = S.db.batches.filter(b => b.stage < GO.LAST_STAGE).length;
   check('홈: 진행 중 배치 목록이 저장소와 같다', $$('#app .rows .row').length === ongoing, $$('#app .rows .row').length + ' vs ' + ongoing);
-  check('메뉴: 고객 메뉴에 계산기가 없다', !$$('#nav a').some(a => a.getAttribute('href') === '#/calc'));
+  check('메뉴: 고객 메뉴에 계산기와 관리자가 없다', !$$('#nav a').some(a => /calc|admin/.test(a.getAttribute('href'))));
+  location.hash = '#/admin/batch'; await wait(80); GO.render();
+  check('고객 사이트: 관리자 주소를 쳐도 관리자 화면이 나오지 않는다', !$('.tabs') && !$('.login') && !!$('.hero'));
+  await go('#/');
 
   $('.svc[href="#/s/kr"]').click(); await wait(80);
   const nov = S.batchesOf('kr', '2026-11'), rec = X.monthRecap(nov, S.db.orders);

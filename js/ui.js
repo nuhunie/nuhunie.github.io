@@ -11,6 +11,11 @@
  */
 (function (GO) {
   var S = GO.store, X = GO.logic;
+  // 한 벌의 코드로 두 사이트를 그린다. 어느 쪽인지는 그 페이지의 <html data-app> 가 정한다.
+  //   site   고객 사이트 (/)        관리자 화면이 아예 없다
+  //   admin  관리자 사이트 (/admin/)  관리자 화면만 있다
+  GO.app = document.documentElement.getAttribute('data-app') || 'site';
+  var ROOT = GO.app === 'admin' ? '../' : '';   // 관리자 페이지에서 본 사이트 뿌리
   var lang = 'id';
   try { lang = localStorage.getItem('go-lang') || 'id'; } catch (e) {}
 
@@ -376,7 +381,7 @@
   function batchOptions(sel) { return S.db.batches.slice().sort(function (a, b) { return a.month < b.month ? 1 : a.month > b.month ? -1 : b.no - a.no; }).map(function (b) { return '<option value="' + b.id + '"' + (b.id === sel ? ' selected' : '') + '>' + esc(LL(S.service(b.svc).name) + ' / ' + batchName(b) + ' (' + b.month + ')') + '</option>'; }).join(''); }
   function aBatch() {
     var rows = S.db.batches.slice().sort(function (a, b) { return a.month < b.month ? 1 : a.month > b.month ? -1 : a.svc < b.svc ? -1 : a.svc > b.svc ? 1 : b.no - a.no; }).map(function (b) {
-      return '<tr><td>' + b.month + '</td><td>' + esc(LL(S.service(b.svc).name)) + '</td><td><a href="#/b/' + b.id + '">' + esc(batchName(b)) + '</a></td>' +
+      return '<tr><td>' + b.month + '</td><td>' + esc(LL(S.service(b.svc).name)) + '</td><td><a href="' + ROOT + '#/b/' + b.id + '">' + esc(batchName(b)) + '</a></td>' +
         '<td><select data-bstage="' + b.id + '" aria-label="' + L('Tahap', '단계') + '">' + GO.STAGES.map(function (st, i) { return '<option value="' + i + '"' + (i === b.stage ? ' selected' : '') + '>' + esc(LL(st)) + '</option>'; }).join('') + '</select></td>' +
         '<td><input data-bnote="' + b.id + '" value="' + esc(b.note) + '" placeholder="' + L('Info untuk pelanggan', '고객 안내 문구') + '" aria-label="Info"></td>' +
         '<td><button class="link" data-act="batch-del" data-id="' + b.id + '">' + L('Hapus', '삭제') + '</button></td></tr>';
@@ -474,7 +479,8 @@
     var payKey = (r[1] || '') + '/' + (r[2] || '');
     if (page === 'pay' && (!P || P._key !== payKey)) { initPay(r[1], r[2]); P._key = payKey; }
     if (page !== 'pay') P = null;
-    if (page === 'calc') { page = 'admin'; r[1] = 'calc'; }   // 예전 주소 #/calc도 계속 열리게
+    if (GO.app === 'admin') { if (page !== 'admin') { r[1] = page === 'calc' ? 'calc' : ''; page = 'admin'; } }   // 관리자 사이트에는 관리자 화면만
+    else if (page === 'admin' || page === 'calc') page = 'home';                                                // 고객 사이트에는 관리자 화면이 없다
     if (page === 's') html = vService(r[1], r[2]);
     else if (page === 'b') html = vBatch(r[1]);
     else if (page === 'track') html = vTrack(r[1] || '');
@@ -484,14 +490,16 @@
     $('#app').innerHTML = html;
     linkLabels();
     var navKey = page === 's' || page === 'b' ? 'home' : page;
-    $('#nav').innerHTML = [['home', '#/', L('Layanan', '서비스')], ['track', '#/track', L('Lacak pesanan', '주문 조회')], ['pay', '#/pay', L('Konfirmasi pembayaran', '결제 확인')], ['admin', '#/admin', L('Admin', '관리자')]]
+    $('#nav').innerHTML = (GO.app === 'admin'
+      ? [['site', ROOT, L('Lihat situs pelanggan', '고객 사이트 보기')]]
+      : [['home', '#/', L('Layanan', '서비스')], ['track', '#/track', L('Lacak pesanan', '주문 조회')], ['pay', '#/pay', L('Konfirmasi pembayaran', '결제 확인')]])
       .map(function (n) { return '<a href="' + n[1] + '"' + (n[0] === navKey ? ' class="on" aria-current="page"' : '') + '>' + n[2] + '</a>'; }).join('');
     $('#langs').innerHTML = [['id', 'ID', 'Bahasa Indonesia'], ['en', 'EN', 'English'], ['ko', 'KO', '한국어']].map(function (l) { return '<button type="button" class="link' + (l[0] === lang ? ' on' : '') + '" data-act="lang" data-id="' + l[0] + '" title="' + l[2] + '" aria-label="' + l[2] + '" aria-pressed="' + (l[0] === lang) + '">' + l[1] + '</button>'; }).join('');
     $('#jumpTop').setAttribute('aria-label', L('Ke atas', '맨 위로')); $('#jumpTop').title = L('Ke atas', '맨 위로');
     $('#jumpBottom').setAttribute('aria-label', L('Ke bawah', '맨 아래로')); $('#jumpBottom').title = L('Ke bawah', '맨 아래로');
     showJump();
     document.documentElement.lang = lang;
-    document.title = GO.BRAND.name; $('#logo').innerHTML = '<img src="' + GO.BRAND.mark + '" alt="" width="26" height="26">' + esc(GO.BRAND.name); $('#foot').textContent = GO.BRAND.name + ' · mockup';
+    document.title = GO.BRAND.name + (GO.app === 'admin' ? ' Admin' : ''); $('#logo').innerHTML = '<img src="' + ROOT + GO.BRAND.mark + '" alt="" width="26" height="26">' + esc(GO.BRAND.name) + (GO.app === 'admin' ? ' <small>Admin</small>' : ''); $('#foot').textContent = GO.BRAND.name + ' · mockup';
     var font = document.documentElement.dataset.font || 'jakarta';
     $('#fonts').innerHTML = FONTS.map(function (f) { return '<button type="button" class="link' + (f[0] === font ? ' on' : '') + '" data-act="font" data-id="' + f[0] + '" aria-pressed="' + (f[0] === font) + '">' + f[1] + '</button>'; }).join('');
     var theme = document.documentElement.dataset.theme || 'pink';
@@ -613,5 +621,6 @@
     S.refresh().then(function (changed) { if (changed && !typing()) render(); });
   });
   GO.onStoreError = function (e) { render(); alert(L('Perubahan tidak tersimpan: ', '변경 내용이 저장되지 않았습니다: ') + e.message); };
+  GO.render = render;
   S.init().then(render);
 })(window.GO);

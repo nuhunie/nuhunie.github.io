@@ -211,6 +211,7 @@ GO.EN = {
   'Gagal memuat. Coba lagi.': 'Could not load. Please try again.',
   'Gagal mengirim. Coba lagi.': 'Could not submit. Please try again.',
   'Keluar': 'Sign out',
+  'Lihat situs pelanggan': 'View customer site',
   'Masuk sebagai admin. Perubahan tersimpan di server dan terlihat di semua perangkat.': 'Signed in as admin. Changes are saved on the server and show on every device.',
   'Masuk untuk mengelola batch, pesanan, dan pembayaran.': 'Sign in to manage batches, orders and payments.',
   'Kata sandi admin': 'Admin password',

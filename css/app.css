@@ -103,6 +103,7 @@ section + section { margin-top: 44px; }
 .hero > div { flex: 1; min-width: 0; }
 .hero .search { margin-top: 16px; max-width: 520px; }
 .logo img { mix-blend-mode: multiply; }
+.logo small { font-weight: 600; color: var(--sub); margin-left: 2px; }
 .svc-grid + * { margin-top: 0; }
 
 /* 서비스 카드 */
