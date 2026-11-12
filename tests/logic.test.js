@@ -222,3 +222,27 @@ test('CSV: 탭이나 공백 뒤에 숨긴 수식도 막는다', () => {
 test('CSV: 쉼표·따옴표·줄바꿈을 감싸고, 수식으로 시작하는 값은 막는다', () => {
   assert.equal(X.toCSV([['a', 'b,c', 'say "hi"'], ['=SUM(A1)', 5, 'x\ny']]), 'a,"b,c","say ""hi"""\r\n\'=SUM(A1),5,"x\ny"');
 });
+
+test('입금 기한: 고객이 접수한 결제 전 주문에만 있고, 접수 24시간 뒤다', () => {
+  const o = { self: 1, pay: 'unpaid', createdAt: '2026-11-12T03:00:00.000Z' };
+  assert.equal(X.payBy(o), '2026-11-13T03:00:00.000Z');
+  assert.equal(X.payBy(Object.assign({}, o, { self: 0 })), '');            // 운영자가 넣은 주문
+  assert.equal(X.payBy(Object.assign({}, o, { pay: 'pending' })), '');     // 증빙을 낸 주문
+  assert.equal(X.payBy(Object.assign({}, o, { pay: 'rejected' })), '');    // 반려된 주문은 운영자가 다룬다
+  assert.equal(X.payBy(o, 1), '2026-11-12T04:00:00.000Z');                 // 시간을 바꿔 줄 수 있다(검사용)
+  assert.equal(X.payBy(null), '');
+});
+test('입금 기한: 기한 안 → 기한 지남(유예) → 지울 때', () => {
+  const at = '2026-11-12T03:00:00.000Z', t = Date.parse(at), h = 3600000, o = { self: 1, pay: 'unpaid', createdAt: at };
+  assert.equal(X.payState(o, t + 23.9 * h), 'open');
+  assert.equal(X.payState(o, t + 24 * h), 'overdue');
+  assert.equal(X.payState(o, t + 47.9 * h), 'overdue');
+  assert.equal(X.payState(o, t + 48 * h), 'gone');
+  assert.equal(X.payState({ self: 0, pay: 'unpaid', createdAt: at }, t + 100 * h), 'none');
+  assert.equal(X.payState({ self: 1, pay: 'paid', createdAt: at }, t + 100 * h), 'none');
+  assert.equal(X.payState(o, t + 1.5 * h, 1, 2), 'overdue');               // 시간을 바꿔 줄 수 있다(검사용)
+  assert.ok(GO.PURGE_HOURS > GO.PAY_HOURS, '지우는 시각은 기한보다 뒤여야 한다(유예)');
+});
+test('입력 한도는 한 곳(GO.LIMITS)에 있다', () => {
+  assert.deepEqual(GO.LIMITS, { buyer: 40, item: 120, proof: 200, qty: 999, amount: 1e9 });
+});

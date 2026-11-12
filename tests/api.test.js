@@ -188,6 +188,19 @@ test('잘못된 주소 형식은 서버 오류가 아니라 잘못된 요청으�
   assert.equal((await admin('DELETE', '/admin/order/%E0%A4%A')).status, 400);
 });
 
+test('접수: 고객이 접수한 주문에는 입금 기한(24시간)이 붙고, 증빙을 내면 사라진다', async () => {
+  const r = await call('POST', '/order', { batchId: 'kr-5', buyer: 'tenggat', item: 'Uji batas waktu', qty: 1, base: 40000 });
+  assert.equal(r.status, 200);
+  const left = Date.parse(r.json.order.payBy) - Date.now();
+  assert.ok(left > 23.9 * 3600e3 && left <= 24 * 3600e3, 'payBy = ' + r.json.order.payBy);
+  assert.equal((await call('GET', '/order?id=' + r.json.order.id)).json.order.payBy, r.json.order.payBy);
+  assert.equal((await call('GET', '/track?q=' + r.json.order.id)).json.orders[0].payBy, r.json.order.payBy);
+  const paid = await call('POST', '/pay', { orderId: r.json.order.id, method: 'QRIS', proofName: 'p.jpg' });
+  assert.equal(paid.status, 200);
+  assert.equal((await call('GET', '/order?id=' + r.json.order.id)).json.order.payBy, '');      // 증빙을 낸 주문에는 기한이 없다
+  assert.equal((await call('GET', '/order?id=' + GO.seed().orders[0].id)).json.order.payBy, '');   // 운영자가 넣은 주문에도 없다
+  assert.equal((await call('POST', '/order', { batchId: 'kr-5', buyer: 'x'.repeat(GO.LIMITS.buyer + 1), item: 'a', qty: 1, base: 1000 })).status, 400);   // 한도는 data.js 한 곳에서 온다
+});
 test('관리자: 배치 추가·단계 변경이 공개 화면에 반영된다', async () => {
   const b = { svc: 'kr', no: 9, title: 'Uji Coba', month: '2026-11', closeDate: '2026-11-30', kurs: 11.5, note: 'Catatan uji' };
   assert.equal((await admin('POST', '/admin/batch', b)).status, 200);

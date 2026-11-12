@@ -171,6 +171,50 @@ window.runE2E = async function () {
   await go('#/track/' + S.db.orders[0].buyer);
   check('조회: 아이디로는 찾지 못한다', $$('.card').length === 0);
 
+  /* ── 입금 기한과 결제 알림 ── */
+  const od = await S.createOrder({ batchId: 'kr-5', buyer: 'tenggat', item: 'Uji batas waktu', qty: 1, base: 40000, voucher: '' });
+  await go('#/pay/kr-5/' + od.id); await wait(80);
+  check('기한: 접수한 주문의 결제 화면에 입금 기한 안내와 금액이 나온다', !!$('[data-deadline=open]') && !!$('#payOut .total'));
+  await go('#/track/' + od.id); await wait(80);
+  check('기한: 조회 카드에도 입금 기한 안내가 나온다', !!$('.card [data-deadline=open]'));
+  S.order(od.id).createdAt = new Date(Date.now() - (GO.PAY_HOURS + 1) * 3600000).toISOString();
+  await go('#/'); await go('#/pay/kr-5/' + od.id); await wait(80);
+  check('기한: 기한이 지난 접수는 금액과 QR을 숨기고 증빙 제출만 남긴다', !!$('[data-deadline=overdue]') && !$('#payOut') && !!$('#proofFile'));
+  await go('#/admin/order'); type('[data-admin=batchId]', 'kr-5'); await wait(40);
+  check('관리자: 기한이 지난 접수가 주문 목록에 표시된다', $$('#app table.edit td').some(td => /Lewat batas bayar/.test(td.textContent)));
+  await go('#/admin/pay');
+  check('관리자: 결제 전 접수 수가 결제 확인 탭에 나온다', !!$('#waiting') && /1/.test($('#waiting').textContent));
+  try { localStorage.setItem('nuh-my-orders', JSON.stringify([{ id: od.id, item: od.item, batchId: od.batchId, pay: 'unpaid', total: od.total }])); } catch (e) {}
+  await go('#/'); await GO.remind(); await wait(80);
+  check('알림: 이 기기에 결제 전 주문이 있으면 사이트를 열 때 알림 창이 뜬다', !!$('.modal .remind') && $('.modal').innerText.includes(od.id));
+  if ($('.modal .x')) $('.modal .x').click();
+  check('알림: 닫으면 사라진다', !$('.modal'));
+  S.order(od.id).createdAt = new Date(Date.now() - (GO.PURGE_HOURS + 1) * 3600000).toISOString();
+  await go('#/track/' + od.id); await wait(80);
+  check('기한: 접수 48시간이 지나도록 결제 전이면 지워지고, 조회하면 취소됐다고 알린다', $$('.card').length === 0 && !S.order(od.id) && /dibatalkan otomatis/.test($('#trackOut').textContent));
+  await go('#/'); await GO.remind(); await wait(80);
+  check('알림: 조회로 이미 취소를 안 접수는 알림 창에 다시 나오지 않는다', !$('.modal'));
+  const od3 = await S.createOrder({ batchId: 'kr-5', buyer: 'lupa', item: 'Uji batal otomatis', qty: 1, base: 41000, voucher: '' });
+  S.order(od3.id).createdAt = new Date(Date.now() - (GO.PURGE_HOURS + 1) * 3600000).toISOString();
+  try { localStorage.setItem('nuh-my-orders', JSON.stringify([{ id: od3.id, item: od3.item, batchId: od3.batchId, pay: 'unpaid', total: od3.total }])); } catch (e) {}
+  await GO.remind(); await wait(80);
+  check('알림: 기한까지 결제하지 않아 지워진 접수는 사이트를 열 때 "취소되었습니다"라고 한 번 알린다', !!$('.modal [data-cancelled]') && $('.modal').innerText.includes(od3.id));
+  if ($('.modal .x')) $('.modal .x').click();
+  await GO.remind(); await wait(80);
+  check('알림: 취소 안내는 한 번만 뜬다', !$('.modal'));
+  await go('#/pay/kr-5/' + od3.id); await wait(80);
+  check('결제 화면: 취소된 접수의 주소를 열면 취소됐다고 알린다', /dibatalkan otomatis/.test($('#app').textContent));
+  try { localStorage.removeItem('nuh-my-orders'); } catch (e) {}
+  const keep = S.db.batches.slice(); S.db.batches.length = 0;
+  await go('#/'); await go('#/pay'); await wait(60);
+  check('결제 화면: 배치가 하나도 없어도 멈추지 않고 안내를 보여 준다', /Belum ada batch yang bisa dipesan/.test($('#app').textContent));
+  keep.forEach(b => S.db.batches.push(b));
+  S.db.orders.push({ id: 'NUH-BBBBBBBB', batchId: 'kr-999', buyer: 'tanpa_batch', item: 'Batch belum dikenal', qty: 1, base: 50000, total: 50000, pay: 'unpaid', method: '', proofName: '', createdAt: new Date().toISOString() });
+  await go('#/track/NUH-BBBBBBBB'); await wait(80);
+  check('조회: 이 브라우저가 모르는 배치의 주문도 카드가 나온다', $$('.card').length === 1);
+  location.hash = '#/track/%E0%A4%A'; await wait(80); GO.render();
+  check('주소: 깨진 %형식이 있어도 화면이 그려진다', !!$('form[data-form=track]'));
+
   S.reset(); await go('#/');
   const failed = out.filter(r => !r.ok);
   return { total: out.length, passed: out.length - failed.length, failed };

@@ -181,6 +181,23 @@
     return { cur: paid ? batch.stage : 0, finished: paid && batch.stage === GO.LAST_STAGE };
   };
 
+  /* ── 입금 기한: 고객이 접수한 결제 전 주문에만 있다 ──
+   *   payBy(o)          기한 시각(ISO 글자). 해당 없는 주문이면 ''
+   *   payState(o, now)  'none' 해당 없음 · 'open' 기한 안 · 'overdue' 기한 지남(유예 중: 증빙만 받는다) · 'gone' 지울 때가 됨
+   * 운영자가 넣은 주문, 증빙을 낸 주문, 반려된 주문에는 기한이 없다(운영자가 다룬다). */
+  X.payBy = function (o, hours) {
+    if (!o || !o.self || o.pay !== 'unpaid' || !o.createdAt) return '';
+    var t = Date.parse(o.createdAt);
+    return isNaN(t) ? '' : new Date(t + (hours || GO.PAY_HOURS) * 3600000).toISOString();
+  };
+  X.payState = function (o, now, payHours, purgeHours) {
+    var by = X.payBy(o, payHours);
+    if (!by) return 'none';
+    var n = now == null ? Date.now() : now;
+    if (n >= Date.parse(o.createdAt) + (purgeHours || GO.PURGE_HOURS) * 3600000) return 'gone';
+    return n >= Date.parse(by) ? 'overdue' : 'open';
+  };
+
   X.maskName = function (n) {
     n = String(n || '');
     return n.length <= 2 ? n.charAt(0) + '*' : n.slice(0, 2) + '***';

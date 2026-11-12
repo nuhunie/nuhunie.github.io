@@ -83,3 +83,6 @@ CREATE TABLE IF NOT EXISTS order_flags (
   self INTEGER NOT NULL DEFAULT 0,
   late INTEGER NOT NULL DEFAULT 0
 );
+
+-- 결제 전 주문을 접수 시각으로 빨리 찾기 위한 색인 (기한이 지난 접수를 지울 때 쓴다)
+CREATE INDEX IF NOT EXISTS orders_unpaid_created ON orders (created_at) WHERE pay = 'unpaid';

@@ -3,6 +3,7 @@
  * Service  { id, name[id,ko], desc[id,ko], cur }
  * Batch    { id, svc→Service, no, title, month'YYYY-MM', stage(0~5), closeDate, kurs, note }
  * Order    { id('NUH-8자리'), batchId→Batch, buyer, item, qty, base, total(IDR), pay, method, proofName, createdAt }
+ *          + self(고객이 접수한 주문), late(마감 뒤에 접수한 단계), payBy(입금 기한: 고객이 접수한 결제 전 주문에만)
  * Voucher  { code, off(IDR) }
  * CalcDefaults  계산기 기본 수식
  */
@@ -35,6 +36,16 @@ GO.PAY = {
   paid: ['Lunas', '결제 완료'],
   rejected: ['Ditolak', '반려']
 };
+
+// 고객이 직접 접수한 주문의 입금 기한 (2026-11-12 사용자 결정: 24시간)
+//   PAY_HOURS    접수 뒤 이 시간 안에 입금하고 증빙을 낸다. 지나면 결제 화면이 금액과 QR을 숨긴다(새로 입금하지 않도록).
+//   PURGE_HOURS  접수 뒤 이 시간이 지나도 결제 전이면 접수를 지운다.
+//                둘의 차이는 유예 시간이다: 기한 직전에 입금한 고객이 증빙을 낼 수 있어야 한다.
+GO.PAY_HOURS = 24;
+GO.PURGE_HOURS = 48;
+
+// 입력 한도. 서버 검사와 화면 입력칸이 같이 쓴다.
+GO.LIMITS = { buyer: 40, item: 120, proof: 200, qty: 999, amount: 1e9 };
 
 GO.CURRENCIES = {
   JPY: { label: 'JPY – Yen Jepang', sym: '¥', kurs: 110 },

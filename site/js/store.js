@@ -15,9 +15,16 @@
   var db, mode = 'local', admin = false, loginReady = true, loginWeak = false, canReset = true, lastPull = 0;
 
   /* ── local ── */
+  // 목업판에서도 서버와 같은 규칙: 접수 뒤 PURGE_HOURS 가 지나도록 결제 전인 고객 접수는 지운다
+  function purgeLocal() {
+    var n = db.orders.length;
+    db.orders = db.orders.filter(function (o) { return X.payState(o) !== 'gone'; });
+    if (db.orders.length !== n) save();
+  }
   function loadLocal() {
     try { db = JSON.parse(localStorage.getItem(KEY)); } catch (e) { db = null; }
     if (!db || !db.services) { db = GO.seed(); save(); }
+    purgeLocal();
   }
   function save() {
     if (mode !== 'local') return;
@@ -73,9 +80,9 @@
       }).catch(function () { mode = 'local'; loadLocal(); });
     },
     /* 서버 내용을 다시 읽는다. 바뀐 것이 있으면 true */
-    refresh: function () {
+    refresh: function (force) {
       if (mode !== 'server') return Promise.resolve(false);
-      if (Date.now() - lastPull < 15000) return Promise.resolve(false);   // 화면을 옮길 때마다 서버를 부르지 않는다
+      if (!force && Date.now() - lastPull < 15000) return Promise.resolve(false);   // 화면을 옮길 때마다 서버를 부르지 않는다
       var before = JSON.stringify(db);
       return pull().then(function () { return JSON.stringify(db) !== before; }).catch(function () { return false; });
     },
@@ -129,12 +136,14 @@
 
     /* ── 고객 흐름 (Promise) ── */
     track: function (q) {
-      if (mode === 'local') return Promise.resolve(X.searchOrders(db.orders, q));
-      return api('GET', '/track?q=' + encodeURIComponent(q)).then(function (r) { return r.orders; });
+      // 돌려주는 목록의 gone 은 "기한까지 결제되지 않아 지워진 접수"라는 뜻이다
+      if (mode === 'local') { var was = this.order(q), dead = !!was && X.payState(was) === 'gone'; purgeLocal(); var local = X.searchOrders(db.orders, q); local.gone = dead; return Promise.resolve(local); }
+      return api('GET', '/track?q=' + encodeURIComponent(q)).then(function (r) { var list = r.orders || []; list.gone = !!r.gone; return list; });
     },
     fetchOrder: function (id) {
-      if (mode === 'local') { var o = this.order(String(id || '').trim()); return Promise.resolve(o ? Object.assign({}, o, { buyer: X.maskName(o.buyer), proofName: '' }) : null); }
-      return api('GET', '/order?id=' + encodeURIComponent(String(id || '').trim())).then(function (r) { return r.order; }, function () { return null; });
+      // 없는 번호는 null, 기한까지 결제되지 않아 지워진 접수는 { gone: true }. 그 밖의 실패(연결 끊김, 횟수 제한)는 실패로 넘긴다.
+      if (mode === 'local') { var old = this.order(String(id || '').trim()); if (old && X.payState(old) === 'gone') { purgeLocal(); return Promise.resolve({ gone: true }); } var o = this.order(String(id || '').trim()); return Promise.resolve(o ? Object.assign({}, o, { buyer: X.maskName(o.buyer), proofName: '' }) : null); }
+      return api('GET', '/order?id=' + encodeURIComponent(String(id || '').trim())).then(function (r) { return r.order; }, function (e) { if (e.status === 404) return null; if (e.status === 410) return { gone: true }; throw e; });
     },
     checkVoucher: function (code) {
       code = String(code || '').trim().toUpperCase();
@@ -145,6 +154,7 @@
      * 주문번호와 결제 금액은 여기서 정해져 저장된다. 서버가 있으면 서버가 정한다(같은 규칙: logic.js 의 payable). */
     createOrder: function (p) {
       if (mode === 'server') return api('POST', '/order', p).then(function (r) { return r.order; });
+      purgeLocal();
       var v = voucherOf(p.voucher), pb = find(db.batches, p.batchId), base = Math.round(Number(p.base)), id, total, i;
       if (!pb || !(base > 0)) return Promise.reject(new Error('Check the order fields.'));
       for (i = 0; i < 8; i++) {                    // 결제 전·확인 대기 주문과 금액이 겹치지 않는 번호를 고른다

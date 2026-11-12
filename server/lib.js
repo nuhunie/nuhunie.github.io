@@ -145,6 +145,31 @@ export const ORDER_SELECT = 'SELECT o.*, f.self AS self, f.late AS late FROM ord
 // 공개 리캡에 넣는 주문: 고객이 직접 만든 주문은 승인(결제 완료)된 뒤에만. 아무나 적은 글이 공개 화면에 바로 뜨지 않게 한다.
 export const PUBLIC_ORDERS = "FROM orders o LEFT JOIN order_flags f ON f.order_id = o.id WHERE NOT (IFNULL(f.self, 0) = 1 AND o.pay != 'paid')";
 
+/* ── 입금 기한: 고객이 접수한 결제 전 주문 ──
+ * 시간은 data.js 의 GO.PAY_HOURS / GO.PURGE_HOURS 를 쓴다. PAY_WINDOW_SEC / PURGE_SEC 가 있으면 그 값(초)으로 바꾼다(검사용).
+ * 따로 도는 작업이 없으므로, 새 접수·조회·증빙 제출·관리자 화면 요청이 올 때 지울 때가 된 접수를 지운다. */
+export const payHours = env => (Number(env && env.PAY_WINDOW_SEC) || GO.PAY_HOURS * 3600) / 3600;
+export const purgeHours = env => (Number(env && env.PURGE_SEC) || GO.PURGE_HOURS * 3600) / 3600;
+// 내보내는 주문에 기한(payBy)을 붙인다. 기한이 없는 주문은 빈 글자.
+export const withDeadline = (o, env) => Object.assign(o, { payBy: X.payBy(o, payHours(env)) });
+// 지울 때가 된 접수인가 (접수 뒤 PURGE_HOURS 가 지나도록 결제 전)
+export const expired = (o, env, now) => X.payState(o, now, payHours(env), purgeHours(env)) === 'gone';
+// 지울 때가 된 접수를 지우고 그 주문번호들을 돌려준다. 지우는 순간에도 결제 전인지 다시 본다(그 사이 증빙을 냈을 수 있다).
+export async function purgeExpired(db, env) {
+  const cutoff = new Date(Date.now() - purgeHours(env) * 3600000).toISOString();
+  const rows = (await db.prepare("SELECT o.id AS id FROM orders o JOIN order_flags f ON f.order_id = o.id AND f.self = 1 WHERE o.pay = 'unpaid' AND o.created_at < ? LIMIT 100").bind(cutoff).all()).results;
+  if (!rows.length) return [];
+  const stmts = [];
+  rows.forEach(r => stmts.push(
+    db.prepare("DELETE FROM orders WHERE id = ? AND pay = 'unpaid'").bind(r.id),
+    db.prepare('DELETE FROM order_flags WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id)
+  ));
+  await db.batch(stmts);
+  const ids = rows.map(r => r.id);
+  await db.prepare('INSERT INTO audit (at, ip, action, detail) VALUES (?,?,?,?)').bind(new Date().toISOString(), 'auto', 'order.expire', ids.join(' ').slice(0, 200)).run();
+  return ids;
+}
+
 /* ── 예시 데이터 넣기 (처음 실행할 때와 관리자의 "초기화") ── */
 export async function seed(db) {
   const s = GO.seed();
@@ -183,13 +208,14 @@ export async function loadState(db, admin, env) {
     return state;
   }
 
+  await purgeExpired(db, env);                  // 지울 때가 된 접수(기한이 한참 지나도록 결제 전)를 먼저 지운다
   const [orders, vouchers, calc] = await Promise.all([
     db.prepare(ORDER_SELECT + ' ORDER BY o.created_at, o.id').all(),
     db.prepare('SELECT * FROM vouchers').all(),
     db.prepare('SELECT value FROM settings WHERE key = ?').bind('calcDefaults').first()
   ]);
   state.batches = batches.map(toBatch);
-  state.orders = orders.results.map(toOrder);
+  state.orders = orders.results.map(r => withDeadline(toOrder(r), env));
   state.vouchers = vouchers.results;
   state.calcDefaults = calc ? JSON.parse(calc.value) : GO.seed().calcDefaults;
   return state;

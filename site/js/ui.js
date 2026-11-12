@@ -48,6 +48,7 @@
     'Already exists.': ['Sudah ada.', '이미 있습니다.'],
     'Admin sign-in required.': ['Sesi admin berakhir. Silakan masuk lagi.', '관리자 로그인이 끝났습니다. 다시 로그인해 주세요.'],
     'Reset is disabled here.': ['Reset dimatikan di sini.', '여기서는 초기화가 꺼져 있습니다.'],
+    'This order has expired.': ['Pesanan ini dibatalkan otomatis karena belum dibayar sampai batas waktu. Silakan buat pesanan baru.', '이 접수는 기한까지 결제되지 않아 자동으로 취소되었습니다. 새로 접수해 주세요.'],
     'Server error.': ['Terjadi kesalahan di server. Coba lagi.', '서버에 문제가 생겼습니다. 다시 시도해 주세요.']
   };
   var STATUS_MSG = { 404: ['Tidak ditemukan.', '찾을 수 없습니다.'], 409: ['Sudah berubah. Muat ulang halaman.', '내용이 이미 바뀌었습니다. 새로 고쳐 주세요.'], 429: MANY, 500: SERVER_MSG['Server error.'] };
@@ -64,11 +65,45 @@
   function $(sel) { return document.querySelector(sel); }
   function go(hash) { if (location.hash === hash) render(); else location.hash = hash; }
   function batchName(b) { return 'Batch ' + b.no + ' · ' + b.title; }
+  // 영수증에 적는 배치 줄. 이 브라우저가 아직 모르는 배치(방금 만든 배치)면 '-'
+  function batchLine(b) { return b ? batchName(b) + ' (' + LL(S.service(b.svc).name) + ')' : '-'; }
   function stageBadge(b) {
     var cls = b.stage === GO.LAST_STAGE ? 'done' : b.stage === 0 ? 'open' : 'run';
     return '<span class="badge ' + cls + '">' + esc(LL(GO.STAGES[b.stage])) + '</span>';
   }
   function payBadge(p) { return '<span class="badge pay-' + p + '">' + esc(LL(GO.PAY[p])) + '</span>'; }
+  /* 입금 기한: 고객이 접수한 결제 전 주문에만 있다. 서버가 준 payBy 를 쓰고, 목업판에서는 같은 규칙(logic.js)으로 계산한다. */
+  function payBy(o) { return (o && o.payBy) || X.payBy(o); }
+  function overdue(o) { var by = payBy(o); return !!by && Date.now() >= Date.parse(by); }
+  function whenLabel(iso) { return new Date(iso).toLocaleString(loc(), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+  function leftLabel(iso) {
+    var h = Math.max(0, (Date.parse(iso) - Date.now()) / 3600000);
+    return h >= 1 ? Math.floor(h) + ' ' + L('jam', '시간') : Math.max(1, Math.round(h * 60)) + ' ' + L('menit', '분');
+  }
+  /* 기한까지 결제되지 않아 지워진 접수는 이 기기의 목록에 "취소됨"(pay: 'gone')으로 남긴다.
+   * 서버에서는 이미 지워져 "없는 번호"로만 나오므로, 고객에게 "취소되었습니다"라고 알려 줄 근거가 이 기록뿐이다. */
+  var goneSeen = {};
+  function markGone(id) {
+    goneSeen[id] = 1;
+    try { localStorage.setItem(MY_KEY, JSON.stringify(myOrders().map(function (x) { if (x.id === id) x.pay = 'gone'; return x; }))); } catch (e) {}
+  }
+  function isGone(id) { return !!goneSeen[id] || myOrders().some(function (x) { return x.id === id && x.pay === 'gone'; }); }
+  function goneText() { return LL(SERVER_MSG['This order has expired.']); }
+  // 조회 카드·결제 화면·알림 창에 넣는 기한 안내
+  function deadlineNote(o) {
+    var by = payBy(o);
+    if (!by) return '';
+    return overdue(o)
+      ? '<p class="note warn" data-deadline="overdue"><b>' + L('Batas waktu pembayaran sudah lewat.', '입금 기한이 지났습니다.') + '</b> ' + L('Jika sudah membayar, segera unggah bukti. Jika belum, pesanan ini akan dibatalkan otomatis; silakan buat pesanan baru.', '이미 입금했다면 지금 증빙을 올려 주세요. 입금하지 않았다면 이 접수는 자동으로 취소되니 새로 접수해 주세요.') + '</p>'
+      : '<p class="note warn" data-deadline="open"><b>' + L('Belum dibayar.', '아직 결제하지 않았습니다.') + '</b> ' + L('Bayar dan unggah bukti sebelum', '다음 시각까지 입금하고 증빙을 올려 주세요') + ': <b>' + esc(whenLabel(by)) + '</b> (' + L('sisa waktu', '남은 시간') + ': ' + esc(leftLabel(by)) + '). ' + L('Setelah itu pesanan dibatalkan otomatis.', '그 뒤에는 접수가 자동으로 취소됩니다.') + '</p>';
+  }
+  // 관리자 표에서 결제 전 접수의 남은 시간을 알아보게 하는 표시
+  function deadlineBadge(o) {
+    var by = payBy(o);
+    if (!by) return '';
+    return overdue(o) ? ' <span class="badge pay-rejected">' + L('Lewat batas bayar', '입금 기한 지남') + '</span>'
+      : ' <span class="badge run">' + L('Sisa waktu bayar', '입금까지') + ' ' + esc(leftLabel(by)) + '</span>';
+  }
   function crumbs(list) {
     return '<nav class="crumbs">' + list.map(function (c) { return c[1] ? '<a href="' + c[1] + '">' + esc(c[0]) + '</a>' : '<span>' + esc(c[0]) + '</span>'; }).join('<i>/</i>') + '</nav>';
   }
@@ -139,7 +174,7 @@
       '<div class="head"><div><h1>' + esc(batchName(b)) + '</h1><p class="lead">' + esc(monthLabel(b.month)) + ' · ' + L('Tutup order', '주문 마감') + ' ' + esc(dateLabel(b.closeDate)) + '</p></div>' +
       '<a class="btn" href="#/pay/' + b.id + '">' + L('Konfirmasi pembayaran', '결제 확인하기') + '</a></div>' +
       stepper(GO.STAGES.map(LL), b.stage, b.stage === GO.LAST_STAGE) +
-      (b.note ? '<p class="note"><b>' + L('Info', '안내') + '</b> ' + esc(b.note) + '</p>' : '') +
+      (b && b.note ? '<p class="note"><b>' + L('Info', '안내') + '</b> ' + esc(b.note) + '</p>' : '') +
       '<div id="batchOut">' + (r.pcs ? '<p class="hint">' + L('Memuat…', '불러오는 중…') + '</p>' : empty(L('Belum ada pesanan di batch ini.', '이 배치에는 아직 주문이 없습니다.'))) + '</div>';
   }
   // 품목별 수량만 보여 준다. 누가 무엇을 샀는지, 금액, 결제 여부는 고객 화면에 내보내지 않는다.
@@ -167,8 +202,11 @@
   function rememberOrder(o) {
     if (!o || !X.isOrderId(o.id)) return;
     var list = myOrders().filter(function (x) { return x.id !== o.id; });
-    list.unshift({ id: o.id, item: String(o.item || '').slice(0, 80) });
+    list.unshift({ id: o.id, item: String(o.item || '').slice(0, 80), batchId: o.batchId, pay: o.pay, total: o.total });   // pay: 결제 알림 창이 볼 값
     try { localStorage.setItem(MY_KEY, JSON.stringify(list.slice(0, 10))); } catch (e) {}
+  }
+  function forgetOrder(id) {
+    try { localStorage.setItem(MY_KEY, JSON.stringify(myOrders().filter(function (x) { return x.id !== id; }))); } catch (e) {}
   }
   function myOrdersHtml() {
     var list = myOrders();
@@ -181,14 +219,15 @@
   function trackCards(found) {
     var labels = [L('Pembayaran', '결제')].concat(GO.STAGES.slice(1).map(LL));
     return found.map(function (o) {
-      var b = S.batch(o.batchId), s = S.service(b.svc), p = X.orderProgress(o, b);
+      // 배치를 이 브라우저가 아직 모를 수 있다(방금 만든 배치). 그때는 배치 정보 없이 주문만 보여 준다.
+      var b = S.batch(o.batchId), s = b && S.service(b.svc), p = b ? X.orderProgress(o, b) : null;
       if (o.id) receipts[o.id] = o;
       return '<article class="card"><div class="head"><div><small>' + (o.id ? o.id + ' · ' : '') + esc(dateLabel(o.createdAt)) + '</small><h2>' + esc(o.item) + '</h2>' +
         '<p class="lead">' + esc(o.buyer) + ' · ' + o.qty + ' pcs · ' + rp(o.total) + '</p></div><div class="right">' + payBadge(o.pay) + '</div></div>' +
-        (o.late ? '<p class="note warn">' + L('Pesanan ini masuk setelah tutup order, jadi diproses terpisah dari batch. Admin akan mengabari jadwalnya.', '이 주문은 마감 뒤에 들어와 배치와 따로 처리됩니다. 일정은 운영자가 알려 드립니다.') + '</p>' : stepper(labels, p.cur, p.finished)) +
-        '<p class="where">' + L('Posisi sekarang', '현재 위치') + ': <b>' + esc(o.late ? LL(GO.PAY[o.pay]) + ' · ' + L('diproses terpisah', '별도 처리') : o.pay === 'paid' ? LL(GO.STAGES[b.stage]) : LL(GO.PAY[o.pay])) + '</b> · <a href="#/b/' + b.id + '">' + esc(LL(s.name) + ' / ' + batchName(b)) + '</a></p>' +
-        (b.note ? '<p class="note"><b>' + L('Info', '안내') + '</b> ' + esc(b.note) + '</p>' : '') +
-        (o.pay === 'unpaid' || o.pay === 'rejected' ? '<a class="btn" href="#/pay/' + b.id + '/' + o.id + '">' + L('Bayar pesanan ini', '이 주문 결제하기') + '</a>'
+        (o.late ? '<p class="note warn">' + L('Pesanan ini masuk setelah tutup order, jadi diproses terpisah dari batch. Admin akan mengabari jadwalnya.', '이 주문은 마감 뒤에 들어와 배치와 따로 처리됩니다. 일정은 운영자가 알려 드립니다.') + '</p>' : p ? stepper(labels, p.cur, p.finished) : '') + deadlineNote(o) +
+        '<p class="where">' + L('Posisi sekarang', '현재 위치') + ': <b>' + esc(o.late ? LL(GO.PAY[o.pay]) + ' · ' + L('diproses terpisah', '별도 처리') : o.pay === 'paid' && b ? LL(GO.STAGES[b.stage]) : LL(GO.PAY[o.pay])) + '</b>' + (b ? ' · <a href="#/b/' + b.id + '">' + esc(LL(s.name) + ' / ' + batchName(b)) + '</a>' : '') + '</p>' +
+        (b && b.note ? '<p class="note"><b>' + L('Info', '안내') + '</b> ' + esc(b.note) + '</p>' : '') +
+        (o.pay === 'unpaid' || o.pay === 'rejected' ? '<a class="btn" href="#/pay/' + encodeURIComponent(o.batchId) + '/' + o.id + '">' + L('Bayar pesanan ini', '이 주문 결제하기') + '</a>'
           : '<button type="button" class="btn line" data-act="receipt" data-id="' + o.id + '">' + L('Lihat bukti pesanan', '영수증 보기') + '</button>') + '</article>';
     }).join('');
   }
@@ -204,9 +243,12 @@
     S.track(q).then(function (found) {
       var out = $('#trackOut');
       if (!out || (route()[1] || '') !== q) return;
+      if (found.gone) markGone(X.normOrderId(q));   // 다시 조회해도 "취소되었습니다"라고 알려 줄 수 있게 적어 둔다
+      // 배치를 모르는 주문이 있으면 목록을 바로 다시 읽어 온다 (평소에는 15초에 한 번만 읽는다)
+      if (found.some(function (o) { return !S.batch(o.batchId); })) S.refresh(true).then(function (changed) { if (changed && (route()[1] || '') === q) drawTrack(q); });
       found.forEach(rememberOrder);                 // 주문번호로 찾은 주문은 이 기기에 기억해 둔다
       out.innerHTML = found.length ? '<p class="count">' + found.length + ' ' + L('pesanan ditemukan', '건 찾음') + '</p>' + trackCards(found)
-        : empty(L('Pesanan tidak ditemukan. Periksa lagi nomor pesanan.', '주문을 찾지 못했습니다. 주문번호를 다시 확인해 주세요.'));
+        : empty(found.gone || isGone(X.normOrderId(q)) ? goneText() : L('Pesanan tidak ditemukan. Periksa lagi nomor pesanan.', '주문을 찾지 못했습니다. 주문번호를 다시 확인해 주세요.'));
     }, function () {
       var out = $('#trackOut');
       if (out) out.innerHTML = empty(L('Gagal memuat. Coba lagi.', '불러오지 못했습니다. 다시 시도해 주세요.'));
@@ -281,9 +323,10 @@
   function initPay(batchId, orderId) {
     var b = S.batch(batchId), fromLink = !!b && b.stage < GO.LAST_STAGE;
     if (!fromLink) b = S.db.batches.filter(function (x) { return x.stage < GO.LAST_STAGE; })[0] || S.db.batches[0];
-    P = { svc: b.svc, batchId: b.id, orderId: '', id: '', buyer: '', item: '', qty: 1, base: '', voucher: '', off: 0, method: 'QRIS', fileName: '', err: '',
-      pay: '', total: 0, fixed: false, loading: !!orderId, missing: false };
+    P = { svc: b ? b.svc : '', batchId: b ? b.id : '', orderId: '', id: '', buyer: '', item: '', qty: 1, base: '', voucher: '', off: 0, method: 'QRIS', fileName: '', err: '',
+      pay: '', total: 0, fixed: false, loading: !!orderId, missing: false, gone: false, failed: false, payBy: '', empty: !b && !orderId };   // empty: 주문할 수 있는 배치가 하나도 없다
     if (!orderId) {
+      if (P.empty) return;
       // 접수 전에 입력하던 내용이 있으면 되살린다. 배치 화면에서 넘어왔으면(주소에 배치가 있으면) 그 배치를 따른다.
       var d = readStore('sessionStorage', DRAFT_KEY);
       if (d) {
@@ -297,14 +340,14 @@
     S.fetchOrder(orderId).then(function (o) {
       if (P !== mine) return;
       P.loading = false;
-      if (!o) { P.missing = true; forgetOpen(X.normOrderId(orderId)); render(); return; }
+      if (!o || o.gone) { var nid = X.normOrderId(orderId); if (o && o.gone) markGone(nid); P.missing = true; P.gone = isGone(nid); forgetOpen(nid); render(); return; }
       var ob = S.batch(o.batchId) || b, base = o.base || o.total;
       // 고객이 접수한 주문(self)은 결제 금액이 이미 정해져 있다. 쿠폰은 접수할 때 적용된 만큼만 보여 준다.
-      Object.assign(P, { svc: ob.svc, batchId: ob.id, orderId: o.id, id: o.id, buyer: o.buyer, item: o.item, qty: o.qty, base: base, pay: o.pay, total: o.total, fixed: !!o.self });
+      Object.assign(P, { svc: ob ? ob.svc : '', batchId: ob ? ob.id : o.batchId, orderId: o.id, id: o.id, buyer: o.buyer, item: o.item, qty: o.qty, base: base, pay: o.pay, total: o.total, fixed: !!o.self, payBy: payBy(o) });
       if (P.fixed) P.off = Math.max(0, base + X.uniqueCode(o.id) - o.total);
       if (o.pay !== 'unpaid' && o.pay !== 'rejected') forgetOpen(o.id);
       render();
-    });
+    }, function () { if (P !== mine) return; P.loading = false; P.failed = true; render(); });   // 연결이 끊겼거나 조회가 막혔다
   }
   function payAmount() {
     var base = Number(P.base) || 0;
@@ -326,16 +369,19 @@
       return h + '<p class="note">' + L('Bukti pembayaran untuk pesanan ini sudah dikirim.', '이 주문은 결제 증빙을 이미 제출했습니다.') + ' (' + esc(LL(GO.PAY[P.pay])) + ')</p>' +
         '<a class="btn block" href="#/track/' + P.orderId + '">' + L('Lihat status pesanan', '주문 상태 보기') + '</a></div>';
     }
-    return h +
+    // 입금 기한이 지난 접수: 금액과 QR은 숨긴다(지금 새로 입금하지 않도록). 이미 입금한 고객은 증빙만 올릴 수 있다.
+    return h + deadlineNote(P) + (overdue(P) ? '' :
       '<div class="field"><label>' + L('Metode pembayaran', '결제 수단') + '</label><div class="seg wide">' + ['QRIS', 'Transfer bank'].map(function (m) { return '<button type="button" class="' + (P.method === m ? 'on' : '') + '" data-act="pay-method" data-id="' + m + '">' + (m === 'QRIS' ? m : L('Transfer bank', '계좌 이체')) + '</button>'; }).join('') + '</div></div>' +
-      '<div id="payOut"></div>' +
+      '<div id="payOut"></div>') +
       '<div class="field"><label>' + L('Bukti pembayaran', '결제 증빙') + ' *</label><div class="file"><input type="file" id="proofFile" class="sr" accept="image/*" data-pay="file"><label for="proofFile" class="btn line">' + L('Pilih file', '파일 선택') + '</label><span id="fileName">' + esc(P.fileName || L('Belum ada file dipilih', '선택된 파일 없음')) + '</span></div><small>' + L('Screenshot atau foto bukti transfer.', '이체 화면 캡처나 사진.') + '</small></div>' +
       '<p class="err" id="payErr" role="alert">' + esc(P.err) + '</p>' +
       '<button class="btn block">' + L('Kirim bukti pembayaran', '결제 증빙 제출') + '</button></div>';
   }
   function vPay() {
     if (P.loading) return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="lead">' + L('Memuat pesanan…', '주문을 불러오는 중…') + '</p>';
-    if (P.missing) return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="note warn">' + L('Nomor pesanan tidak ditemukan.', '주문번호를 찾을 수 없습니다.') + '</p><a class="btn line" href="#/pay">' + L('Isi manual', '직접 입력하기') + '</a>';
+    if (P.failed) return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1>' + empty(L('Gagal memuat. Coba lagi.', '불러오지 못했습니다. 다시 시도해 주세요.'));
+    if (P.empty) return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1>' + empty(L('Belum ada batch yang bisa dipesan.', '주문할 수 있는 배치가 아직 없습니다.'));
+    if (P.missing) return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="note warn">' + (P.gone ? goneText() : L('Nomor pesanan tidak ditemukan.', '주문번호를 찾을 수 없습니다.')) + '</p><a class="btn line" href="#/pay">' + L('Isi manual', '직접 입력하기') + '</a>';
     var svcs = S.db.services.map(function (s) { return '<button type="button" class="' + (s.id === P.svc ? 'on' : '') + '" data-act="pay-svc" data-id="' + s.id + '"' + (P.orderId ? ' disabled' : '') + '>' + esc(LL(s.name)) + '</button>'; }).join('');
     var bs = S.batchesOf(P.svc).filter(function (b) { return b.stage < GO.LAST_STAGE || (P.orderId && b.id === P.batchId); }).map(function (b) { return '<option value="' + b.id + '"' + (b.id === P.batchId ? ' selected' : '') + '>' + esc(batchName(b)) + ' (' + esc(monthLabel(b.month)) + ')</option>'; }).join('');
     var lock = P.orderId ? ' readonly' : '';
@@ -346,9 +392,9 @@
         : '<div class="field"><label>' + L('Sudah punya nomor pesanan?', '주문번호가 있나요?') + '</label><div class="inline"><input id="payLookup" placeholder="' + GO.BRAND.orderPrefix + '-7K3M9Q2X" autocomplete="off"><button type="button" class="btn line" data-act="pay-lookup">' + L('Muat', '불러오기') + '</button></div><small id="lookupMsg">' + L('Data pesanan terisi otomatis.', '주문 정보가 자동으로 채워집니다.') + '</small></div>') +
       '<div class="field"><label>' + L('Pilih layanan', '서비스 선택') + ' *</label><div class="seg wide">' + svcs + '</div></div>' +
       '<div class="field"><label>' + L('Nomor batch', '배치 번호') + ' *</label><select data-pay="batchId"' + (P.orderId ? ' disabled' : '') + '>' + bs + '</select></div>' + lateNotice() +
-      '<div class="grid2"><div class="field"><label>' + L('Nama / username pembeli', '구매자 이름·아이디') + ' *</label><input data-pay="buyer" value="' + esc(P.buyer) + '"' + lock + '></div>' +
-      '<div class="field"><label>' + L('Jumlah (pcs)', '수량') + '</label><input type="number" min="1" data-pay="qty" value="' + P.qty + '"' + lock + '></div></div>' +
-      '<div class="field"><label>Item *</label><input data-pay="item" value="' + esc(P.item) + '" placeholder="Photocard random 1 pc"' + lock + '></div>' +
+      '<div class="grid2"><div class="field"><label>' + L('Nama / username pembeli', '구매자 이름·아이디') + ' *</label><input data-pay="buyer" maxlength="' + GO.LIMITS.buyer + '" value="' + esc(P.buyer) + '"' + lock + '></div>' +
+      '<div class="field"><label>' + L('Jumlah (pcs)', '수량') + '</label><input type="number" min="1" max="' + GO.LIMITS.qty + '" data-pay="qty" value="' + P.qty + '"' + lock + '></div></div>' +
+      '<div class="field"><label>Item *</label><input data-pay="item" maxlength="' + GO.LIMITS.item + '" value="' + esc(P.item) + '" placeholder="Photocard random 1 pc"' + lock + '></div>' +
       '<div class="field"><label>' + L('Total harga (Rp)', '총 금액 (Rp)') + ' *</label><input type="number" data-pay="base" value="' + P.base + '"' + lock + '></div>' +
       '<div class="field"><label>' + L('Voucher diskon', '할인 쿠폰') + '</label><div class="inline"><input data-pay="voucher" value="' + esc(P.voucher) + '" placeholder="' + L('Kode voucher', '쿠폰 코드') + '"' + (P.fixed ? ' readonly' : '') + '><button type="button" class="btn line" data-act="pay-voucher"' + (P.fixed ? ' disabled' : '') + '>' + L('Pakai', '적용') + '</button></div><small id="vMsg">' + (P.off ? L('Voucher aktif', '쿠폰 적용됨') + ': −' + rp(P.off) : L('Tidak ada voucher dipakai', '적용된 쿠폰 없음')) + '</small></div>' +
       '</div>' + payPanel() + '</form>';
@@ -461,14 +507,14 @@
   /* ── 영수증 ── */
   function showReceipt(orderId) {
     var o = receipts[orderId] || S.order(orderId); if (!o) return;
-    var b = S.batch(o.batchId), s = S.service(b.svc);
+    var b = S.batch(o.batchId);
     var when = new Date(o.createdAt).toLocaleString(loc(), { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     var m = document.createElement('div');
     m.className = 'modal'; m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true');
     m.innerHTML = '<div class="receipt"><button class="x" data-act="modal-close" aria-label="' + L('Tutup', '닫기') + '">×</button>' +
       '<div class="r-head"><b>' + esc(GO.BRAND.name) + '</b><small>' + L('Bukti pesanan', '주문 영수증') + '</small></div>' +
       '<dl><dt>No.</dt><dd>' + o.id + '</dd><dt>' + L('Tanggal', '일시') + '</dt><dd>' + esc(when) + '</dd><dt>' + L('Pembeli', '구매자') + '</dt><dd>' + esc(o.buyer) + '</dd><dt>' + L('Metode', '결제 수단') + '</dt><dd>' + esc(o.method || '-') + '</dd><dt>Status</dt><dd>' + esc(LL(GO.PAY[o.pay])) + '</dd></dl>' +
-      '<div class="r-item"><div><b>' + esc(o.item) + '</b><small>' + esc(batchName(b) + ' (' + LL(s.name) + ')') + ' · ' + o.qty + ' pcs</small></div></div>' +
+      '<div class="r-item"><div><b>' + esc(o.item) + '</b><small>' + esc(batchLine(b)) + ' · ' + o.qty + ' pcs</small></div></div>' +
       '<div class="total"><span>TOTAL</span><b>' + rp(o.total) + '</b></div>' +
       '<p class="thanks">' + L('Simpan nomor pesanan ini untuk melacak pesanan.', '이 주문번호를 보관해 두세요. 조회할 때 필요합니다.') + '<br>' + L('Terima kasih sudah order.', '주문해 주셔서 감사합니다.') + '</p>' +
       '<button class="btn block" data-act="receipt-save" data-id="' + o.id + '">' + L('Simpan gambar', '이미지로 저장') + '</button></div>';
@@ -476,7 +522,7 @@
     m.querySelector('.x').focus();
   }
   function saveReceipt(orderId) {
-    var o = receipts[orderId] || S.order(orderId), b = S.batch(o.batchId), s = S.service(b.svc);
+    var o = receipts[orderId] || S.order(orderId), b = S.batch(o.batchId);
     var cv = document.createElement('canvas'), W = 720, H = 760; cv.width = W; cv.height = H;
     var c = cv.getContext('2d');
     c.fillStyle = '#fff'; c.fillRect(0, 0, W, H);
@@ -491,7 +537,7 @@
     function rule() { c.strokeStyle = '#e0e0e0'; c.beginPath(); c.moveTo(60, y - 20); c.lineTo(W - 60, y - 20); c.stroke(); y += 16; }
     row('No.', o.id); row(L('Tanggal', '일시'), new Date(o.createdAt).toLocaleString(loc()));
     row(L('Pembeli', '구매자'), o.buyer); row(L('Metode', '결제 수단'), o.method || '-'); row('Status', LL(GO.PAY[o.pay]));
-    rule(); row('Item', o.item.length > 34 ? o.item.slice(0, 33) + '…' : o.item); row('Batch', batchName(b) + ' (' + LL(s.name) + ')'); row(L('Jumlah', '수량'), o.qty + ' pcs');
+    rule(); row('Item', o.item.length > 34 ? o.item.slice(0, 33) + '…' : o.item); row('Batch', batchLine(b)); row(L('Jumlah', '수량'), o.qty + ' pcs');
     rule(); row('TOTAL', rp(o.total), true);
     c.textAlign = 'center'; c.fillStyle = '#767676'; c.font = '20px sans-serif'; c.fillText(L('Terima kasih sudah order.', '주문해 주셔서 감사합니다.'), W / 2, H - 70);
     var a = document.createElement('a'); a.download = o.id + '.png'; a.href = cv.toDataURL('image/png'); a.click();
@@ -619,7 +665,7 @@
     }
     var list = S.ordersOf(A.batchId).map(function (o) {
       var key = 'o:' + o.id, pay = A.edit[key] ? A.edit[key].pay : o.pay;
-      return '<tr' + (A.edit[key] ? ' class="dirty"' : '') + '><td>' + o.id + selfBadge(o) + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + o.qty + '</td><td class="r">' + rp(o.total) + '</td>' +
+      return '<tr' + (A.edit[key] ? ' class="dirty"' : '') + '><td>' + o.id + selfBadge(o) + deadlineBadge(o) + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + o.qty + '</td><td class="r">' + rp(o.total) + '</td>' +
         '<td><select data-opay="' + o.id + '" aria-label="' + L('Pembayaran', '결제') + '">' + Object.keys(GO.PAY).map(function (k) { return '<option value="' + k + '"' + (k === pay ? ' selected' : '') + '>' + esc(LL(GO.PAY[k])) + '</option>'; }).join('') + '</select></td>' +
         '<td class="acts">' + saveCell('order-save', o.id, key) + '<button class="link" data-act="order-del" data-id="' + o.id + '">' + L('Hapus', '삭제') + '</button></td></tr>';
     }).join('');
@@ -639,14 +685,14 @@
     if (q.length < 2) { out.innerHTML = ''; return; }
     var hits = S.db.orders.filter(function (o) { return o.id.toLowerCase().indexOf(q) >= 0 || o.buyer.toLowerCase().indexOf(q) >= 0; }).slice(0, 30);
     out.innerHTML = hits.length ? '<div class="tbl"><table><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>Batch</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">Total</th><th>' + L('Pembayaran', '결제') + '</th></tr></thead><tbody>' +
-      hits.map(function (o) { var b = S.batch(o.batchId); return '<tr><td><b>' + o.id + '</b></td><td>' + esc(b ? batchName(b) : '-') + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + rp(o.total) + '</td><td>' + payBadge(o.pay) + '</td></tr>'; }).join('') + '</tbody></table></div>'
+      hits.map(function (o) { var b = S.batch(o.batchId); return '<tr><td><b>' + o.id + '</b>' + deadlineBadge(o) + '</td><td>' + esc(b ? batchName(b) : '-') + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + rp(o.total) + '</td><td>' + payBadge(o.pay) + '</td></tr>'; }).join('') + '</tbody></table></div>'
       : '<p class="hint">' + L('Pesanan tidak ditemukan.', '주문을 찾지 못했습니다.') + '</p>';
   }
   // 활동 기록 탭
   var ACTIONS = {
     login: ['Masuk', '로그인'], reset: ['Reset data', '데이터 초기화'],
     'batch.add': ['Tambah batch', '배치 추가'], 'batch.update': ['Ubah batch', '배치 변경'], 'batch.delete': ['Hapus batch', '배치 삭제'],
-    'order.add': ['Tambah pesanan', '주문 추가'], 'order.pay': ['Ubah status bayar', '결제 상태 변경'], 'order.delete': ['Hapus pesanan', '주문 삭제'],
+    'order.add': ['Tambah pesanan', '주문 추가'], 'order.pay': ['Ubah status bayar', '결제 상태 변경'], 'order.delete': ['Hapus pesanan', '주문 삭제'], 'order.expire': ['Pesanan kedaluwarsa dihapus', '기한 지난 접수 자동 삭제'],
     calc: ['Simpan rumus kalkulator', '계산기 수식 저장']
   };
   function aLog() { return '<div id="logOut"><p class="hint">' + L('Memuat…', '불러오는 중…') + '</p></div>'; }
@@ -667,16 +713,24 @@
     var kurs = S.service(batch.svc).cur === r.cur ? batch.kurs : GO.CURRENCIES[r.cur].kurs;
     return X.calcPrice({ price: r.price, qty: r.qty, kurs: kurs, feeGo: d.feeGo, feeCo: d.feeCo, tax: d.tax, extra: 0 }).total;
   }
+  // 고객이 접수만 하고 아직 결제하지 않은 주문. 사이트는 고객에게 먼저 연락할 수 없으므로, 운영자가 보고 채팅으로 알릴 수 있게 센다.
+  function waitingNote() {
+    var w = S.db.orders.filter(function (o) { return !!payBy(o); }), late = w.filter(overdue).length;
+    return w.length ? '<p class="note" id="waiting">' + L('Pesanan pelanggan yang belum dibayar', '고객이 접수하고 아직 결제하지 않은 주문') + ': <b>' + w.length + '</b>' +
+      (late ? ' · ' + L('lewat batas bayar', '입금 기한 지남') + ': <b>' + late + '</b>' : '') + '. ' +
+      L('Pesanan seperti ini dihapus otomatis', '이런 접수는 자동으로 지워집니다') + ': ' + GO.PURGE_HOURS + ' ' + L('jam setelah dibuat', '시간 뒤 (접수 시각 기준)') + '. ' +
+      L('Lihat di daftar pesanan tiap batch.', '배치별 주문 목록에서 볼 수 있습니다.') + '</p>' : '';
+  }
   function aPay() {
     var list = S.db.orders.filter(function (o) { return o.pay === 'pending'; });
     var dup = X.duplicateTotals(S.db.orders);
-    return list.length ? (Object.keys(dup).length ? '<p class="note warn"><b>' + L('Perhatian', '주의') + '</b> ' + L('Ada pesanan dengan nominal yang sama. Cocokkan dengan bukti dan nama sebelum menyetujui.', '결제 금액이 같은 주문이 있습니다. 승인하기 전에 증빙과 이름을 대조하세요.') + '</p>' : '') + '<div class="tbl"><table><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>Batch</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">Total</th><th>' + L('Metode', '수단') + '</th><th>' + L('Bukti', '증빙') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' +
+    return waitingNote() + (list.length ? (Object.keys(dup).length ? '<p class="note warn"><b>' + L('Perhatian', '주의') + '</b> ' + L('Ada pesanan dengan nominal yang sama. Cocokkan dengan bukti dan nama sebelum menyetujui.', '결제 금액이 같은 주문이 있습니다. 승인하기 전에 증빙과 이름을 대조하세요.') + '</p>' : '') + '<div class="tbl"><table><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>Batch</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">Total</th><th>' + L('Metode', '수단') + '</th><th>' + L('Bukti', '증빙') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' +
       list.map(function (o) {
         var b = S.batch(o.batchId);
         return '<tr><td>' + o.id + '</td><td>' + esc(batchName(b)) + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + rp(o.total) + (dup[o.total] ? ' <span class="badge pay-rejected">' + L('Nominal sama', '금액 같음') + '</span>' : '') + '</td><td>' + esc(o.method) + '</td><td>' + esc(o.proofName || '-') + '</td>' +
           '<td class="acts"><button class="btn sm" data-act="pay-ok" data-id="' + o.id + '">' + L('Setujui', '승인') + '</button><button class="btn line sm" data-act="pay-no" data-id="' + o.id + '">' + L('Tolak', '반려') + '</button></td></tr>';
       }).join('') + '</tbody></table></div><p class="hint">' + L('Mockup hanya menyimpan nama file bukti, bukan gambarnya.', '목업에서는 증빙 이미지가 아니라 파일 이름만 저장합니다.') + '</p>'
-      : empty(L('Tidak ada pembayaran yang menunggu verifikasi.', '확인을 기다리는 결제가 없습니다.'));
+      : empty(L('Tidak ada pembayaran yang menunggu verifikasi.', '확인을 기다리는 결제가 없습니다.')));
   }
 
   // 전체 주문을 스프레드시트용 CSV 파일로 내려받는다 (Excel·Google Sheets에서 열림)
@@ -707,8 +761,53 @@
     });
   }
 
+  /* ── 결제 알림 창 ──
+   * 이 기기에서 접수했거나 조회한 주문 가운데 아직 결제하지 않은 것(또는 증빙이 반려된 것)이 있으면, 사이트를 열 때 한 번 알린다.
+   * 사이트를 닫아 둔 고객에게는 알릴 수 없다(연락처를 받지 않는다). 그 몫은 관리자 화면의 "결제 전 접수" 표시가 맡는다. */
+  var remindShown = false;
+  function remindUnpaid() {
+    if (remindShown || GO.app !== 'site') return Promise.resolve();
+    remindShown = true;
+    var list = myOrders().filter(function (x) { return x.pay === 'unpaid' || x.pay === 'rejected'; }).slice(0, 3);
+    if (!list.length) return Promise.resolve();
+    return Promise.all(list.map(function (x) {
+      // 돌려주는 값: 주문 / { gone } 기한까지 결제되지 않아 지워짐 / { missing } 없는 번호(운영자가 지움) / null 확인하지 못함(다음에 다시 본다)
+      return S.fetchOrder(x.id).then(function (o) { return !o ? { id: x.id, missing: true } : o.gone ? { id: x.id, item: x.item, gone: true } : o; }, function () { return null; });
+    })).then(function (found) {
+      var r = route(), due = [], cancelled = [];
+      found.forEach(function (o) {
+        if (!o) return;
+        if (o.missing) { forgetOrder(o.id); return; }
+        if (o.gone) { markGone(o.id); cancelled.push(o); return; }   // 한 번 알리고, 이 기기에는 "취소됨"으로 남긴다
+        rememberOrder(o);
+        if ((o.pay === 'unpaid' || o.pay === 'rejected') && !(r[0] === 'pay' && r[2] === o.id)) due.push(o);   // 지금 그 주문의 결제 화면이면 띄우지 않는다
+      });
+      if ((due.length || cancelled.length) && !$('.modal')) showRemind(due, cancelled);
+    });
+  }
+  function showRemind(due, cancelled) {
+    var m = document.createElement('div');
+    m.className = 'modal'; m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true'); m.setAttribute('aria-labelledby', 'remindTitle');
+    m.innerHTML = '<div class="remind"><button class="x" data-act="modal-close" aria-label="' + L('Tutup', '닫기') + '">×</button>' +
+      '<h2 id="remindTitle">' + (due.length ? L('Ada pesanan yang belum dibayar', '결제하지 않은 주문이 있습니다') : L('Pesanan dibatalkan', '접수가 취소되었습니다')) + '</h2>' +
+      due.map(function (o) {
+        return '<div class="remind-item"><b>' + esc(o.item) + '</b><small>' + o.id + (overdue(o) ? '' : ' · ' + rp(o.total)) + '</small>' +
+          (o.pay === 'rejected' ? '<p class="note warn">' + L('Bukti pembayaran ditolak. Silakan kirim ulang.', '결제 증빙이 반려되었습니다. 다시 제출해 주세요.') + '</p>'
+            : deadlineNote(o) || '<p class="note warn">' + L('Pesanan ini belum dibayar.', '이 주문은 아직 결제하지 않았습니다.') + '</p>') +
+          '<a class="btn block" data-act="remind-go" href="#/pay/' + encodeURIComponent(o.batchId) + '/' + o.id + '">' + L('Bayar sekarang', '지금 결제하기') + '</a></div>';
+      }).join('') +
+      cancelled.map(function (o) {
+        return '<div class="remind-item" data-cancelled="1"><b>' + esc(o.item || '') + '</b><small>' + o.id + '</small><p class="note warn">' + goneText() + '</p>' +
+          '<a class="btn line block" data-act="remind-go" href="#/pay">' + L('Buat pesanan baru', '새로 접수하기') + '</a></div>';
+      }).join('') + '</div>';
+    document.body.appendChild(m);
+    m.querySelector('.x').focus();
+  }
+  GO.remind = function () { remindShown = false; return remindUnpaid(); };   // 검사에서 다시 띄워 볼 때 쓴다
+
   /* ── 라우터 ── */
-  function route() { return location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent); }
+  // 주소에 깨진 %형식이 있어도 멈추지 않는다: 풀 수 없는 조각은 그대로 쓴다
+  function route() { return location.hash.replace(/^#\/?/, '').split('/').map(function (p) { try { return decodeURIComponent(p); } catch (e) { return p; } }); }
   function render() {
     if (!S.db) return;                       // 저장소가 아직 준비되지 않았다
     var r = route(), html, page = r[0] || 'home';
@@ -779,9 +878,9 @@
     else if (act === 'pay-method') { P.method = id; render(); }
     else if (act === 'pay-lookup') {
       S.fetchOrder($('#payLookup').value).then(function (found) {
-        if (found) go('#/pay/' + found.batchId + '/' + found.id);
-        else { $('#lookupMsg').textContent = L('Nomor pesanan tidak ditemukan.', '주문번호를 찾을 수 없습니다.'); $('#lookupMsg').className = 'err'; }
-      });
+        if (found && !found.gone) go('#/pay/' + found.batchId + '/' + found.id);
+        else { var lid = X.normOrderId($('#payLookup').value); if (found && found.gone) markGone(lid); $('#lookupMsg').textContent = isGone(lid) ? goneText() : L('Nomor pesanan tidak ditemukan.', '주문번호를 찾을 수 없습니다.'); $('#lookupMsg').className = 'err'; }
+      }, function () { $('#lookupMsg').textContent = L('Gagal memuat. Coba lagi.', '불러오지 못했습니다. 다시 시도해 주세요.'); $('#lookupMsg').className = 'err'; });
     }
     else if (act === 'pay-voucher') {
       S.checkVoucher(P.voucher).then(function (v) {
@@ -794,6 +893,7 @@
     else if (act === 'receipt') showReceipt(id);
     else if (act === 'my-clear') { try { localStorage.removeItem(MY_KEY); } catch (x) {} render(); }
     else if (act === 'modal-close') t.closest('.modal').remove();
+    else if (act === 'remind-go') t.closest('.modal').remove();   // 알림 창의 "지금 결제하기": 창을 닫고 그 주문의 결제 화면으로 간다
     else if (act === 'receipt-save') saveReceipt(id);
     else if (act === 'export') exportOrders();
     else if (act === 'reset') { if (confirm(L('Semua data kembali ke contoh awal. Lanjutkan?', '모든 데이터가 처음 예시로 돌아갑니다. 계속할까요?'))) { S.reset().then(function () { A.rows = null; C = null; render(); }); } }
@@ -860,5 +960,5 @@
   });
   GO.onStoreError = function (e) { render(); alert(L('Perubahan tidak tersimpan: ', '변경 내용이 저장되지 않았습니다: ') + errText(e)); };
   GO.render = render;
-  S.init().then(render);
+  S.init().then(render).then(remindUnpaid);
 })(window.GO);

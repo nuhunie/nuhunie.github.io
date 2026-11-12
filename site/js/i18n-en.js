@@ -343,6 +343,32 @@ GO.EN = {
   'diproses terpisah': 'handled separately',
   'Login admin dimatikan karena kata sandi di server terlalu pendek (minimal 8 karakter).': 'Admin sign-in is off because the server password is too short (at least 8 characters).',
 
+  // 입금 기한·결제 알림
+  'jam': 'hours',
+  'menit': 'minutes',
+  'sisa waktu': 'time left',
+  'Batas waktu pembayaran sudah lewat.': 'The payment deadline has passed.',
+  'Jika sudah membayar, segera unggah bukti. Jika belum, pesanan ini akan dibatalkan otomatis; silakan buat pesanan baru.': 'If you have already paid, upload your proof now. If not, this order will be cancelled automatically; please create a new order.',
+  'Belum dibayar.': 'Not paid yet.',
+  'Bayar dan unggah bukti sebelum': 'Pay and upload your proof before',
+  'Setelah itu pesanan dibatalkan otomatis.': 'After that the order is cancelled automatically.',
+  'Pesanan ini dibatalkan otomatis karena belum dibayar sampai batas waktu. Silakan buat pesanan baru.': 'This order was cancelled automatically because it was not paid by the deadline. Please create a new order.',
+  'Belum ada batch yang bisa dipesan.': 'There is no batch open for orders yet.',
+  'Ada pesanan yang belum dibayar': 'You have an unpaid order',
+  'Bukti pembayaran ditolak. Silakan kirim ulang.': 'Your payment proof was rejected. Please submit it again.',
+  'Pesanan ini belum dibayar.': 'This order has not been paid yet.',
+  'Bayar sekarang': 'Pay now',
+  'Pesanan dibatalkan': 'Order cancelled',
+  'Buat pesanan baru': 'Create a new order',
+  'Lewat batas bayar': 'Past payment deadline',
+  'Sisa waktu bayar': 'Time left to pay',
+  'Pesanan pelanggan yang belum dibayar': 'Customer orders not paid yet',
+  'lewat batas bayar': 'past deadline',
+  'Pesanan seperti ini dihapus otomatis': 'Such orders are deleted automatically',
+  'jam setelah dibuat': 'hours after they were created',
+  'Lihat di daftar pesanan tiap batch.': "See them in each batch's order list.",
+  'Pesanan kedaluwarsa dihapus': 'Expired order removed',
+
   // 배색·이동
   'Ke atas': 'Back to top',
   'Ke bawah': 'Go to bottom'

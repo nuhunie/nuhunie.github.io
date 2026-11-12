@@ -67,3 +67,28 @@ test('새 DB: 배포판에서는 서비스 종류만 넣고 예시 주문은 넣
   await loadState(local, true, { ALLOW_RESET: '1' });
   assert.ok(local.ran.some(s => /INSERT INTO orders/.test(s)), '내 컴퓨터(초기화 허용)에서는 예시 주문까지 넣는다');
 });
+
+test('입금 기한: 서버는 data.js 의 시간을 쓰고, 검사용 환경값이 있으면 그 값으로 바꾼다', async () => {
+  const { payHours, purgeHours, expired, withDeadline } = await import('../server/lib.js');
+  assert.equal(payHours({}), 24); assert.equal(purgeHours({}), 48); assert.equal(payHours(undefined), 24);
+  assert.equal(payHours({ PAY_WINDOW_SEC: '7200' }), 2); assert.equal(purgeHours({ PURGE_SEC: '10800' }), 3);
+  const now = Date.now(), o = h => ({ self: 1, pay: 'unpaid', createdAt: new Date(now - h * 3600000).toISOString() });
+  assert.equal(expired(o(47), {}), false);
+  assert.equal(expired(o(49), {}), true);
+  assert.equal(expired(Object.assign(o(49), { pay: 'pending' }), {}), false);      // 증빙을 낸 주문은 지우지 않는다
+  assert.equal(expired(Object.assign(o(49), { self: 0 }), {}), false);             // 운영자가 넣은 주문은 지우지 않는다
+  assert.equal(expired(o(1), { PURGE_SEC: '1800' }), true);
+  assert.equal(withDeadline(o(1), {}).payBy, new Date(now - 3600000 + 24 * 3600000).toISOString());
+  assert.equal(withDeadline(Object.assign(o(1), { pay: 'paid' }), {}).payBy, '');
+});
+test('입금 기한: 지울 때가 된 접수만, 지우는 순간에도 결제 전일 때만 지우고, 활동 기록에 남긴다', async () => {
+  const { purgeExpired } = await import('../server/lib.js');
+  const ran = [], st = sql => ({ sql, bind: (...a) => ({ sql, a, all: async () => ({ results: /SELECT o\.id/.test(sql) ? [{ id: 'NUH-AAAAAAAA' }, { id: 'NUH-BBBBBBBB' }] : [] }), run: async () => { ran.push(sql); return { meta: { changes: 1 } }; } }) });
+  const db = { prepare: st, batch: async list => { list.forEach(s => ran.push(s.sql)); return list.map(() => ({ meta: { changes: 1 } })); } };
+  assert.deepEqual(await purgeExpired(db, {}), ['NUH-AAAAAAAA', 'NUH-BBBBBBBB']);
+  assert.equal(ran.filter(s => /DELETE FROM orders WHERE id = \? AND pay = 'unpaid'/.test(s)).length, 2);
+  assert.equal(ran.filter(s => /DELETE FROM order_flags WHERE order_id = \? AND NOT EXISTS/.test(s)).length, 2);
+  assert.ok(ran.some(s => /INSERT INTO audit/.test(s)));
+  const empty = { prepare: sql => ({ bind: () => ({ all: async () => ({ results: [] }) }) }), batch: async () => { throw new Error('지울 것이 없으면 아무것도 쓰지 않는다'); } };
+  assert.deepEqual(await purgeExpired(empty, {}), []);
+});

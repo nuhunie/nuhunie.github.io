@@ -18,7 +18,7 @@
  *   POST reset                 예시 데이터로 초기화 (ALLOW_RESET=1 인 곳에서만. 배포판에는 꺼져 있다)
  *   GET  log                   활동 기록
  */
-import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, startSession, endSession, clearCookie, loadState, seed, toOrder, overLimit, recordHit, logAct, canReset, weakPassword, ORDER_SELECT, PUBLIC_ORDERS } from '../../server/lib.js';
+import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, startSession, endSession, clearCookie, loadState, seed, toOrder, overLimit, recordHit, logAct, canReset, weakPassword, ORDER_SELECT, PUBLIC_ORDERS, withDeadline, expired, purgeExpired } from '../../server/lib.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const PUBLIC_CACHE_SEC = 60;      // 서버 쪽에 저장해 두는 시간. 내용이 바뀌면 바로 지운다
@@ -76,7 +76,9 @@ export async function onRequest({ request, env, params }) {
       if (await overLimit(db, env, request, 'look')) return fail('Too many requests. Try again later.', 429);
       const row = await db.prepare(ORDER_SELECT + ' WHERE o.id = ?').bind(id).first();
       if (!row) { await recordHit(db, request, 'look'); return json({ orders: [] }); }
-      return json({ orders: [Object.assign(toOrder(row), { buyer: X.maskName(row.buyer), proofName: '' })] });
+      // 기한이 한참 지나도록 결제 전인 접수는 지우고, 지워졌다고 알린다 (틀린 번호로 세지 않는다)
+      if (expired(toOrder(row), env)) { await purgeExpired(db, env); return json({ orders: [], gone: true }); }
+      return json({ orders: [withDeadline(Object.assign(toOrder(row), { buyer: X.maskName(row.buyer), proofName: '' }), env)] });
     }
 
     if (route === 'GET /order') {
@@ -86,7 +88,8 @@ export async function onRequest({ request, env, params }) {
       const row = await db.prepare(ORDER_SELECT + ' WHERE o.id = ?').bind(id).first();
       if (!row) { await recordHit(db, request, 'look'); return fail('Order not found.', 404); }
       const o = toOrder(row); o.proofName = ''; o.buyer = X.maskName(o.buyer);
-      return json({ order: o });
+      if (expired(o, env)) { await purgeExpired(db, env); return json({ error: 'This order has expired.', gone: true }, 410); }
+      return json({ order: withDeadline(o, env) });
     }
 
     if (route === 'POST /voucher') {
@@ -110,8 +113,8 @@ export async function onRequest({ request, env, params }) {
       const b = await readJson(request);
       if (!b) return fail('Bad request.');
       if (await overLimit(db, env, request, 'pay')) return fail('Too many new orders from here. Try again later.', 429);
-      const buyer = V.text(typeof b.buyer === 'string' ? b.buyer.trim().replace(/^@/, '') : null, 40), item = V.text(b.item, 120);
-      const qty = V.int(b.qty, 1, 999), base = V.int(b.base, 1, 1e9);
+      const buyer = V.text(typeof b.buyer === 'string' ? b.buyer.trim().replace(/^@/, '') : null, GO.LIMITS.buyer), item = V.text(b.item, GO.LIMITS.item);
+      const qty = V.int(b.qty, 1, GO.LIMITS.qty), base = V.int(b.base, 1, GO.LIMITS.amount);
       if (!buyer || !item || qty === null || base === null) return fail('Buyer, item, quantity and total are required.');
       const batch = await db.prepare('SELECT id, stage FROM batches WHERE id = ?').bind(typeof b.batchId === 'string' ? b.batchId : '').first();
       if (!batch) return fail('Batch not found.', 404);
@@ -120,6 +123,7 @@ export async function onRequest({ request, env, params }) {
       if (off === null) return fail('Voucher not found.');
       // 금액이 같은 주문이 있으면 운영자가 입금을 구분할 수 없다. 결제 전·확인 대기 주문과 금액이 겹치지 않는
       // 주문번호가 나올 때까지 다시 뽑는다. 여덟 번 모두 겹치면 마지막 번호를 쓴다(관리자 화면이 겹침을 알린다).
+      await purgeExpired(db, env);                 // 지울 때가 된 접수를 먼저 지워, 그 금액을 다시 쓸 수 있게 한다
       let id = '', total = 0;
       for (let i = 0; i < 8; i++) {
         id = X.orderIdFrom(crypto.getRandomValues(new Uint8Array(8)));
@@ -135,19 +139,21 @@ export async function onRequest({ request, env, params }) {
         db.prepare('INSERT INTO order_flags (order_id, self, late) VALUES (?, 1, ?)').bind(id, late)
       ]);
       await recordHit(db, request, 'pay');
-      return json({ order: { id, batchId: batch.id, buyer, item, qty, base, total, pay: 'unpaid', method: '', proofName: '', createdAt: now, self: 1, late } });
+      return json({ order: withDeadline({ id, batchId: batch.id, buyer, item, qty, base, total, pay: 'unpaid', method: '', proofName: '', createdAt: now, self: 1, late }, env) });
     }
 
     if (route === 'POST /pay') {
       const b = await readJson(request);
       if (!b) return fail('Bad request.');
-      const methodName = V.oneOf(b.method, ['QRIS', 'Transfer bank']), proof = V.text(b.proofName, 200);
+      const methodName = V.oneOf(b.method, ['QRIS', 'Transfer bank']), proof = V.text(b.proofName, GO.LIMITS.proof);
       if (!methodName || !proof) return fail('Payment method and proof are required.');
       const off = await voucherOff(b.voucher);
       if (off === null) return fail('Voucher not found.');
       if (!b.orderId) return fail('Create the order first.');     // 새 주문은 POST /order 로 먼저 접수한다
       const id = V.orderId(b.orderId), row = id && await db.prepare(ORDER_SELECT + ' WHERE o.id = ?').bind(id).first();
       if (!row) return fail('Order not found.', 404);
+      // 기한이 지난 접수도 유예 시간 동안은 증빙을 받는다(기한 직전에 입금한 고객). 지울 때가 됐으면 받지 않는다.
+      if (expired(toOrder(row), env)) { await purgeExpired(db, env); return json({ error: 'This order has expired.', gone: true }, 410); }
       // 금액은 DB에 있는 값으로만 정한다 (고객이 보낸 금액은 쓰지 않는다).
       // 고객이 접수한 주문(self)은 접수할 때 금액이 정해졌다. 운영자가 넣은 주문은 여기서 쿠폰과 고유 코드를 붙인다.
       const total = row.self ? row.total : X.payable(row.base, off, id);
@@ -230,8 +236,8 @@ export async function onRequest({ request, env, params }) {
     }
 
     if (sub === 'POST /order') {
-      const oid = V.orderId(b.id), buyer = V.text(typeof b.buyer === 'string' ? b.buyer.trim().replace(/^@/, '') : null, 40), item = V.text(b.item, 120);
-      const qty = V.int(b.qty, 1, 999), total = V.int(b.total, 1, 1e9);
+      const oid = V.orderId(b.id), buyer = V.text(typeof b.buyer === 'string' ? b.buyer.trim().replace(/^@/, '') : null, GO.LIMITS.buyer), item = V.text(b.item, GO.LIMITS.item);
+      const qty = V.int(b.qty, 1, GO.LIMITS.qty), total = V.int(b.total, 1, GO.LIMITS.amount);
       if (!oid || !buyer || !item || qty === null || total === null) return fail('Check the order fields.');
       if (!(await db.prepare('SELECT 1 FROM batches WHERE id = ?').bind(String(b.batchId || '')).first())) return fail('Batch not found.', 404);
       if (await db.prepare('SELECT 1 FROM orders WHERE id = ?').bind(oid).first()) return fail('Order number is taken.', 409);
