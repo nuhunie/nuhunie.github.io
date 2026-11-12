@@ -9,5 +9,6 @@ DELETE FROM voucher_limits;
 DELETE FROM voucher_uses;
 DELETE FROM voucher_notes;
 DELETE FROM order_payer;
+DELETE FROM proof_images;
 DELETE FROM hits;
 DELETE FROM audit;

@@ -6,6 +6,10 @@ window.runE2E = async function () {
   const S = GO.store, X = GO.logic, out = [];
   const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
   const wait = ms => new Promise(r => setTimeout(r, ms));
+  // 결제 화면의 QR 검사를 위해 가게 QRIS 를 시험용 값으로 잠시 넣는다 (끝에서 되돌린다)
+  const tlv = (id, v) => id + String(v.length).padStart(2, '0') + v;
+  const qBody = [['00', '01'], ['01', '11'], ['26', tlv('00', 'ID.CO.CONTOH.WWW') + tlv('01', '936000000000000001') + tlv('03', 'UMI')], ['52', '5999'], ['53', '360'], ['58', 'ID'], ['59', 'TOKO CONTOH'], ['60', 'JAKARTA']].map(p => tlv(p[0], p[1])).join('') + '6304';
+  const keepQris = GO.BRAND.qris; GO.BRAND.qris = qBody + X.crc16(qBody);
   try { sessionStorage.removeItem('nuh-pay-draft'); localStorage.removeItem('nuh-pay-open'); } catch (e) {}   // 앞서 쓰던 흔적 없이 시작한다
   // 주소가 관리자 화면이면 관리자 사이트로, 아니면 고객 사이트로 바꿔 그린다 (실제로는 서로 다른 페이지다)
   const go = async h => { GO.app = /^#\/(admin|calc)/.test(h) ? 'admin' : 'site'; location.hash = h; await wait(80); GO.render(); await wait(20); };
@@ -21,6 +25,7 @@ window.runE2E = async function () {
   /* ── 고객 여정 ── */
   await go('#/');
   check('홈: 맨 위에 주문 조회 창이 있다', $('.hero form[data-form=track] input'));
+  check('아래쪽 안내: 이용 순서 3단계와 서비스 바로 가기가 있다', $$('#foot .foot-steps li').length === 3 && $$('#foot .foot-links a').length === S.db.services.length && !!$('#foot .foot-brand img'));
   check('홈: 서비스 3개', $$('.svc').length === 3, $$('.svc').length);
   const ongoing = S.db.batches.filter(b => b.stage < GO.LAST_STAGE).length;
   check('홈: 진행 중 배치 목록이 저장소와 같다', $$('#app .rows .row').length === ongoing, $$('#app .rows .row').length + ' vs ' + ongoing);
@@ -68,6 +73,12 @@ window.runE2E = async function () {
   check('결제: 주문번호로 불러오면 내용이 채워지고 잠긴다', $('[data-pay=buyer]').value === X.maskName(o1.buyer) && $('[data-pay=buyer]').readOnly && num($('[data-pay=base]').value) === base1);
   check('결제: QR과 결제 금액이 나온다', $('#qrC') && num($('#payOut .total b').textContent) === base1 + X.uniqueCode(o1.id), $('#payOut') && $('#payOut').innerText);
   await wait(300);
+  const keepBank = GO.BRAND.bank;
+  GO.BRAND.qris = ''; GO.render(); await wait(40);
+  check('결제: QRIS 가 없으면 QR 없이 가게 계좌만 보여 준다', !$('#qrC') && !$('[data-act=pay-method]') && $('#payOut').innerText.includes(keepBank.number) && $('#payOut').innerText.includes(keepBank.holder), $('#payOut') && $('#payOut').innerText);
+  GO.BRAND.bank = { name: '', number: '', holder: '' }; GO.render(); await wait(40);
+  check('결제: 가게 QRIS·계좌가 없으면 예시 QR·예시 계좌 대신 채팅으로 안내한다', !$('#qrC') && !!$('#payByChat') && !/000-000|contoh|예시 계좌/i.test($('#payOut').innerText) && !$('[data-act=pay-method]'), $('#payOut') && $('#payOut').innerText);
+  GO.BRAND.bank = keepBank; GO.BRAND.qris = qBody + X.crc16(qBody); GO.render(); await wait(300);
   check('결제: QR 위에 마크가 얹힌다', $('#qrC') && $('#qrC').dataset.mark === '1' && $('#qrC').width >= 600, $('#qrC') && $('#qrC').width);
   $('form[data-form=pay] .btn.block').click(); await wait(60);
   check('결제: 증빙 없이 내면 막고 이유를 알려 준다', $('#payErr').textContent.length > 0 && S.order(o1.id).pay === 'unpaid');
@@ -350,5 +361,6 @@ window.runE2E = async function () {
 
   S.reset(); await go('#/');
   const failed = out.filter(r => !r.ok);
+  GO.BRAND.qris = keepQris;
   return { total: out.length, passed: out.length - failed.length, failed };
 };

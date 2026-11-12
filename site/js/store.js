@@ -177,6 +177,12 @@
       db.orders.push(o); save();
       return Promise.resolve(o);
     },
+    /* 결제 증빙 사진(Blob)을 올린다. 서버판에서만 저장한다(목업판은 파일 이름만 둔다). */
+    uploadProof: function (orderId, blob) {
+      if (mode !== 'server') return Promise.resolve(null);
+      return fetch('/api/proof/' + encodeURIComponent(orderId), { method: 'POST', credentials: 'same-origin', headers: { 'content-type': blob.type }, body: blob })
+        .then(function (res) { return res.json().catch(function () { return {}; }).then(function (j) { if (!res.ok) { var e = new Error(j.error || 'HTTP ' + res.status); e.status = res.status; throw e; } return j; }); });
+    },
     /* 접수된 주문의 결제 증빙을 낸다. p = { orderId, voucher, method, proofName } → 저장된 주문 (Promise) */
     submitPayment: function (p) {
       if (mode === 'server') return api('POST', '/pay', p).then(function (r) { return pull().catch(function () {}).then(function () { return r.order; }); });

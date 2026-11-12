@@ -335,5 +335,5 @@ test('입금 기한: 기한 안 → 기한 지남(유예) → 지울 때', () =>
   assert.ok(GO.PURGE_HOURS > GO.PAY_HOURS, '지우는 시각은 기한보다 뒤여야 한다(유예)');
 });
 test('입력 한도는 한 곳(GO.LIMITS)에 있다', () => {
-  assert.deepEqual(GO.LIMITS, { buyer: 40, item: 120, proof: 200, qty: 999, amount: 1e9, voucher: 30, voucherUses: 100000, voucherBulk: 100, note: 100, payer: 60, svcName: 40, svcDesc: 120 });
+  assert.deepEqual(GO.LIMITS, { photo: 800 * 1024, buyer: 40, item: 120, proof: 200, qty: 999, amount: 1e9, voucher: 30, voucherUses: 100000, voucherBulk: 100, note: 100, payer: 60, svcName: 40, svcDesc: 120 });
 });

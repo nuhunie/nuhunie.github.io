@@ -7,6 +7,7 @@
  *   GET  /api/order?id=        주문 한 건 (결제 화면 불러오기)
  *   POST /api/voucher          쿠폰 확인
  *   POST /api/order            새 주문 접수(결제 전). 주문번호와 결제 금액을 서버가 정해 저장한다
+ *   POST /api/proof/:id        결제 증빙 사진 올리기(본문이 그림 그대로). 결제 전·반려된 주문에만
  *   POST /api/pay              접수된 주문의 결제 증빙 제출 → 확인 대기
  *   GET  /api/me               관리자 로그인 여부
  *   POST /api/login, /api/logout
@@ -16,11 +17,12 @@
  *   POST order · PATCH order/:id · DELETE order/:id
  *   POST voucher · POST voucher/bulk · PATCH voucher/:code · DELETE voucher/:code   쿠폰, 한 장짜리 쿠폰 여러 장, 메모
  *   POST service · PATCH service/:id · DELETE service/:id   서비스 종류
+ *   GET  proof/:id             결제 증빙 사진 보기
  *   PUT  calc                  계산기 기본 수식
  *   POST reset                 예시 데이터로 초기화 (ALLOW_RESET=1 인 곳에서만. 배포판에는 꺼져 있다)
  *   GET  log                   활동 기록
  */
-import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, startSession, endSession, clearCookie, loadState, seed, toOrder, overLimit, recordHit, logAct, canReset, weakPassword, ORDER_SELECT, PUBLIC_ORDERS, withDeadline, expired, purgeExpired, canUnpay, VOUCHER_SELECT, toService, reserveVoucher, VOUCHER_FULL_FOR } from '../../server/lib.js';
+import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, startSession, endSession, clearCookie, loadState, seed, toOrder, overLimit, recordHit, logAct, canReset, weakPassword, ORDER_SELECT, PUBLIC_ORDERS, withDeadline, expired, purgeExpired, canUnpay, VOUCHER_SELECT, toService, reserveVoucher, VOUCHER_FULL_FOR, photoOk, toBase64, fromBase64 } from '../../server/lib.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const NO_VOUCHER = 'Voucher not found.';
@@ -151,6 +153,25 @@ export async function onRequest({ request, env, params }) {
       return json({ order: withDeadline({ id, batchId: batch.id, buyer, item, qty, base, total, pay: 'unpaid', method: '', proofName: '', createdAt: now, self: 1, late }, env) });
     }
 
+    if (method === 'POST' && path[0] === 'proof' && path.length === 2) {
+      // 결제 증빙 사진. 주문번호를 아는 사람(그 주문의 고객)만 올릴 수 있고, 결제 전·반려된 주문에만 받는다.
+      let raw = ''; try { raw = decodeURIComponent(path[1]); } catch (e) { return fail('Bad address.'); }
+      const id = V.orderId(raw);
+      if (!id) return fail('Order not found.', 404);
+      if (await overLimit(db, env, request, 'proof')) return fail('Too many requests. Try again later.', 429);
+      const mime = (request.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+      if (Number(request.headers.get('content-length') || 0) > GO.LIMITS.photo) return fail('The photo is too large.', 413);
+      const bytes = new Uint8Array(await request.arrayBuffer());
+      if (bytes.length > GO.LIMITS.photo) return fail('The photo is too large.', 413);
+      if (!photoOk(mime, bytes)) return fail('Upload a JPG, PNG or WebP image.');
+      const row = await db.prepare('SELECT pay FROM orders WHERE id = ?').bind(id).first();
+      if (!row) { await recordHit(db, request, 'look'); return fail('Order not found.', 404); }
+      if (row.pay !== 'unpaid' && row.pay !== 'rejected') return fail('This order has already been submitted.', 409);
+      await db.prepare('INSERT OR REPLACE INTO proof_images (order_id, mime, data, size, created_at) VALUES (?,?,?,?,?)').bind(id, mime, toBase64(bytes), bytes.length, new Date().toISOString()).run();
+      await recordHit(db, request, 'proof');
+      return json({ ok: true, size: bytes.length });
+    }
+
     if (route === 'POST /pay') {
       const b = await readJson(request);
       if (!b) return fail('Bad request.');
@@ -221,7 +242,14 @@ export async function onRequest({ request, env, params }) {
     let id = '';
     try { id = path[2] ? decodeURIComponent(path[2]) : ''; } catch (e) { return fail('Bad address.'); }   // 깨진 %형식
     if (path[1] === 'order' && id) id = V.orderId(id) || id;
-    if (path[1] === 'voucher' && id) id = id.trim().toUpperCase();                                               // 소문자로 적은 주문번호도 찾는다
+    if (path[1] === 'voucher' && id) id = id.trim().toUpperCase();
+    if (path[1] === 'proof' && id) id = V.orderId(id) || id;
+
+    if (sub === 'GET /proof') {
+      const p = await db.prepare('SELECT mime, data FROM proof_images WHERE order_id = ?').bind(id).first();
+      if (!p) return fail('Not found.', 404);
+      return new Response(fromBase64(p.data), { headers: { 'content-type': p.mime, 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff', 'content-disposition': 'inline' } });
+    }                                               // 소문자로 적은 주문번호도 찾는다
     const b = method === 'GET' || method === 'DELETE' ? {} : await readJson(request);
     if (!b) return fail('Bad request.');
 
@@ -265,10 +293,11 @@ export async function onRequest({ request, env, params }) {
         db.prepare('DELETE FROM order_flags WHERE order_id IN (SELECT id FROM orders WHERE batch_id = ?)').bind(id),
         db.prepare('DELETE FROM voucher_uses WHERE order_id IN (SELECT id FROM orders WHERE batch_id = ?)').bind(id),
         db.prepare('DELETE FROM order_payer WHERE order_id IN (SELECT id FROM orders WHERE batch_id = ?)').bind(id),
+        db.prepare('DELETE FROM proof_images WHERE order_id IN (SELECT id FROM orders WHERE batch_id = ?)').bind(id),
         db.prepare('DELETE FROM orders WHERE batch_id = ?').bind(id),
         db.prepare('DELETE FROM batches WHERE id = ?').bind(id)
       ]);
-      if (!gone[4].meta.changes) return fail('Batch not found.', 404);     // 없는 배치: 지운 것이 없으니 기록하지 않는다
+      if (!gone[5].meta.changes) return fail('Batch not found.', 404);     // 없는 배치: 지운 것이 없으니 기록하지 않는다
       await logAct(db, request, 'batch.delete', id);
       return json({ ok: true });
     }
@@ -306,7 +335,8 @@ export async function onRequest({ request, env, params }) {
     }
     if (sub === 'DELETE /order') {
       const gone = await db.batch([db.prepare('DELETE FROM order_flags WHERE order_id = ?').bind(id), db.prepare('DELETE FROM orders WHERE id = ?').bind(id),
-        db.prepare('DELETE FROM voucher_uses WHERE order_id = ?').bind(id), db.prepare('DELETE FROM order_payer WHERE order_id = ?').bind(id)]);   // 쓴 쿠폰을 돌려준다
+        db.prepare('DELETE FROM voucher_uses WHERE order_id = ?').bind(id), db.prepare('DELETE FROM order_payer WHERE order_id = ?').bind(id),
+        db.prepare('DELETE FROM proof_images WHERE order_id = ?').bind(id)]);   // 쓴 쿠폰을 돌려준다
       if (!gone[1].meta.changes) return fail('Order not found.', 404);     // 없는 주문
       await logAct(db, request, 'order.delete', id);
       return json({ ok: true });

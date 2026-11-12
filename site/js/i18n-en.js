@@ -404,5 +404,19 @@ GO.EN = {
   'Pengirim yang sama sudah memakai voucher ini di pesanan': 'The same payer already used this voucher in order',
   'Pengirim yang sama sudah memakai voucher ini. Tetap setujui?': 'The same payer already used this voucher. Approve anyway?',
   'Ubah catatan voucher': 'Edit voucher note',
-  'Selama pesanan ini ditolak, voucher-nya sudah habis dipakai pesanan lain, jadi pesanan ini tidak bisa diaktifkan lagi. Buat pesanan baru atau hubungi admin.': 'While this order was rejected, its voucher was used up by other orders, so it cannot be reactivated. Place a new order or contact the admin.'
+  'Selama pesanan ini ditolak, voucher-nya sudah habis dipakai pesanan lain, jadi pesanan ini tidak bisa diaktifkan lagi. Buat pesanan baru atau hubungi admin.': 'While this order was rejected, its voucher was used up by other orders, so it cannot be reactivated. Place a new order or contact the admin.',
+  // 결제 안내, 증빙 사진, 아래쪽 안내
+  'Cara bayar': 'How to pay',
+  'Rekening atau QR untuk pembayaran akan dikirim admin lewat chat. Bayar tepat sesuai nominal di atas, lalu unggah bukti di bawah.': 'The admin will send the bank account or QR by chat. Pay exactly the amount above, then upload your proof below.',
+  'Bayar sesuai nominal, lalu unggah bukti pembayaran.': 'Pay the amount shown, then upload your payment proof.',
+  'Isi data pesanan, lalu tekan "Buat pesanan & lihat nominal". Setelah itu bayar dan unggah bukti.': 'Fill in your order, then press "Create order & see amount". After that, pay and upload your proof.',
+  'Lihat foto': 'View photo',
+  'Foto terlalu besar. Pakai screenshot atau foto yang lebih kecil.': 'The photo is too large. Use a screenshot or a smaller photo.',
+  'Foto tidak bisa dibaca. Unggah screenshot JPG atau PNG.': 'The photo could not be read. Upload a JPG or PNG screenshot.',
+  'Bayar & unggah bukti': 'Pay & upload proof',
+  'Lacak': 'Track',
+  'Pilih batch, isi pesanan, dan dapatkan nomor pesanan.': 'Pick a batch, fill in your order and get an order number.',
+  'Bayar tepat sesuai nominal, lalu unggah foto bukti.': 'Pay the exact amount, then upload a photo of your proof.',
+  'Cek tahap pengiriman dengan nomor pesanan.': 'Check the shipping stage with your order number.',
+  'Nomor pesanan ada di struk. Simpan baik-baik.': 'Your order number is on your receipt. Keep it safe.'
 };

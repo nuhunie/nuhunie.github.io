@@ -112,7 +112,7 @@ export async function isAdmin(request, env) {
  *   coupon  한 곳에서 틀린 쿠폰 코드
  * "어디서든 합친 로그인 실패 상한"은 두지 않는다: 누군가 일부러 틀리게 넣어 운영자의 로그인을 계속 막을 수 있어서다.
  * 주소를 바꿔 가며 하는 시도는 긴 비밀번호(MIN_PASSWORD)로 막는다. */
-const LIMITS = { login: [5, 900], pay: [10, 3600], look: [20, 600], coupon: [20, 600] };
+const LIMITS = { login: [5, 900], pay: [10, 3600], look: [20, 600], coupon: [20, 600], proof: [30, 3600] };
 const ipOf = request => (request.headers.get('cf-connecting-ip') || 'local').trim().toLowerCase();
 // 세는 단위. IPv6는 한 사람이 /64 대역을 통째로 받아 끝자리를 마음대로 바꿀 수 있으므로 앞 64비트로 묶는다.
 export function ipKey(request) {
@@ -148,7 +148,7 @@ export const VOUCHER_SELECT = "SELECT v.code AS code, v.off AS off, IFNULL(l.max
   "(SELECT COUNT(*) FROM voucher_uses u LEFT JOIN orders o ON o.id = u.order_id WHERE u.code = v.code AND IFNULL(o.pay, '') != 'rejected' AND u.order_id != ?) AS used " +
   'FROM vouchers v LEFT JOIN voucher_limits l ON l.code = v.code LEFT JOIN voucher_notes n ON n.code = v.code';
 // 운영자 화면용 주문: 쓴 쿠폰과 입금자 이름을 함께 읽는다 (고객에게 가는 응답에는 넣지 않는다)
-export const ADMIN_ORDER_SELECT = "SELECT o.*, f.self AS self, f.late AS late, IFNULL(u.code, '') AS voucher, IFNULL(p.name, '') AS payer FROM orders o " +
+export const ADMIN_ORDER_SELECT = "SELECT o.*, f.self AS self, f.late AS late, IFNULL(u.code, '') AS voucher, IFNULL(p.name, '') AS payer, EXISTS (SELECT 1 FROM proof_images pi WHERE pi.order_id = o.id) AS has_photo FROM orders o " +
   'LEFT JOIN order_flags f ON f.order_id = o.id LEFT JOIN voucher_uses u ON u.order_id = o.id LEFT JOIN order_payer p ON p.order_id = o.id';
 /* 이 주문(?)이 쓴 쿠폰이 한도까지 다 쓰였는가 (이 주문 자신은 빼고 센다). 반려된 주문을 되살리기 전에 본다.
  * UPDATE 의 조건으로 넣어, 확인과 상태 변경이 한 문장에서 일어나게 한다. */
@@ -193,11 +193,12 @@ export async function purgeExpired(db, env) {
     db.prepare("DELETE FROM orders WHERE id = ? AND pay = 'unpaid' AND proof_name = ''").bind(r.id),
     db.prepare('DELETE FROM order_flags WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id),
     db.prepare('DELETE FROM voucher_uses WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id),   // 쓴 쿠폰을 돌려준다
-    db.prepare('DELETE FROM order_payer WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id)
+    db.prepare('DELETE FROM order_payer WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id),
+    db.prepare('DELETE FROM proof_images WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id)
   ));
   const done = await db.batch(stmts);
   // 실제로 지워진 주문만 적는다(그 사이 증빙을 냈거나, 같은 순간의 다른 요청이 먼저 지웠을 수 있다)
-  const ids = rows.filter((r, i) => done[i * 4] && done[i * 4].meta && done[i * 4].meta.changes).map(r => r.id);
+  const ids = rows.filter((r, i) => done[i * 5] && done[i * 5].meta && done[i * 5].meta.changes).map(r => r.id);
   if (!ids.length) return [];
   // 활동 기록 한 줄은 200자까지 보인다. 주문번호가 잘려 빠지지 않게 12개씩 나눠 적는다.
   const at = new Date().toISOString(), logs = [];
@@ -206,12 +207,31 @@ export async function purgeExpired(db, env) {
   return ids;
 }
 
+/* ── 결제 증빙 사진 ── 형식은 파일 앞부분(매직 바이트)으로도 확인한다 */
+export const PHOTO_TYPES = { 'image/jpeg': [0xFF, 0xD8, 0xFF], 'image/png': [0x89, 0x50, 0x4E, 0x47], 'image/webp': [0x52, 0x49, 0x46, 0x46] };
+export function photoOk(mime, bytes) {
+  const sig = PHOTO_TYPES[mime];
+  if (!sig || bytes.length < 12) return false;
+  if (!sig.every((b, i) => bytes[i] === b)) return false;
+  return mime !== 'image/webp' || String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]) === 'WEBP';
+}
+export function toBase64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+export function fromBase64(text) {
+  const s = atob(text), out = new Uint8Array(s.length);
+  for (let i = 0; i < s.length; i++) out[i] = s.charCodeAt(i);
+  return out;
+}
+
 /* ── 예시 데이터 넣기 (처음 실행할 때와 관리자의 "초기화") ── */
 export async function seed(db) {
   const s = GO.seed();
   const stmts = [
     db.prepare('DELETE FROM order_flags'), db.prepare('DELETE FROM orders'), db.prepare('DELETE FROM batches'), db.prepare('DELETE FROM services'),
-    db.prepare('DELETE FROM vouchers'), db.prepare('DELETE FROM voucher_limits'), db.prepare('DELETE FROM voucher_uses'), db.prepare('DELETE FROM voucher_notes'), db.prepare('DELETE FROM order_payer'), db.prepare('DELETE FROM settings')
+    db.prepare('DELETE FROM vouchers'), db.prepare('DELETE FROM voucher_limits'), db.prepare('DELETE FROM voucher_uses'), db.prepare('DELETE FROM voucher_notes'), db.prepare('DELETE FROM order_payer'), db.prepare('DELETE FROM proof_images'), db.prepare('DELETE FROM settings')
   ];
   s.services.forEach((v, i) => stmts.push(db.prepare('INSERT INTO services (id, name_id, name_ko, desc_id, desc_ko, cur, sort) VALUES (?,?,?,?,?,?,?)').bind(v.id, v.name[0], v.name[1], v.desc[0], v.desc[1], v.cur, i)));
   s.batches.forEach(b => stmts.push(db.prepare('INSERT INTO batches (id, svc, no, title, month, stage, close_date, kurs, note) VALUES (?,?,?,?,?,?,?,?,?)').bind(b.id, b.svc, b.no, b.title, b.month, b.stage, b.closeDate, b.kurs, b.note)));
@@ -251,7 +271,7 @@ export async function loadState(db, admin, env) {
     db.prepare('SELECT value FROM settings WHERE key = ?').bind('calcDefaults').first()
   ]);
   state.batches = batches.map(toBatch);
-  state.orders = orders.results.map(r => Object.assign(withDeadline(toOrder(r), env), { voucher: r.voucher || '', payer: r.payer || '' }));
+  state.orders = orders.results.map(r => Object.assign(withDeadline(toOrder(r), env), { voucher: r.voucher || '', payer: r.payer || '', photo: r.has_photo ? 1 : 0 }));
   state.vouchers = vouchers.results;
   state.calcDefaults = calc ? JSON.parse(calc.value) : GO.seed().calcDefaults;
   return state;

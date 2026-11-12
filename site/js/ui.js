@@ -33,6 +33,8 @@
     'Too many attempts. Try again later.': MANY,
     'Voucher not found.': ['Kode voucher tidak ditemukan.', '쿠폰 코드를 찾을 수 없습니다.'],
     'This voucher has been used up.': ['Voucher ini sudah habis dipakai.', '이 쿠폰은 사용 한도를 다 썼습니다.'],
+    'The photo is too large.': ['Foto terlalu besar. Pakai screenshot atau foto yang lebih kecil.', '사진이 너무 큽니다. 화면 캡처나 더 작은 사진을 올려 주세요.'],
+    'Upload a JPG, PNG or WebP image.': ['Foto tidak bisa dibaca. Unggah screenshot JPG atau PNG.', '사진을 읽지 못했습니다. JPG나 PNG 화면 캡처를 올려 주세요.'],
     'The voucher on this order was used up while it was rejected.': ['Selama pesanan ini ditolak, voucher-nya sudah habis dipakai pesanan lain, jadi pesanan ini tidak bisa diaktifkan lagi. Buat pesanan baru atau hubungi admin.', '이 주문이 반려된 사이 쿠폰을 다른 주문이 다 써서 되살릴 수 없습니다. 새로 주문하거나 운영자에게 문의해 주세요.'],
     'That voucher code already exists.': ['Kode voucher itu sudah ada.', '같은 쿠폰 코드가 이미 있습니다.'],
     'Check the voucher fields.': ['Periksa kembali data voucher.', '쿠폰 내용을 다시 확인해 주세요.'],
@@ -352,7 +354,7 @@
   function initPay(batchId, orderId) {
     var b = S.batch(batchId), fromLink = !!b && b.stage < GO.LAST_STAGE;
     if (!fromLink) b = S.db.batches.filter(function (x) { return x.stage < GO.LAST_STAGE; })[0] || S.db.batches[0];
-    P = { svc: b ? b.svc : '', batchId: b ? b.id : '', orderId: '', id: '', buyer: '', item: '', qty: 1, base: '', voucher: '', off: 0, method: 'QRIS', fileName: '', err: '',
+    P = { svc: b ? b.svc : '', batchId: b ? b.id : '', orderId: '', id: '', buyer: '', item: '', qty: 1, base: '', voucher: '', off: 0, method: payMethods()[0] || 'Transfer bank', fileName: '', file: null, err: '',
       pay: '', total: 0, fixed: false, loading: !!orderId, missing: false, gone: false, failed: false, payBy: '', empty: !b && !orderId };   // empty: 주문할 수 있는 배치가 하나도 없다
     if (!orderId) {
       if (P.empty) return;
@@ -400,7 +402,7 @@
     }
     // 입금 기한이 지난 접수: 금액과 QR은 숨긴다(지금 새로 입금하지 않도록). 이미 입금한 고객은 증빙만 올릴 수 있다.
     return h + deadlineNote(P) + (overdue(P) ? '' :
-      '<div class="field"><label>' + L('Metode pembayaran', '결제 수단') + '</label><div class="seg wide">' + ['QRIS', 'Transfer bank'].map(function (m) { return '<button type="button" class="' + (P.method === m ? 'on' : '') + '" data-act="pay-method" data-id="' + m + '">' + (m === 'QRIS' ? m : L('Transfer bank', '계좌 이체')) + '</button>'; }).join('') + '</div></div>' +
+      (payMethods().length < 2 ? '' : '<div class="field"><label>' + L('Metode pembayaran', '결제 수단') + '</label><div class="seg wide">' + payMethods().map(function (m) { return '<button type="button" class="' + (P.method === m ? 'on' : '') + '" data-act="pay-method" data-id="' + m + '">' + (m === 'QRIS' ? m : L('Transfer bank', '계좌 이체')) + '</button>'; }).join('') + '</div></div>') +
       '<div id="payOut"></div>') +
       '<div class="field"><label>' + L('Bukti pembayaran', '결제 증빙') + ' *</label><div class="file"><input type="file" id="proofFile" class="sr" accept="image/*" data-pay="file"><label for="proofFile" class="btn line">' + L('Pilih file', '파일 선택') + '</label><span id="fileName">' + esc(P.fileName || L('Belum ada file dipilih', '선택된 파일 없음')) + '</span></div><small>' + L('Screenshot atau foto bukti transfer.', '이체 화면 캡처나 사진.') + '</small></div>' +
       '<p class="err" id="payErr" role="alert">' + esc(P.err) + '</p>' +
@@ -415,8 +417,8 @@
     var bs = S.batchesOf(P.svc).filter(function (b) { return b.stage < GO.LAST_STAGE || (P.orderId && b.id === P.batchId); }).map(function (b) { return '<option value="' + b.id + '"' + (b.id === P.batchId ? ' selected' : '') + '>' + esc(batchName(b)) + ' (' + esc(monthLabel(b.month)) + ')</option>'; }).join('');
     var lock = P.orderId ? ' readonly' : '';
     return (P.orderId
-        ? '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="lead">' + L('Bayar lewat QR atau transfer, lalu unggah bukti pembayaran.', 'QR이나 이체로 결제한 뒤 증빙을 올려 주세요.') + '</p>'
-        : '<h1>' + L('Pesan sekarang', '주문하기') + '</h1><p class="lead">' + L('Isi data pesanan, lalu tekan "Buat pesanan & lihat nominal". Setelah itu bayar lewat QR dan unggah bukti.', '주문 정보를 적고 "주문 접수하고 결제 금액 보기"를 누르세요. 그다음 QR로 결제하고 증빙을 올립니다.') + '</p>') +
+        ? '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="lead">' + L('Bayar sesuai nominal, lalu unggah bukti pembayaran.', '안내된 금액을 결제한 뒤 증빙을 올려 주세요.') + '</p>'
+        : '<h1>' + L('Pesan sekarang', '주문하기') + '</h1><p class="lead">' + L('Isi data pesanan, lalu tekan "Buat pesanan & lihat nominal". Setelah itu bayar dan unggah bukti.', '주문 정보를 적고 "주문 접수하고 결제 금액 보기"를 누르세요. 그다음 결제하고 증빙을 올립니다.') + '</p>') +
       '<form class="two" data-form="pay"><div class="panel"><h2>' + L('Data pesanan', '주문 정보') + '</h2>' +
       openNotice() +
       (P.orderId ? '<p class="note">' + L('Pesanan', '주문') + ' <b>' + P.orderId + '</b> · <a href="#/pay">' + L('Isi manual', '직접 입력하기') + '</a><br>' + L('Simpan nomor ini untuk melanjutkan pembayaran atau melacak pesanan.', '이 번호를 보관해 두세요. 결제를 이어서 하거나 조회할 때 씁니다.') + '</p>'
@@ -471,10 +473,23 @@
     if (markImg.complete && markImg.naturalWidth) paint(); else markImg.addEventListener('load', paint, { once: true });
   }
   // QR에 담을 내용: 가게 QRIS가 등록되어 있으면 그 주문 금액을 넣은 QRIS, 없으면 예시 문구.
-  function qrText(id, total) {
-    return GO.logic.qrisWithAmount(GO.BRAND.qris, total) ||
-      GO.BRAND.name + ' ' + id + ' Rp ' + total + ' - ' + L('QR contoh, belum bisa dipakai membayar', '예시 QR, 아직 결제에 쓸 수 없습니다');
+  // 고객에게 보여 줄 결제 수단: 실제 정보가 등록된 것만 (가게 QRIS, 가게 계좌). 예시 QR·예시 계좌는 보여 주지 않는다.
+  function payMethods() {
+    var m = [];
+    if (GO.logic.qrisValid(GO.BRAND.qris)) m.push('QRIS');
+    if (GO.BRAND.bank && GO.BRAND.bank.number) m.push('Transfer bank');
+    return m;
   }
+  // 결제 금액 아래의 "어떻게 낼지" 안내
+  function payHow() {
+    var bank = GO.BRAND.bank || {};
+    if (P.method === 'QRIS' && payMethods().indexOf('QRIS') >= 0)
+      return '<div class="qr"><canvas width="400" height="400" id="qrC"></canvas><div><b>' + L('QRIS dinamis', '동적 QRIS') + '</b><p>' + L('Nominal terisi otomatis saat di-scan, tidak perlu ketik harga.', '스캔하면 금액이 자동 입력되어 직접 칠 필요가 없습니다.') + '</p></div></div>';
+    if (payMethods().indexOf('Transfer bank') >= 0)
+      return '<p class="note"><b>' + esc(bank.name) + ' ' + esc(bank.number) + '</b> a.n. ' + esc(bank.holder || GO.BRAND.name) + '<br>' + L('Transfer tepat sesuai nominal di atas.', '위 금액과 정확히 같게 이체해 주세요.') + '</p>';
+    return '<p class="note" id="payByChat"><b>' + L('Cara bayar', '결제 방법') + '</b> ' + L('Rekening atau QR untuk pembayaran akan dikirim admin lewat chat. Bayar tepat sesuai nominal di atas, lalu unggah bukti di bawah.', '입금 계좌나 QR은 운영자가 채팅으로 보내 드립니다. 위 금액과 정확히 같게 보낸 뒤 아래에 증빙을 올려 주세요.') + '</p>';
+  }
+  function qrText(id, total) { return GO.logic.qrisWithAmount(GO.BRAND.qris, total); }
   function drawPay() {
     var out = $('#payOut'); if (!out) return;
     var a = payAmount();
@@ -492,9 +507,7 @@
       (a.off ? '<div class="brk"><div><b>Voucher</b></div><span>−' + rp(a.off) + '</span></div>' : '') +
       '<div class="brk"><div><b>' + L('Kode unik', '고유 코드') + '</b><small>' + L('untuk mencocokkan pembayaran otomatis', '입금 자동 대조용') + '</small></div><span>+' + rp(a.code) + '</span></div>' +
       '<div class="total"><span>' + L('Nominal yang dibayar', '결제할 금액') + '</span><b>' + rp(a.total) + '</b></div></div>' +
-      (P.method === 'QRIS'
-        ? '<div class="qr"><canvas width="400" height="400" id="qrC"></canvas><div><b>' + L('QRIS dinamis', '동적 QRIS') + '</b><p>' + L('Nominal terisi otomatis saat di-scan, tidak perlu ketik harga.', '스캔하면 금액이 자동 입력되어 직접 칠 필요가 없습니다.') + '</p>' + (GO.logic.qrisValid(GO.BRAND.qris) ? '' : '<small>' + L('QR contoh untuk mockup, belum terhubung ke penyedia pembayaran.', '목업용 예시 QR이며 결제사와 연결되어 있지 않습니다.') + '</small>') + '</div></div>'
-        : '<p class="note"><b>BCA 000-000-0000</b> a.n. ' + esc(GO.BRAND.name) + '<br>' + L('Transfer tepat sesuai nominal di atas.', '위 금액과 정확히 같게 이체해 주세요.') + ' <small>(' + L('rekening contoh', '예시 계좌') + ')</small></p>');
+      payHow();
     var q = $('#qrC'); if (q) drawQR(q, qrText(P.id, a.total));
   }
   // 새 주문 접수: 서버가 주문번호와 결제 금액을 정해 저장한다. 그 뒤에는 주소에 주문번호가 붙은 결제 화면으로 간다.
@@ -515,6 +528,22 @@
       $('#payErr').textContent = L('Gagal membuat pesanan. Coba lagi.', '주문을 접수하지 못했습니다. 다시 시도해 주세요.') + ' (' + errText(e) + ')';
     });
   }
+  /* 증빙 사진을 올리기 전에 줄인다: 긴 쪽 1600px, JPEG. 휴대폰 사진(수 MB)도 수백 KB가 된다.
+   * 읽지 못하는 형식이면 거절한다(예: 일부 기기의 HEIC). */
+  function shrinkPhoto(file) {
+    var MAX = GO.LIMITS.photo;
+    if (!window.createImageBitmap) return Promise.reject(new Error('Upload a JPG, PNG or WebP image.'));
+    return createImageBitmap(file).then(function (img) {
+      function at(side, q) {
+        var r = Math.min(1, side / Math.max(img.width, img.height)), c = document.createElement('canvas');
+        c.width = Math.max(1, Math.round(img.width * r)); c.height = Math.max(1, Math.round(img.height * r));
+        var g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+        return new Promise(function (ok) { c.toBlob(ok, 'image/jpeg', q); });
+      }
+      return at(1600, 0.82).then(function (b) { return b && b.size <= MAX ? b : at(1200, 0.7); }).then(function (b) { return b && b.size <= MAX ? b : at(900, 0.6); })
+        .then(function (b) { if (!b || b.size > MAX) throw new Error('The photo is too large.'); return b; });
+    }, function () { throw new Error('Upload a JPG, PNG or WebP image.'); });
+  }
   function submitPay() {
     if (!P.orderId) { reservePay(); return; }
     var a = payAmount();
@@ -525,7 +554,8 @@
     var payload = { orderId: P.orderId, voucher: !P.fixed && P.off ? P.voucher : '', method: P.method, proofName: P.fileName };
     var btn = $('form[data-form=pay] .btn.block');
     btn.disabled = true;
-    S.submitPayment(payload).then(function (o) {
+    var upload = S.mode === 'server' && P.file ? shrinkPhoto(P.file).then(function (blob) { return S.uploadProof(P.orderId, blob); }) : Promise.resolve();
+    upload.then(function () { return S.submitPayment(payload); }).then(function (o) {
       forgetOpen(o.id);
       P = null; receipts[o.id] = o; rememberOrder(o);
       go('#/track/' + o.id);
@@ -831,11 +861,11 @@
     return waitingNote() + (list.length ? (Object.keys(dup).length ? '<p class="note warn"><b>' + L('Perhatian', '주의') + '</b> ' + L('Ada pesanan dengan nominal yang sama. Cocokkan dengan bukti dan nama sebelum menyetujui.', '결제 금액이 같은 주문이 있습니다. 승인하기 전에 증빙과 이름을 대조하세요.') + '</p>' : '') + '<div class="tbl"><table><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>Batch</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">Total</th><th>' + L('Metode', '수단') + '</th><th>' + L('Bukti', '증빙') + '</th><th>' + L('Nama pengirim', '입금자 이름') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' +
       list.map(function (o) {
         var b = S.batch(o.batchId);
-        return '<tr><td>' + o.id + '</td><td class="wrap">' + esc(batchName(b)) + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td class="wrap">' + esc(o.item) + '</td><td class="r">' + rp(o.total) + (dup[o.total] ? ' <span class="badge pay-rejected">' + L('Nominal sama', '금액 같음') + '</span>' : '') + '</td><td>' + esc(o.method) + '</td><td class="wrap">' + esc(o.proofName || '-') + '</td>' +
+        return '<tr><td>' + o.id + '</td><td class="wrap">' + esc(batchName(b)) + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td class="wrap">' + esc(o.item) + '</td><td class="r">' + rp(o.total) + (dup[o.total] ? ' <span class="badge pay-rejected">' + L('Nominal sama', '금액 같음') + '</span>' : '') + '</td><td>' + esc(o.method) + '</td><td class="wrap">' + (o.photo ? '<button type="button" class="link" data-act="proof-view" data-id="' + o.id + '">' + L('Lihat foto', '사진 보기') + '</button><small class="vby">' + esc(o.proofName || '') + '</small>' : esc(o.proofName || '-')) + '</td>' +
           '<td class="payer"><input data-payer="' + o.id + '" value="' + esc(A.payers[o.id] != null ? A.payers[o.id] : (o.payer || '')) + '" maxlength="' + GO.LIMITS.payer + '" placeholder="' + L('sesuai mutasi bank', '은행 입금 내역대로') + '" aria-label="' + L('Nama pengirim', '입금자 이름') + '">' +
             (o.voucher ? '<small class="vby">Voucher ' + esc(o.voucher) + '</small>' : '') + '<small class="rowwarn" data-payerwarn="' + o.id + '" hidden></small></td>' +
           '<td class="acts"><button class="btn sm" data-act="pay-ok" data-id="' + o.id + '">' + L('Setujui', '승인') + '</button><button class="btn line sm" data-act="pay-no" data-id="' + o.id + '">' + L('Tolak', '반려') + '</button></td></tr>';
-      }).join('') + '</tbody></table></div><p class="hint">' + L('Mockup hanya menyimpan nama file bukti, bukan gambarnya.', '목업에서는 증빙 이미지가 아니라 파일 이름만 저장합니다.') + '</p>'
+      }).join('') + '</tbody></table></div>' + (S.mode === 'local' ? '<p class="hint">' + L('Mockup hanya menyimpan nama file bukti, bukan gambarnya.', '목업에서는 증빙 이미지가 아니라 파일 이름만 저장합니다.') + '</p>' : '')
       : empty(L('Tidak ada pembayaran yang menunggu verifikasi.', '확인을 기다리는 결제가 없습니다.')));
   }
 
@@ -861,6 +891,27 @@
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
   }
 
+  /* 아래쪽 안내: 가게 소개, 이용 순서, 바로 가기. 내용이 짧은 화면에서도 빈 곳 대신 다음에 할 일을 보여 준다. */
+  function footer() {
+    var year = new Date().getFullYear(), mock = S.mode === 'local' ? ' · mockup' : '';
+    var brand = '<div class="foot-brand"><img src="' + ROOT + GO.BRAND.mark + '" alt="" width="40" height="40"><div><b>' + esc(GO.BRAND.name) + '</b><p>' + esc(LL(GO.BRAND.tagline)) + '</p></div></div>';
+    if (GO.app === 'admin') {
+      return '<div class="foot-grid admin">' + brand + '<div><h3>' + L('Admin', '관리자') + '</h3><ul class="foot-links">' +
+        [['batch', L('Batch', '배치')], ['order', L('Input pesanan', '주문 입력')], ['pay', L('Verifikasi pembayaran', '결제 확인')], ['shop', L('Pengaturan toko', '가게 설정')]].map(function (x) { return '<li><a href="#/admin/' + x[0] + '">' + esc(x[1]) + '</a></li>'; }).join('') +
+        '<li><a href="' + ROOT + '" target="_blank" rel="noopener">' + L('Lihat situs pelanggan', '고객 사이트 보기') + ' ↗</a></li></ul></div></div>' +
+        '<p class="foot-note">© ' + year + ' ' + esc(GO.BRAND.name) + mock + '</p>';
+    }
+    var steps = [
+      [L('Pesan', '주문하기'), L('Pilih batch, isi pesanan, dan dapatkan nomor pesanan.', '배치를 고르고 주문을 접수하면 주문번호가 나옵니다.'), '#/pay'],
+      [L('Bayar & unggah bukti', '결제·증빙'), L('Bayar tepat sesuai nominal, lalu unggah foto bukti.', '안내된 금액을 그대로 보내고 증빙 사진을 올립니다.'), '#/confirm'],
+      [L('Lacak', '조회'), L('Cek tahap pengiriman dengan nomor pesanan.', '주문번호로 배송 단계를 확인합니다.'), '#/track']
+    ];
+    return '<div class="foot-grid">' + brand +
+      '<div><h3>' + L('Cara order', '이용 순서') + '</h3><ol class="foot-steps">' + steps.map(function (x, i) { return '<li><em>' + (i + 1) + '</em><div><a href="' + x[2] + '">' + esc(x[0]) + '</a><p>' + esc(x[1]) + '</p></div></li>'; }).join('') + '</ol></div>' +
+      '<div><h3>' + L('Layanan', '서비스') + '</h3><ul class="foot-links">' + S.db.services.map(function (s) { return '<li><a href="#/s/' + s.id + '">' + esc(LL(s.name)) + '</a></li>'; }).join('') + '</ul>' +
+      '<p class="foot-tip">' + L('Nomor pesanan ada di struk. Simpan baik-baik.', '주문번호는 영수증에 있습니다. 잘 보관해 주세요.') + '</p></div></div>' +
+      '<p class="foot-note">© ' + year + ' ' + esc(GO.BRAND.name) + ' · ' + S.db.services.map(function (s) { return esc(LL(s.name)); }).join(' · ') + mock + '</p>';
+  }
   // 화면이 짧아 스크롤할 것이 없으면 이동 버튼을 숨긴다
   function showJump() { $('#jump').hidden = document.documentElement.scrollHeight < window.innerHeight + 300; }
   window.addEventListener('resize', showJump);
@@ -956,7 +1007,7 @@
     $('#jumpBottom').setAttribute('aria-label', L('Ke bawah', '맨 아래로')); $('#jumpBottom').title = L('Ke bawah', '맨 아래로');
     showJump();
     document.documentElement.lang = lang;
-    document.title = GO.BRAND.name + (GO.app === 'admin' ? ' Admin' : ''); $('#logo').innerHTML = '<img src="' + ROOT + GO.BRAND.mark + '" alt="" width="26" height="26">' + esc(GO.BRAND.name) + (GO.app === 'admin' ? ' <small>Admin</small>' : ''); $('#foot').textContent = GO.BRAND.name + (S.mode === 'local' ? ' · mockup' : '');   // 서버 없이 도는 목업판에만 표시
+    document.title = GO.BRAND.name + (GO.app === 'admin' ? ' Admin' : ''); $('#logo').innerHTML = '<img src="' + ROOT + GO.BRAND.mark + '" alt="" width="26" height="26">' + esc(GO.BRAND.name) + (GO.app === 'admin' ? ' <small>Admin</small>' : ''); $('#foot').innerHTML = footer();
     if (page === 'admin' && r[1] === 'calc' && S.isAdmin) drawCalc();
     if (page === 'admin' && r[1] === 'pay' && S.isAdmin) document.querySelectorAll('[data-payer]').forEach(function (x) { payerWarn(x.getAttribute('data-payer')); });
     if (page === 'track') drawTrack(r[1] || '');
@@ -1052,6 +1103,12 @@
       S.updateOrder(id, { pay: 'paid', payer: pn.trim() }); delete A.payers[id]; render();
     }
     else if (act === 'pay-no') { var pr = ($('[data-payer="' + id + '"]') || {}).value || ''; S.updateOrder(id, pr.trim() ? { pay: 'rejected', payer: pr.trim() } : { pay: 'rejected' }); delete A.payers[id]; render(); }
+    else if (act === 'proof-view') {
+      var pm = document.createElement('div');
+      pm.className = 'modal'; pm.setAttribute('role', 'dialog'); pm.setAttribute('aria-modal', 'true');
+      pm.innerHTML = '<div class="receipt photo"><button class="x" data-act="modal-close" aria-label="' + L('Tutup', '닫기') + '">×</button><b>' + esc(id) + '</b><img src="/api/admin/proof/' + encodeURIComponent(id) + '" alt="' + L('Bukti pembayaran', '결제 증빙') + '"></div>';
+      document.body.appendChild(pm); pm.querySelector('.x').focus();
+    }
     else if (act === 'vnote-save') { var vn = A.edit['v:' + id]; if (vn) { S.setVoucherNote(id, vn.note); saved('v:' + id); } }
     else if (act === 'sample') { A.text = $('[data-admin="text"]').getAttribute('placeholder'); A.rows = null; render(); }
     else if (act === 'classify') {
@@ -1093,7 +1150,7 @@
       setPath(C, k, k === 'tax.base' ? t.value : t.value === '' ? 0 : Number(t.value));
       drawCalc();
     } else if ((k = t.getAttribute('data-pay'))) {
-      if (k === 'file') { P.fileName = t.files[0] ? t.files[0].name : ''; $('#fileName').textContent = P.fileName || L('Belum ada file dipilih', '선택된 파일 없음'); return; }
+      if (k === 'file') { P.file = t.files[0] || null; P.fileName = t.files[0] ? t.files[0].name : ''; $('#fileName').textContent = P.fileName || L('Belum ada file dipilih', '선택된 파일 없음'); return; }
       P[k] = t.value;
       if (k === 'voucher') { P.off = 0; }
       saveDraft();                                 // 새로 고치거나 다른 화면에 다녀와도 남도록

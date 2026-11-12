@@ -50,6 +50,21 @@ test('입력 검사: 비워도 되는 글자 칸은 없으면 빈 글자, 글자
   assert.equal(V.optText('x'.repeat(11), 10), null);
   for (const bad of [12345, 0, true, ['x'], { a: 1 }]) assert.equal(V.optText(bad, 10), null, JSON.stringify(bad));
 });
+test('증빙 사진: 형식은 파일 앞부분까지 확인하고, base64 로 바꿔도 그대로 돌아온다', async () => {
+  const { photoOk, toBase64, fromBase64 } = await import('../server/lib.js');
+  const png = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 1, 2, 3]);
+  const jpg = new Uint8Array([0xFF, 0xD8, 0xFF, 0xE0, 0, 16, 74, 70, 73, 70, 0, 1]);
+  const webp = new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 1]);
+  assert.equal(photoOk('image/png', png), true);
+  assert.equal(photoOk('image/jpeg', jpg), true);
+  assert.equal(photoOk('image/webp', webp), true);
+  assert.equal(photoOk('image/png', jpg), false);                 // 형식 이름과 내용이 다르면 거절
+  assert.equal(photoOk('image/gif', png), false);
+  assert.equal(photoOk('text/html', new TextEncoder().encode('<html><script>x</script>')), false);
+  assert.equal(photoOk('image/webp', new Uint8Array([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x41, 0x56, 0x45])), false);   // RIFF 지만 WAVE
+  const big = new Uint8Array(300000).map((_, i) => (i * 7) & 255);
+  assert.deepEqual(fromBase64(toBase64(big)), big);
+});
 test('입력 검사: 달력에 없는 날짜는 받지 않는다', async () => {
   const { V } = await import('../server/lib.js');
   for (const bad of ['2026-02-30', '9999-99-99', '2026-13-01', '2026-00-10', '2025-02-29', '2026-1-5', 20261130]) assert.equal(V.date(bad), null, String(bad));
@@ -109,6 +124,7 @@ test('입금 기한: 지울 때가 된 접수만, 지우는 순간에도 결제 
   assert.equal(ran.filter(s => /DELETE FROM order_flags WHERE order_id = \? AND NOT EXISTS/.test(s)).length, 2);
   assert.equal(ran.filter(s => /DELETE FROM voucher_uses WHERE order_id = \? AND NOT EXISTS/.test(s)).length, 2);   // 지워진 접수가 쓴 쿠폰을 돌려준다
   assert.equal(ran.filter(s => /DELETE FROM order_payer WHERE order_id = \? AND NOT EXISTS/.test(s)).length, 2);
+  assert.equal(ran.filter(s => /DELETE FROM proof_images WHERE order_id = \? AND NOT EXISTS/.test(s)).length, 2);
   assert.ok(ran.some(s => /INSERT INTO audit/.test(s)));
   const empty = { prepare: sql => ({ bind: () => ({ all: async () => ({ results: [] }) }) }), batch: async () => { throw new Error('지울 것이 없으면 아무것도 쓰지 않는다'); } };
   assert.deepEqual(await purgeExpired(empty, {}), []);

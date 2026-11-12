@@ -275,6 +275,35 @@ test('반려된 주문 되살리기: 반려된 사이 한 장짜리 쿠폰이 �
   await nap(WINDOW_MS);
 });
 
+test('증빙 사진: 결제 전 주문에만 올리고, 운영자만 본다. 주문을 지우면 함께 지운다', async () => {
+  await nap(WINDOW_MS);
+  const o = (await call('POST', '/order', { batchId: 'kr-5', buyer: 'foto', item: 'Album', qty: 1, base: 20000 })).json.order;
+  const png = new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A].concat(Array.from({ length: 200 }, (_, i) => i & 255)));
+  const up = (body, type, id) => fetch(BASE + '/api/proof/' + encodeURIComponent(id || o.id), { method: 'POST', headers: { 'content-type': type }, body }).then(r => r.status);
+  assert.equal(await up(png, 'text/plain'), 400);
+  assert.equal(await up(new Uint8Array(50).fill(1), 'image/png'), 400);          // 이름만 그림이고 내용은 아님
+  const big = new Uint8Array(GO.LIMITS.photo + 10); big.set(png.slice(0, 8));
+  assert.equal(await up(big, 'image/png'), 413);
+  assert.equal(await up(png, 'image/png', GO.BRAND.orderPrefix + '-ZZZZZZZZ'), 404);
+  assert.equal(await up(png, 'image/png', o.id.toLowerCase()), 200);              // 소문자 번호도 같은 주문
+  // 로그인 없이는 볼 수 없다
+  assert.equal((await fetch(BASE + '/api/admin/proof/' + o.id)).status, 401);
+  const seen = await fetch(BASE + '/api/admin/proof/' + o.id, { headers: { cookie } });
+  assert.equal(seen.status, 200);
+  assert.equal(seen.headers.get('content-type'), 'image/png');
+  assert.match(seen.headers.get('cache-control') || '', /no-store/);
+  assert.deepEqual(new Uint8Array(await seen.arrayBuffer()), png);
+  assert.equal((await admin('GET', '/admin/state')).json.orders.find(x => x.id === o.id).photo, 1);
+  assert.equal((await call('GET', '/order?id=' + o.id)).json.order.photo, undefined);   // 고객 응답에는 없다
+  // 증빙을 낸 뒤에는 바꿀 수 없다
+  assert.equal((await call('POST', '/pay', { orderId: o.id, method: 'Transfer bank', proofName: 'bukti.png' })).status, 200);
+  assert.equal(await up(png, 'image/png'), 409);
+  // 주문을 지우면 사진도 지운다
+  assert.equal((await admin('DELETE', '/admin/order/' + o.id)).status, 200);
+  assert.equal((await fetch(BASE + '/api/admin/proof/' + o.id, { headers: { cookie } })).status, 404);
+  await nap(WINDOW_MS);
+});
+
 test('입금자 이름: 승인할 때 적으면 운영자 화면에만 남는다', async () => {
   const o = (await call('POST', '/order', { batchId: 'kr-5', buyer: 'pengirim', item: 'Album', qty: 1, base: 30000 })).json.order;
   assert.equal((await call('POST', '/pay', { orderId: o.id, method: 'QRIS', proofName: 'p.jpg' })).status, 200);

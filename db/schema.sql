@@ -54,6 +54,15 @@ CREATE TABLE IF NOT EXISTS voucher_uses (
   code TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS voucher_uses_code ON voucher_uses (code);
+-- 결제 증빙 사진: 고객이 올린 사진을 줄여서(최대 약 800KB) base64 글자로 저장한다. 운영자만 볼 수 있다.
+-- 주문을 지우면 함께 지운다. (별도 파일 저장소(R2) 없이 D1 무료 범위 안에서 쓰기 위한 방식)
+CREATE TABLE IF NOT EXISTS proof_images (
+  order_id TEXT PRIMARY KEY,
+  mime TEXT NOT NULL,
+  data TEXT NOT NULL,
+  size INTEGER NOT NULL,
+  created_at TEXT NOT NULL
+);
 -- 쿠폰 메모: 한 장짜리 코드를 누구에게 줬는지 등 (운영자만 본다)
 CREATE TABLE IF NOT EXISTS voucher_notes (
   code TEXT PRIMARY KEY,
