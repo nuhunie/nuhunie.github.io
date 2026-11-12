@@ -219,4 +219,4 @@
         .catch(function () { return { engine: 'rules', rows: X.classifyText(text) }; });
     }
   };
-})(window.GO);
+})(globalThis.GO);

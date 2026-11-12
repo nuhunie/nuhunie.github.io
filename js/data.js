@@ -6,7 +6,9 @@
  * Voucher  { code, off(IDR) }
  * CalcDefaults  계산기 기본 수식
  */
-window.GO = window.GO || {};
+// globalThis: 브라우저에서는 window, 서버(Cloudflare Functions)에서는 전역 객체. 같은 파일을 양쪽에서 쓴다.
+globalThis.GO = globalThis.GO || {};
+var GO = globalThis.GO;
 
 // 상호와 주문번호 머리글자. 가게 이름이 정해지면 여기 두 값만 바꾸면 화면·영수증 전체에 반영된다.
 GO.BRAND = { name: 'Nuhunie', orderPrefix: 'NUH', mark: 'assets/mark-a.png',

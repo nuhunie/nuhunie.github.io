@@ -220,6 +220,11 @@ input[readonly], select:disabled { background: var(--soft); color: var(--sub); }
 .how p { color: var(--sub); font-size: 13px; }
 .how a { font-size: 13px; font-weight: 600; display: inline-block; margin-top: 4px; }
 
+/* 관리자 로그인 */
+.login { max-width: 380px; margin: 32px auto; border: 1px solid var(--line); border-radius: var(--r); padding: 28px; }
+.login .lead { margin-bottom: 20px; }
+.btn:disabled { opacity: .6; cursor: default; }
+
 /* 영수증 */
 .modal { position: fixed; inset: 0; background: rgba(0, 0, 0, .5); display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 20; overflow-y: auto; }
 .receipt { position: relative; background: #fff; border-radius: var(--r); width: 100%; max-width: 380px; padding: 28px 24px 24px; }

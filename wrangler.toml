@@ -1,0 +1,13 @@
+# Cloudflare Pages 설정. 화면 파일은 build.js가 dist/에 모으고, API는 functions/에서 온다.
+name = "nuhunie"
+compatibility_date = "2026-10-01"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nuhunie"
+database_id = "52eafc57-8e28-4922-ae7d-cd957b765763"
+
+# 비밀값(ADMIN_PASSWORD, SESSION_SECRET)은 여기에 적지 않는다.
+#   배포용: npx wrangler pages secret put ADMIN_PASSWORD   (SESSION_SECRET도 같은 방법)
+#   내 컴퓨터용: .dev.vars 파일 (git에 올리지 않음)

@@ -123,11 +123,12 @@
   }
 
   /* ── 주문 조회 ── */
-  function vTrack(q) {
-    var found = q ? X.searchOrders(S.db.orders, q) : [];
+  var receipts = {};   // 영수증으로 보여 줄 주문: 조회 결과와 방금 결제한 주문
+  function trackCards(found) {
     var labels = [L('Pembayaran', '결제')].concat(GO.STAGES.slice(1).map(LL));
-    var cards = found.map(function (o) {
+    return found.map(function (o) {
       var b = S.batch(o.batchId), s = S.service(b.svc), p = X.orderProgress(o, b);
+      receipts[o.id] = o;
       return '<article class="card"><div class="head"><div><small>' + o.id + ' · ' + esc(dateLabel(o.createdAt)) + '</small><h2>' + esc(o.item) + '</h2>' +
         '<p class="lead">' + esc(X.maskName(o.buyer)) + ' · ' + o.qty + ' pcs · ' + rp(o.total) + '</p></div><div class="right">' + payBadge(o.pay) + '</div></div>' +
         stepper(labels, p.cur, p.finished) +
@@ -136,9 +137,24 @@
         (o.pay === 'unpaid' || o.pay === 'rejected' ? '<a class="btn" href="#/pay/' + b.id + '/' + o.id + '">' + L('Bayar pesanan ini', '이 주문 결제하기') + '</a>'
           : '<button type="button" class="btn line" data-act="receipt" data-id="' + o.id + '">' + L('Lihat bukti pesanan', '영수증 보기') + '</button>') + '</article>';
     }).join('');
+  }
+  function vTrack(q) {
+    var first = S.db.orders[0];
     return '<h1>' + L('Lacak pesanan', '주문 조회') + '</h1><p class="lead">' + L('Masukkan nomor pesanan atau username untuk melihat posisi dan status pesanan.', '주문번호나 아이디를 입력하면 주문 위치와 상태를 볼 수 있습니다.') + '</p>' + searchForm(q) +
-      (q ? (found.length ? '<p class="count">' + found.length + ' ' + L('pesanan ditemukan', '건 찾음') + '</p>' + cards : empty(L('Pesanan tidak ditemukan. Periksa lagi nomor pesanan atau username.', '주문을 찾지 못했습니다. 주문번호나 아이디를 다시 확인해 주세요.')))
-        : '<p class="hint">' + L('Contoh', '예시') + ': ' + S.db.orders[0].id + ', ' + esc(S.db.orders[0].buyer) + '</p>');
+      '<div id="trackOut" aria-live="polite">' + (!q && first && first.id ? '<p class="hint">' + L('Contoh', '예시') + ': ' + first.id + ', ' + esc(first.buyer) + '</p>' : '') + '</div>';
+  }
+  // 조회 결과는 저장소에 물어본 뒤 채운다 (서버에서는 주문번호·아이디가 맞는 주문만 돌려준다)
+  function drawTrack(q) {
+    if (!q) return;
+    S.track(q).then(function (found) {
+      var out = $('#trackOut');
+      if (!out || (route()[1] || '') !== q) return;
+      out.innerHTML = found.length ? '<p class="count">' + found.length + ' ' + L('pesanan ditemukan', '건 찾음') + '</p>' + trackCards(found)
+        : empty(L('Pesanan tidak ditemukan. Periksa lagi nomor pesanan atau username.', '주문을 찾지 못했습니다. 주문번호나 아이디를 다시 확인해 주세요.'));
+    }, function () {
+      var out = $('#trackOut');
+      if (out) out.innerHTML = empty(L('Gagal memuat. Coba lagi.', '불러오지 못했습니다. 다시 시도해 주세요.'));
+    });
   }
 
   /* ── 계산기 ── */
@@ -188,8 +204,16 @@
   /* ── 결제 확인 ── */
   var P = null;
   function initPay(batchId, orderId) {
-    var o = orderId ? S.order(orderId) : null, b = S.batch(o ? o.batchId : batchId) || S.db.batches[0];
-    P = { svc: b.svc, batchId: b.id, orderId: o ? o.id : '', id: o ? o.id : S.newOrderId(), buyer: o ? o.buyer : '', item: o ? o.item : '', qty: o ? o.qty : 1, base: o ? o.total : '', voucher: '', off: 0, method: 'QRIS', fileName: '', err: '' };
+    var b = S.batch(batchId) || S.db.batches[0];
+    P = { svc: b.svc, batchId: b.id, orderId: '', id: S.newOrderId(), buyer: '', item: '', qty: 1, base: '', voucher: '', off: 0, method: 'QRIS', fileName: '', err: '' };
+    if (!orderId) return;
+    var mine = P;
+    S.fetchOrder(orderId).then(function (o) {
+      if (!o || P !== mine) return;
+      var ob = S.batch(o.batchId) || b;
+      Object.assign(P, { svc: ob.svc, batchId: ob.id, orderId: o.id, id: o.id, buyer: o.buyer, item: o.item, qty: o.qty, base: o.base || o.total });
+      render();
+    });
   }
   function payAmount() {
     var base = Number(P.base) || 0;
@@ -204,7 +228,7 @@
     return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="lead">' + L('Isi data pesanan, bayar lewat QR, lalu unggah bukti pembayaran.', '주문 정보를 입력하고 QR로 결제한 뒤 증빙을 올려 주세요.') + '</p>' +
       '<form class="two" data-form="pay"><div class="panel"><h2>' + L('Data pesanan', '주문 정보') + '</h2>' +
       (P.orderId ? '<p class="note">' + L('Pesanan', '주문') + ' <b>' + P.orderId + '</b> · <a href="#/pay">' + L('Isi manual', '직접 입력하기') + '</a></p>'
-        : '<div class="field"><label>' + L('Sudah punya nomor pesanan?', '주문번호가 있나요?') + '</label><div class="inline"><input id="payLookup" placeholder="' + S.db.orders[0].id + '" autocomplete="off"><button type="button" class="btn line" data-act="pay-lookup">' + L('Muat', '불러오기') + '</button></div><small id="lookupMsg">' + L('Data pesanan terisi otomatis.', '주문 정보가 자동으로 채워집니다.') + '</small></div>') +
+        : '<div class="field"><label>' + L('Sudah punya nomor pesanan?', '주문번호가 있나요?') + '</label><div class="inline"><input id="payLookup" placeholder="' + GO.BRAND.orderPrefix + '-123456" autocomplete="off"><button type="button" class="btn line" data-act="pay-lookup">' + L('Muat', '불러오기') + '</button></div><small id="lookupMsg">' + L('Data pesanan terisi otomatis.', '주문 정보가 자동으로 채워집니다.') + '</small></div>') +
       '<div class="field"><label>' + L('Pilih layanan', '서비스 선택') + ' *</label><div class="seg wide">' + svcs + '</div></div>' +
       '<div class="field"><label>' + L('Nomor batch', '배치 번호') + ' *</label><select data-pay="batchId"' + (P.orderId ? ' disabled' : '') + '>' + bs + '</select></div>' +
       '<div class="grid2"><div class="field"><label>' + L('Nama / username pembeli', '구매자 이름·아이디') + ' *</label><input data-pay="buyer" value="' + esc(P.buyer) + '"' + lock + '></div>' +
@@ -266,16 +290,22 @@
     else if (!P.fileName) { P.err = L('Unggah bukti pembayaran terlebih dahulu.', '결제 증빙을 먼저 올려 주세요.'); }
     else P.err = '';
     if (P.err) { $('#payErr').textContent = P.err; return; }
-    var patch = { batchId: P.batchId, buyer: P.buyer.trim().replace(/^@/, ''), item: P.item.trim(), qty: Math.max(1, Number(P.qty) || 1), total: a.total, pay: 'pending', method: P.method, proofName: P.fileName };
-    var o = P.orderId ? S.updateOrder(P.orderId, patch) : S.addOrder(Object.assign({ id: P.id }, patch));
-    P = null;
-    go('#/track/' + o.id);
-    showReceipt(o.id);
+    var payload = { orderId: P.orderId, id: P.id, batchId: P.batchId, buyer: P.buyer, item: P.item, qty: P.qty, base: a.base, voucher: P.off ? P.voucher : '', method: P.method, proofName: P.fileName };
+    var btn = $('form[data-form=pay] .btn.block');
+    btn.disabled = true;
+    S.submitPayment(payload).then(function (o) {
+      P = null; receipts[o.id] = o;
+      go('#/track/' + o.id);
+      showReceipt(o.id);
+    }, function (e) {
+      btn.disabled = false;
+      $('#payErr').textContent = L('Gagal mengirim. Coba lagi.', '제출하지 못했습니다. 다시 시도해 주세요.') + ' (' + e.message + ')';
+    });
   }
 
   /* ── 영수증 ── */
   function showReceipt(orderId) {
-    var o = S.order(orderId); if (!o) return;
+    var o = receipts[orderId] || S.order(orderId); if (!o) return;
     var b = S.batch(o.batchId), s = S.service(b.svc);
     var when = new Date(o.createdAt).toLocaleString(loc(), { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     var m = document.createElement('div');
@@ -291,7 +321,7 @@
     m.querySelector('.x').focus();
   }
   function saveReceipt(orderId) {
-    var o = S.order(orderId), b = S.batch(o.batchId), s = S.service(b.svc);
+    var o = receipts[orderId] || S.order(orderId), b = S.batch(o.batchId), s = S.service(b.svc);
     var cv = document.createElement('canvas'), W = 720, H = 760; cv.width = W; cv.height = H;
     var c = cv.getContext('2d');
     c.fillStyle = '#fff'; c.fillRect(0, 0, W, H);
@@ -315,13 +345,20 @@
   /* ── 관리자 ── */
   var A = { batchId: '', text: '', rows: null, engine: '' };
   function vAdmin(tab) {
+    if (!S.isAdmin) return vLogin();
     tab = tab || 'guide';
     var tabs = [['guide', L('Panduan', '사용 안내')], ['batch', L('Batch', '배치')], ['order', L('Input pesanan', '주문 입력')], ['pay', L('Verifikasi pembayaran', '결제 확인')], ['calc', L('Kalkulator', '계산기')]];
     var pendingN = S.db.orders.filter(function (o) { return o.pay === 'pending'; }).length;
-    return '<div class="head"><div><h1>' + L('Admin', '관리자') + '</h1><p class="lead">' + L('Data yang diisi di sini langsung tampil di halaman pelanggan.', '여기서 입력한 내용이 고객 화면에 바로 나타납니다.') + '</p></div><div class="btns"><button class="btn" data-act="export">' + L('Unduh CSV pesanan', '주문 CSV 내려받기') + '</button><button class="btn line" data-act="reset">' + L('Reset data contoh', '예시 데이터로 초기화') + '</button></div></div>' +
-      '<p class="note">' + L('Mockup: belum ada login admin dan data hanya tersimpan di browser ini.', '목업: 관리자 로그인이 아직 없고, 데이터는 이 브라우저에만 저장됩니다.') + '</p>' +
+    return '<div class="head"><div><h1>' + L('Admin', '관리자') + '</h1><p class="lead">' + L('Data yang diisi di sini langsung tampil di halaman pelanggan.', '여기서 입력한 내용이 고객 화면에 바로 나타납니다.') + '</p></div><div class="btns"><button class="btn" data-act="export">' + L('Unduh CSV pesanan', '주문 CSV 내려받기') + '</button><button class="btn line" data-act="reset">' + L('Reset data contoh', '예시 데이터로 초기화') + '</button>' + (S.mode === 'server' ? '<button class="btn line" data-act="logout">' + L('Keluar', '로그아웃') + '</button>' : '') + '</div></div>' +
+      '<p class="note">' + (S.mode === 'server' ? L('Masuk sebagai admin. Perubahan tersimpan di server dan terlihat di semua perangkat.', '관리자로 로그인했습니다. 변경 내용은 서버에 저장되어 모든 기기에서 보입니다.') : L('Mockup: belum ada login admin dan data hanya tersimpan di browser ini.', '목업: 관리자 로그인이 아직 없고, 데이터는 이 브라우저에만 저장됩니다.')) + '</p>' +
       '<div class="tabs">' + tabs.map(function (t) { return '<a class="' + (t[0] === tab ? 'on' : '') + '" href="#/admin/' + t[0] + '">' + esc(t[1]) + (t[0] === 'pay' && pendingN ? ' <i class="dot">' + pendingN + '</i>' : '') + '</a>'; }).join('') + '</div>' +
       ({ guide: aGuide, batch: aBatch, order: aOrder, pay: aPay, calc: vCalc }[tab] || aGuide)();
+  }
+  function vLogin() {
+    return '<div class="login"><h1>' + L('Admin', '관리자') + '</h1><p class="lead">' + L('Masuk untuk mengelola batch, pesanan, dan pembayaran.', '배치·주문·결제를 관리하려면 로그인하세요.') + '</p>' +
+      (S.loginReady
+        ? '<form data-form="login"><div class="field"><label>' + L('Kata sandi admin', '관리자 비밀번호') + '</label><input type="password" name="password" autocomplete="current-password" required></div><p class="err" id="loginErr" role="alert"></p><button class="btn block">' + L('Masuk', '로그인') + '</button></form>'
+        : '<p class="note">' + L('Login admin belum diatur di server.', '서버에 관리자 로그인이 아직 설정되지 않았습니다.') + '</p>') + '</div>';
   }
   function aGuide() {
     var g = [
@@ -432,6 +469,7 @@
   /* ── 라우터 ── */
   function route() { return location.hash.replace(/^#\/?/, '').split('/').map(decodeURIComponent); }
   function render() {
+    if (!S.db) return;                       // 저장소가 아직 준비되지 않았다
     var r = route(), html, page = r[0] || 'home';
     var payKey = (r[1] || '') + '/' + (r[2] || '');
     if (page === 'pay' && (!P || P._key !== payKey)) { initPay(r[1], r[2]); P._key = payKey; }
@@ -460,7 +498,8 @@
     $('#themes').innerHTML = THEMES.map(function (t) {
       return '<button type="button" data-act="theme" data-id="' + t[0] + '" class="' + (t[0] === theme ? 'on' : '') + '" style="background:' + t[1] + '" title="' + LL(t[2]) + '" aria-label="' + LL(t[2]) + '" aria-pressed="' + (t[0] === theme) + '"></button>';
     }).join('');
-    if (page === 'admin' && r[1] === 'calc') drawCalc();
+    if (page === 'admin' && r[1] === 'calc' && S.isAdmin) drawCalc();
+    if (page === 'track') drawTrack(r[1] || '');
     if (page === 'pay') drawPay();
   }
 
@@ -470,6 +509,11 @@
     e.preventDefault();
     if (f === 'track') go('#/track/' + encodeURIComponent(e.target.q.value.trim()));
     else if (f === 'pay') submitPay();
+    else if (f === 'login') {
+      S.login(e.target.password.value).then(render, function (err) {
+        $('#loginErr').textContent = err.status === 401 ? L('Kata sandi salah.', '비밀번호가 맞지 않습니다.') : L('Gagal masuk. Coba lagi.', '로그인하지 못했습니다. 다시 시도해 주세요.');
+      });
+    }
     else if (f === 'batch') {
       var d = e.target, b = S.addBatch({ svc: d.svc.value, no: +d.no.value, title: d.title.value.trim(), month: d.month.value, stage: 0, closeDate: d.closeDate.value, kurs: +d.kurs.value || 1, note: d.note.value.trim() });
       if (!b) $('#batchErr').textContent = L('Nomor batch itu sudah ada di layanan ini.', '이 서비스에 같은 번호의 배치가 이미 있습니다.'); else render();
@@ -493,20 +537,25 @@
     else if (act === 'pay-svc') { P.svc = id; P.batchId = (S.batchesOf(id)[0] || {}).id; render(); }
     else if (act === 'pay-method') { P.method = id; render(); }
     else if (act === 'pay-lookup') {
-      var found = S.order($('#payLookup').value.trim());
-      if (found) go('#/pay/' + found.batchId + '/' + found.id);
-      else { $('#lookupMsg').textContent = L('Nomor pesanan tidak ditemukan.', '주문번호를 찾을 수 없습니다.'); $('#lookupMsg').className = 'err'; }
+      S.fetchOrder($('#payLookup').value).then(function (found) {
+        if (found) go('#/pay/' + found.batchId + '/' + found.id);
+        else { $('#lookupMsg').textContent = L('Nomor pesanan tidak ditemukan.', '주문번호를 찾을 수 없습니다.'); $('#lookupMsg').className = 'err'; }
+      });
     }
     else if (act === 'pay-voucher') {
-      var v = S.voucher(P.voucher); P.off = v ? v.off : 0;
-      $('#vMsg').textContent = v ? L('Voucher aktif', '쿠폰 적용됨') + ': −' + rp(v.off) : L('Kode voucher tidak ditemukan.', '쿠폰 코드를 찾을 수 없습니다.');
-      drawPay();
+      S.checkVoucher(P.voucher).then(function (v) {
+        if (!P) return;
+        P.off = v ? v.off : 0;
+        $('#vMsg').textContent = v ? L('Voucher aktif', '쿠폰 적용됨') + ': −' + rp(v.off) : L('Kode voucher tidak ditemukan.', '쿠폰 코드를 찾을 수 없습니다.');
+        drawPay();
+      });
     }
     else if (act === 'receipt') showReceipt(id);
     else if (act === 'modal-close') t.closest('.modal').remove();
     else if (act === 'receipt-save') saveReceipt(id);
     else if (act === 'export') exportOrders();
-    else if (act === 'reset') { if (confirm(L('Semua data kembali ke contoh awal. Lanjutkan?', '모든 데이터가 처음 예시로 돌아갑니다. 계속할까요?'))) { S.reset(); A.rows = null; C = null; render(); } }
+    else if (act === 'reset') { if (confirm(L('Semua data kembali ke contoh awal. Lanjutkan?', '모든 데이터가 처음 예시로 돌아갑니다. 계속할까요?'))) { S.reset().then(function () { A.rows = null; C = null; render(); }); } }
+    else if (act === 'logout') S.logout().then(render);
     else if (act === 'batch-del') { if (confirm(L('Hapus batch ini beserta pesanannya?', '이 배치와 그 안의 주문을 삭제할까요?'))) { S.removeBatch(id); render(); } }
     else if (act === 'order-del') { if (confirm(L('Hapus pesanan ini?', '이 주문을 삭제할까요?'))) { S.removeOrder(id); render(); } }
     else if (act === 'pay-ok') { S.updateOrder(id, { pay: 'paid' }); render(); }
@@ -557,6 +606,12 @@
     else if ((k = t.getAttribute('data-opay'))) S.updateOrder(k, { pay: t.value });
   });
   document.addEventListener('keydown', function (e) { var m = $('.modal'); if (e.key === 'Escape' && m) m.remove(); });
-  window.addEventListener('hashchange', function () { render(); window.scrollTo(0, 0); });
-  render();
+  // 화면을 옮길 때마다 서버 내용을 다시 읽는다. 무언가 입력하는 중이면 화면을 다시 그리지 않는다.
+  function typing() { var a = document.activeElement; return !!(a && a.closest && a.closest('#app') && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)); }
+  window.addEventListener('hashchange', function () {
+    render(); window.scrollTo(0, 0);
+    S.refresh().then(function (changed) { if (changed && !typing()) render(); });
+  });
+  GO.onStoreError = function (e) { render(); alert(L('Perubahan tidak tersimpan: ', '변경 내용이 저장되지 않았습니다: ') + e.message); };
+  S.init().then(render);
 })(window.GO);

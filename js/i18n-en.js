@@ -207,6 +207,19 @@ GO.EN = {
   'Nomor pesanan tidak ditemukan.': 'Order number not found.',
   'Aksi': 'Actions',
 
+  // 서버 연결에서 추가된 문구
+  'Gagal memuat. Coba lagi.': 'Could not load. Please try again.',
+  'Gagal mengirim. Coba lagi.': 'Could not submit. Please try again.',
+  'Keluar': 'Sign out',
+  'Masuk sebagai admin. Perubahan tersimpan di server dan terlihat di semua perangkat.': 'Signed in as admin. Changes are saved on the server and show on every device.',
+  'Masuk untuk mengelola batch, pesanan, dan pembayaran.': 'Sign in to manage batches, orders and payments.',
+  'Kata sandi admin': 'Admin password',
+  'Masuk': 'Sign in',
+  'Login admin belum diatur di server.': 'Admin sign-in is not set up on the server yet.',
+  'Kata sandi salah.': 'Wrong password.',
+  'Gagal masuk. Coba lagi.': 'Could not sign in. Please try again.',
+  'Perubahan tidak tersimpan: ': 'The change was not saved: ',
+
   // 배색·이동
   'Pink': 'Pink',
   'Pink pastel': 'Pastel pink',

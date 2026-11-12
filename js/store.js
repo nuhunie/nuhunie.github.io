@@ -1,23 +1,85 @@
 /* 3층: 저장소 — 데이터를 읽고 쓰는 유일한 통로.
- * 목업에서는 브라우저 localStorage에 둔다. 실제 서비스에서는 이 파일의
- * 함수 안쪽만 서버 API 호출로 바꾸면 화면 코드는 그대로다. */
+ *
+ * 두 가지 방식으로 동작하고, 화면 코드는 어느 쪽인지 몰라도 된다.
+ *   server  /api 가 응답하면 서버(Cloudflare D1)의 데이터를 쓴다. 모든 기기가 같은 내용을 본다.
+ *   local   /api 가 없으면(파일만 올린 목업) 이 브라우저의 localStorage에 둔다.
+ *
+ * 화면이 빠르게 그려지도록 읽은 내용은 db에 들고 있는다.
+ *   읽기        db에서 바로 읽는다 (service, batch, batchesOf ...)
+ *   관리자 쓰기  db를 먼저 고치고 서버에 보낸다. 서버가 거절하면 다시 읽어 와 되돌린다.
+ *   고객 흐름    조회·결제는 서버가 판단해야 하므로 Promise를 돌려준다 (track, fetchOrder, submitPayment ...)
+ */
 (function (GO) {
   var KEY = 'jastip-mockup-v3';
-  var db;
+  var X = GO.logic;
+  var db, mode = 'local', admin = false, loginReady = true;
 
-  function load() {
+  /* ── local ── */
+  function loadLocal() {
     try { db = JSON.parse(localStorage.getItem(KEY)); } catch (e) { db = null; }
     if (!db || !db.services) { db = GO.seed(); save(); }
   }
   function save() {
+    if (mode !== 'local') return;
     try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) { /* 저장 불가 환경에서는 메모리로만 동작 */ }
   }
   function find(list, id) { return list.filter(function (x) { return x.id === id; })[0]; }
 
+  /* ── server ── */
+  function api(method, path, data) {
+    return fetch('/api' + path, {
+      method: method, credentials: 'same-origin',
+      headers: data ? { 'content-type': 'application/json' } : {},
+      body: data ? JSON.stringify(data) : undefined
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (j) {
+        if (!res.ok) { var e = new Error(j.error || 'HTTP ' + res.status); e.status = res.status; throw e; }
+        return j;
+      });
+    });
+  }
+  function setState(s) {
+    db = { services: s.services, batches: s.batches, orders: s.orders, vouchers: s.vouchers || [], calcDefaults: s.calcDefaults || (db && db.calcDefaults) || GO.seed().calcDefaults };
+  }
+  function pull() { return api('GET', admin ? '/admin/state' : '/public').then(setState); }
+  // 관리자 쓰기를 서버에 보낸다. 실패하면 서버 내용을 다시 읽어 화면을 되돌린다.
+  function push(method, path, data) {
+    if (mode !== 'server') return;
+    api(method, path, data).catch(function (e) {
+      if (e.status === 401) admin = false;
+      pull().catch(function () {}).then(function () { if (GO.onStoreError) GO.onStoreError(e); });
+    });
+  }
+
   GO.store = {
     get db() { return db; },
-    reset: function () { db = GO.seed(); save(); },
+    get mode() { return mode; },
+    get isAdmin() { return mode === 'local' || admin; },
+    get loginReady() { return loginReady; },
 
+    /* 처음 한 번: 서버가 있는지 확인하고 데이터를 읽는다 */
+    init: function () {
+      return api('GET', '/public').then(function (s) {
+        if (!s || !s.services) throw new Error('no api');
+        mode = 'server'; setState(s);
+        return api('GET', '/me').then(function (me) {
+          admin = !!me.admin; loginReady = !!me.configured;
+          if (admin) return pull();
+        }).catch(function () {});
+      }).catch(function () { mode = 'local'; loadLocal(); });
+    },
+    /* 서버 내용을 다시 읽는다. 바뀐 것이 있으면 true */
+    refresh: function () {
+      if (mode !== 'server') return Promise.resolve(false);
+      var before = JSON.stringify(db);
+      return pull().then(function () { return JSON.stringify(db) !== before; }).catch(function () { return false; });
+    },
+    reset: function () {
+      if (mode === 'local') { db = GO.seed(); save(); return Promise.resolve(); }
+      return api('POST', '/admin/reset').then(setState);
+    },
+
+    /* ── 읽기 (db에서 바로) ── */
     service: function (id) { return find(db.services, id); },
     batch: function (id) { return find(db.batches, id); },
     order: function (id) { return find(db.orders, String(id || '').toUpperCase()); },
@@ -31,39 +93,87 @@
       return Object.keys(seen).sort().reverse();
     },
     ordersOf: function (batchId) { return db.orders.filter(function (o) { return o.batchId === batchId; }); },
-
     newOrderId: function () {
       var id;
       do { id = GO.BRAND.orderPrefix + '-' + Math.floor(100000 + Math.random() * 900000); } while (find(db.orders, id));
       return id;
     },
+
+    /* ── 고객 흐름 (Promise) ── */
+    track: function (q) {
+      if (mode === 'local') return Promise.resolve(X.searchOrders(db.orders, q));
+      return api('GET', '/track?q=' + encodeURIComponent(q)).then(function (r) { return r.orders; });
+    },
+    fetchOrder: function (id) {
+      if (mode === 'local') return Promise.resolve(this.order(String(id || '').trim()) || null);
+      return api('GET', '/order?id=' + encodeURIComponent(String(id || '').trim())).then(function (r) { return r.order; }, function () { return null; });
+    },
+    checkVoucher: function (code) {
+      code = String(code || '').trim().toUpperCase();
+      if (mode === 'local') return Promise.resolve(db.vouchers.filter(function (v) { return v.code === code; })[0] || null);
+      return api('POST', '/voucher', { code: code }).then(function (v) { return v; }, function () { return null; });
+    },
+    /* p = { orderId | id, batchId, buyer, item, qty, base, voucher, method, proofName }  →  저장된 주문 */
+    submitPayment: function (p) {
+      if (mode === 'server') return api('POST', '/pay', p).then(function (r) { return pull().catch(function () {}).then(function () { return r.order; }); });
+      var v = db.vouchers.filter(function (x) { return x.code === String(p.voucher || '').trim().toUpperCase(); })[0];
+      var o = p.orderId ? this.order(p.orderId) : null;
+      var base = o ? (o.base || o.total) : Math.round(Number(p.base));
+      var id = o ? o.id : p.id;
+      var patch = { base: base, total: base - Math.min(v ? v.off : 0, base) + X.uniqueCode(id), pay: 'pending', method: p.method, proofName: p.proofName };
+      if (o) Object.assign(o, patch);
+      else { o = Object.assign({ id: id, batchId: p.batchId, buyer: String(p.buyer).trim().replace(/^@/, ''), item: String(p.item).trim(), qty: Math.max(1, Number(p.qty) || 1), createdAt: new Date().toISOString() }, patch); db.orders.push(o); }
+      save();
+      return Promise.resolve(o);
+    },
+
+    /* ── 관리자 로그인 (server에서만 의미가 있다) ── */
+    login: function (password) {
+      return api('POST', '/login', { password: password }).then(function () { admin = true; return pull(); });
+    },
+    logout: function () {
+      return api('POST', '/logout').catch(function () {}).then(function () { admin = false; return pull(); });
+    },
+
+    /* ── 관리자 쓰기 (db를 먼저 고치고 서버에 보낸다) ── */
     addOrder: function (o) {
       o.id = o.id || this.newOrderId();
       o.createdAt = o.createdAt || new Date().toISOString();
       o.pay = o.pay || 'unpaid';
-      db.orders.push(o); save(); return o;
+      o.base = o.total;
+      db.orders.push(o); save();
+      push('POST', '/admin/order', { id: o.id, batchId: o.batchId, buyer: o.buyer, item: o.item, qty: o.qty, total: o.total });
+      return o;
     },
-    updateOrder: function (id, patch) { var o = find(db.orders, id); if (o) { Object.assign(o, patch); save(); } return o; },
-    removeOrder: function (id) { db.orders = db.orders.filter(function (o) { return o.id !== id; }); save(); },
-
+    updateOrder: function (id, patch) {
+      var o = find(db.orders, id);
+      if (o) { Object.assign(o, patch); save(); push('PATCH', '/admin/order/' + encodeURIComponent(id), { pay: o.pay }); }
+      return o;
+    },
+    removeOrder: function (id) {
+      db.orders = db.orders.filter(function (o) { return o.id !== id; }); save();
+      push('DELETE', '/admin/order/' + encodeURIComponent(id));
+    },
     addBatch: function (b) {
       b.id = b.svc + '-' + b.no;
       if (find(db.batches, b.id)) return null;
-      db.batches.push(b); save(); return b;
+      db.batches.push(b); save();
+      push('POST', '/admin/batch', b);
+      return b;
     },
-    updateBatch: function (id, patch) { var b = find(db.batches, id); if (b) { Object.assign(b, patch); save(); } return b; },
+    updateBatch: function (id, patch) {
+      var b = find(db.batches, id);
+      if (b) { Object.assign(b, patch); save(); push('PATCH', '/admin/batch/' + encodeURIComponent(id), patch); }
+      return b;
+    },
     removeBatch: function (id) {
       db.batches = db.batches.filter(function (b) { return b.id !== id; });
       db.orders = db.orders.filter(function (o) { return o.batchId !== id; });
-      save();
+      save(); push('DELETE', '/admin/batch/' + encodeURIComponent(id));
     },
-
-    voucher: function (code) {
-      code = String(code || '').trim().toUpperCase();
-      return db.vouchers.filter(function (v) { return v.code === code; })[0];
-    },
-    setCalcDefaults: function (c) { db.calcDefaults = JSON.parse(JSON.stringify(c)); save(); }
+    setCalcDefaults: function (c) {
+      db.calcDefaults = JSON.parse(JSON.stringify(c)); save();
+      push('PUT', '/admin/calc', db.calcDefaults);
+    }
   };
-
-  load();
-})(window.GO);
+})(globalThis.GO);
