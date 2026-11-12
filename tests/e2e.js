@@ -317,6 +317,22 @@ window.runE2E = async function () {
   type(sel7, 'unpaid', 'change'); await wait(20); $('[data-act=order-save][data-id="' + od7.id + '"]').click(); await wait(60);
   window.alert = al;
   check('관리자: 되돌리는 순간 지워질 접수는 미결제로 되돌리지 못하고 이유를 알린다', !!S.order(od7.id) && S.order(od7.id).pay === 'paid' && /Batas bayar/.test(said) && $('[data-opay="' + od7.id + '"]').value === 'paid', said + ' / ' + (S.order(od7.id) || {}).pay);
+  // 반려된 사이 한 장짜리 쿠폰을 다른 주문이 썼으면, 반려 주문을 되살리지 못하고 이유를 알린다
+  S.addVoucher({ code: 'SEKALI1', off: 1000, max: 1 });
+  const rv1 = await S.createOrder({ batchId: 'kr-5', buyer: 'ditolak', item: 'Uji kupon', qty: 1, base: 20000, voucher: 'SEKALI1' });
+  await S.submitPayment({ orderId: rv1.id, method: 'QRIS', proofName: 'r.jpg' }); S.updateOrder(rv1.id, { pay: 'rejected' });
+  const rv2 = await S.createOrder({ batchId: 'kr-5', buyer: 'pengganti', item: 'Uji kupon', qty: 1, base: 20000, voucher: 'SEKALI1' });
+  await go('#/admin/order'); type('[data-admin=batchId]', 'kr-5'); await wait(40);
+  let said2 = ''; const al2 = window.alert; window.alert = m => { said2 = String(m); };
+  type('[data-opay="' + rv1.id + '"]', 'paid', 'change'); await wait(20); $('[data-act=order-save][data-id="' + rv1.id + '"]').click(); await wait(60);
+  window.alert = al2;
+  check('관리자: 반려된 사이 쿠폰 한도가 찼으면 되살리지 못하고 이유를 알린다', S.order(rv1.id).pay === 'rejected' && /ditolak|반려된 사이|was rejected/.test(said2), said2);
+  let refused = ''; await S.submitPayment({ orderId: rv1.id, method: 'QRIS', proofName: 'r2.jpg' }).catch(e => { refused = e.message; });
+  check('고객: 반려된 사이 쿠폰 한도가 찬 주문은 증빙을 다시 낼 수 없다', S.order(rv1.id).pay === 'rejected' && /used up while/.test(refused), refused);
+  S.removeOrder(rv2.id);
+  await S.submitPayment({ orderId: rv1.id, method: 'QRIS', proofName: 'r3.jpg' });
+  check('고객: 다른 주문이 지워져 쿠폰이 돌아오면 다시 낼 수 있다', S.order(rv1.id).pay === 'pending');
+  S.removeOrder(rv1.id); S.removeVoucher('SEKALI1');
   try { localStorage.removeItem('nuh-my-orders'); } catch (e) {}
   const keep = S.db.batches.slice(); S.db.batches.length = 0;
   await go('#/'); await go('#/pay'); await wait(60);

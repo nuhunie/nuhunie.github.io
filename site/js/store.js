@@ -184,6 +184,7 @@
       if (!o) return Promise.reject(new Error('Order not found.'));
       if (!o.self) { try { v = usableVoucher(p.voucher, o.id); } catch (e) { return Promise.reject(e); } }
       if (o.pay !== 'unpaid' && o.pay !== 'rejected') return Promise.reject(new Error('This order has already been submitted.'));
+      if (o.self && !X.canRevive(o, db.orders, db.vouchers)) return Promise.reject(new Error('The voucher on this order was used up while it was rejected.'));
       var base = o.base || o.total;
       // 고객이 접수한 주문(self)은 접수할 때 금액이 정해졌다. 운영자가 넣은 주문은 여기서 쿠폰과 고유 코드를 붙인다.
       Object.assign(o, { base: base, total: o.self ? o.total : X.payable(base, v ? v.off : 0, o.id), pay: 'pending', method: p.method, proofName: p.proofName });
@@ -214,6 +215,8 @@
       var o = find(db.orders, id);
       // 되돌리는 순간 지워질 접수는 미결제로 바꾸지 않는다(logic.js 의 canUnpay). 화면이 먼저 막고 이유를 알린다; 여기는 마지막 안전판이다.
       if (o && patch && patch.pay === 'unpaid' && o.pay !== 'unpaid' && !X.canUnpay(o)) return o;
+      // 반려된 사이 쿠폰 한도가 찬 주문은 되살리지 않는다(logic.js 의 canRevive). 화면이 먼저 막는다; 여기는 마지막 안전판이다.
+      if (o && patch && patch.pay && patch.pay !== 'rejected' && !X.canRevive(o, db.orders, db.vouchers)) return o;
       if (o) { Object.assign(o, patch); save(); push('PATCH', '/admin/order/' + encodeURIComponent(id), 'payer' in patch ? { pay: o.pay, payer: o.payer } : { pay: o.pay }); }
       return o;
     },

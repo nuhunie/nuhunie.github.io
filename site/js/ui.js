@@ -33,6 +33,7 @@
     'Too many attempts. Try again later.': MANY,
     'Voucher not found.': ['Kode voucher tidak ditemukan.', '쿠폰 코드를 찾을 수 없습니다.'],
     'This voucher has been used up.': ['Voucher ini sudah habis dipakai.', '이 쿠폰은 사용 한도를 다 썼습니다.'],
+    'The voucher on this order was used up while it was rejected.': ['Selama pesanan ini ditolak, voucher-nya sudah habis dipakai pesanan lain, jadi pesanan ini tidak bisa diaktifkan lagi. Buat pesanan baru atau hubungi admin.', '이 주문이 반려된 사이 쿠폰을 다른 주문이 다 써서 되살릴 수 없습니다. 새로 주문하거나 운영자에게 문의해 주세요.'],
     'That voucher code already exists.': ['Kode voucher itu sudah ada.', '같은 쿠폰 코드가 이미 있습니다.'],
     'Check the voucher fields.': ['Periksa kembali data voucher.', '쿠폰 내용을 다시 확인해 주세요.'],
     'That service code already exists.': ['Kode layanan itu sudah ada.', '같은 서비스 코드가 이미 있습니다.'],
@@ -1034,6 +1035,9 @@
       if (od && od.pay === 'unpaid' && cur && cur.pay !== 'unpaid' && !X.canUnpay(cur)) {
         // 되돌리는 순간 자동으로 지워질 접수: 막고 이유를 알린다(서버도 같은 이유로 거절한다)
         delete A.edit['o:' + id]; GO.onStoreError({ message: 'This order is past its payment deadline. Reject or delete it instead.' });
+      } else if (od && od.pay !== 'rejected' && cur && !X.canRevive(cur, S.db.orders, S.db.vouchers)) {
+        // 반려된 사이 쿠폰 한도가 찼다: 막고 이유를 알린다(서버도 같은 이유로 거절한다)
+        delete A.edit['o:' + id]; GO.onStoreError({ message: 'The voucher on this order was used up while it was rejected.' });
       } else if (od) { S.updateOrder(id, { pay: od.pay }); saved('o:' + id); }
     }
     else if (act === 'batch-del') { if (confirm(L('Hapus batch ini beserta pesanannya?', '이 배치와 그 안의 주문을 삭제할까요?'))) { S.removeBatch(id); render(); } }

@@ -402,5 +402,6 @@ GO.EN = {
   'sesuai mutasi bank': 'as shown in the bank record',
   'Pengirim yang sama sudah memakai voucher ini di pesanan': 'The same payer already used this voucher in order',
   'Pengirim yang sama sudah memakai voucher ini. Tetap setujui?': 'The same payer already used this voucher. Approve anyway?',
-  'Ubah catatan voucher': 'Edit voucher note'
+  'Ubah catatan voucher': 'Edit voucher note',
+  'Selama pesanan ini ditolak, voucher-nya sudah habis dipakai pesanan lain, jadi pesanan ini tidak bisa diaktifkan lagi. Buat pesanan baru atau hubungi admin.': 'While this order was rejected, its voucher was used up by other orders, so it cannot be reactivated. Place a new order or contact the admin.'
 };

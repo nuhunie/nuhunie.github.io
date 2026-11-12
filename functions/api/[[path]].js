@@ -20,10 +20,11 @@
  *   POST reset                 예시 데이터로 초기화 (ALLOW_RESET=1 인 곳에서만. 배포판에는 꺼져 있다)
  *   GET  log                   활동 기록
  */
-import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, startSession, endSession, clearCookie, loadState, seed, toOrder, overLimit, recordHit, logAct, canReset, weakPassword, ORDER_SELECT, PUBLIC_ORDERS, withDeadline, expired, purgeExpired, canUnpay, VOUCHER_SELECT, toService, reserveVoucher } from '../../server/lib.js';
+import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, startSession, endSession, clearCookie, loadState, seed, toOrder, overLimit, recordHit, logAct, canReset, weakPassword, ORDER_SELECT, PUBLIC_ORDERS, withDeadline, expired, purgeExpired, canUnpay, VOUCHER_SELECT, toService, reserveVoucher, VOUCHER_FULL_FOR } from '../../server/lib.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const NO_VOUCHER = 'Voucher not found.';
+const VOUCHER_GONE_WHILE_REJECTED = 'The voucher on this order was used up while it was rejected.';
 const PUBLIC_CACHE_SEC = 60;      // 서버 쪽에 저장해 두는 시간. 내용이 바뀌면 바로 지운다
 const PUBLIC_BROWSER_SEC = 10;    // 고객 브라우저가 다시 묻지 않는 시간
 
@@ -172,8 +173,11 @@ export async function onRequest({ request, env, params }) {
         else await db.prepare('DELETE FROM voucher_uses WHERE order_id = ?').bind(id).run();
       }
       // "아직 결제 전인 주문만"이라는 조건을 UPDATE 안에 둔다: 이미 제출된 주문이나 동시에 들어온 두 번째 요청은 바뀌는 줄이 0이다
-      const done = await db.prepare("UPDATE orders SET total = ?, pay = 'pending', method = ?, proof_name = ? WHERE id = ? AND pay IN ('unpaid', 'rejected')").bind(total, methodName, proof, id).run();
+      const done = await db.prepare("UPDATE orders SET total = ?, pay = 'pending', method = ?, proof_name = ? WHERE id = ? AND pay IN ('unpaid', 'rejected') AND NOT (pay = 'rejected' AND " + VOUCHER_FULL_FOR + ')').bind(total, methodName, proof, id, id).run();
       if (!done.meta.changes) {
+        // 반려된 사이 이 주문의 쿠폰을 다른 주문이 다 썼다 (고객이 접수 때 쓴 쿠폰은 금액에 들어가 있어 다시 고를 수 없다)
+        const full = row.pay === 'rejected' && await db.prepare('SELECT ' + VOUCHER_FULL_FOR + ' AS f').bind(id).first();
+        if (full && full.f) { if (!row.self) await (before ? db.prepare('INSERT OR REPLACE INTO voucher_uses (order_id, code) VALUES (?, ?)').bind(id, before.code) : db.prepare('DELETE FROM voucher_uses WHERE order_id = ?').bind(id)).run(); return fail(VOUCHER_GONE_WHILE_REJECTED, 409); }
         // 이미 제출된 주문: 쿠폰 기록을 제출 전으로 되돌린다
         if (!row.self) await (before ? db.prepare('INSERT OR REPLACE INTO voucher_uses (order_id, code) VALUES (?, ?)').bind(id, before.code) : db.prepare('DELETE FROM voucher_uses WHERE order_id = ?').bind(id)).run();
         return fail('This order has already been submitted.', 409);
@@ -204,6 +208,7 @@ export async function onRequest({ request, env, params }) {
    * 같은 순간에 마지막 한 장을 두 주문이 쓰면 한도를 하나 넘길 수 있다(알려진 한계). */
   async function voucherFor(code, orderId) {
     if (code === '' || code == null) return { off: 0, code: '' };
+    await purgeExpired(db, env);                   // 지울 때가 된 접수가 쓴 쿠폰을 먼저 돌려준다 (세기 전에)
     const c = typeof code === 'string' ? code.trim().toUpperCase() : '';
     const v = c && await db.prepare(VOUCHER_SELECT + ' WHERE v.code = ?').bind(orderId || '', c).first();
     if (!v) return { err: NO_VOUCHER };
@@ -289,8 +294,12 @@ export async function onRequest({ request, env, params }) {
         const row = await db.prepare(ORDER_SELECT + ' WHERE o.id = ?').bind(id).first();
         if (row && !canUnpay(toOrder(row), env)) return fail('This order is past its payment deadline. Reject or delete it instead.', 409);
       }
-      const r = await db.prepare('UPDATE orders SET pay = ? WHERE id = ?').bind(pay, id).run();
-      if (!r.meta.changes) return fail('Order not found.', 404);
+      // 반려된 주문을 되살릴 때: 그 사이 쿠폰 한도가 찼으면 바꾸지 않는다 (확인과 변경을 한 문장으로)
+      const r = await db.prepare("UPDATE orders SET pay = ? WHERE id = ? AND NOT (pay = 'rejected' AND ? != 'rejected' AND " + VOUCHER_FULL_FOR + ')').bind(pay, id, pay, id).run();
+      if (!r.meta.changes) {
+        if (await db.prepare('SELECT 1 FROM orders WHERE id = ?').bind(id).first()) return fail(VOUCHER_GONE_WHILE_REJECTED, 409);
+        return fail('Order not found.', 404);
+      }
       if (payer !== undefined) await (payer ? db.prepare('INSERT OR REPLACE INTO order_payer (order_id, name) VALUES (?, ?)').bind(id, payer) : db.prepare('DELETE FROM order_payer WHERE order_id = ?').bind(id)).run();
       await logAct(db, request, 'order.pay', id + ' ' + pay);
       return json({ ok: true });

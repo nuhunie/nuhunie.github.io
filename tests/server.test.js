@@ -42,6 +42,14 @@ test('입력 검사: 숫자가 아닌 값을 숫자로 바꿔 받지 않는다',
   assert.equal(V.text(12345, 40), null);          // 글자 칸에 숫자·배열을 넣으면 받지 않는다
   assert.equal(V.text(['x'], 40), null);
 });
+test('입력 검사: 비워도 되는 글자 칸은 없으면 빈 글자, 글자가 아니면 거절한다', async () => {
+  const { V } = await import('../server/lib.js');
+  assert.equal(V.optText(undefined, 10), '');
+  assert.equal(V.optText(null, 10), '');
+  assert.equal(V.optText('  hai ', 10), 'hai');
+  assert.equal(V.optText('x'.repeat(11), 10), null);
+  for (const bad of [12345, 0, true, ['x'], { a: 1 }]) assert.equal(V.optText(bad, 10), null, JSON.stringify(bad));
+});
 test('입력 검사: 달력에 없는 날짜는 받지 않는다', async () => {
   const { V } = await import('../server/lib.js');
   for (const bad of ['2026-02-30', '9999-99-99', '2026-13-01', '2026-00-10', '2025-02-29', '2026-1-5', 20261130]) assert.equal(V.date(bad), null, String(bad));

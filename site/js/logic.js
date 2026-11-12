@@ -347,6 +347,15 @@
     var hit = orders.filter(function (o) { return o.id !== orderId && o.voucher === me.voucher && o.pay !== 'rejected' && o.payer && X.normPayer(o.payer) === n; })[0];
     return hit ? hit.id : '';
   };
+  // 반려된 주문을 되살려도 되는가(반려 → 결제 완료·확인 대기·결제 전). 반려된 사이 그 주문의 쿠폰을 다른 주문들이 한도까지 썼으면 안 된다.
+  // 반려된 주문은 사용 수에 들지 않으므로, 되살리는 순간 한도를 넘게 된다. (2026-11-12 사용자 결정: 막는다)
+  X.canRevive = function (order, orders, vouchers) {
+    if (!order || order.pay !== 'rejected' || !order.voucher) return true;
+    var v = vouchers.filter(function (x) { return x.code === order.voucher; })[0];
+    if (!v || !v.max) return true;
+    var used = orders.filter(function (o) { return o.voucher === order.voucher && o.pay !== 'rejected' && o.id !== order.id; }).length;
+    return used < v.max;
+  };
   // 쿠폰을 더 쓸 수 있는가. max 가 없거나 0이면 한도 없음.
   X.voucherLeft = function (v, used) { return !v.max || (used || 0) < v.max; };
 

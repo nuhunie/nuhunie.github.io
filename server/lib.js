@@ -31,7 +31,8 @@ export async function readJson(request) {
 const toNum = v => typeof v === 'number' ? v : (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim()) ? Number(v) : NaN);
 export const V = {
   text(v, max) { v = typeof v === 'string' ? v.trim() : ''; return v && v.length <= max ? v : null; },
-  optText(v, max) { v = typeof v === 'string' ? v.trim() : ''; return v.length <= max ? v : null; },
+  // 비워도 되는 글자 칸: 없으면(undefined·null) 빈 글자. 글자가 아닌 값(숫자·배열 등)은 빈 값으로 바꾸지 않고 거절한다
+  optText(v, max) { if (v == null) return ''; if (typeof v !== 'string') return null; v = v.trim(); return v.length <= max ? v : null; },
   int(v, min, max) { v = toNum(v); return Number.isInteger(v) && v >= min && v <= max ? v : null; },
   num(v, min, max) { v = toNum(v); return Number.isFinite(v) && v >= min && v <= max ? v : null; },
   oneOf(v, list) { return list.indexOf(v) >= 0 ? v : null; },
@@ -149,6 +150,10 @@ export const VOUCHER_SELECT = "SELECT v.code AS code, v.off AS off, IFNULL(l.max
 // 운영자 화면용 주문: 쓴 쿠폰과 입금자 이름을 함께 읽는다 (고객에게 가는 응답에는 넣지 않는다)
 export const ADMIN_ORDER_SELECT = "SELECT o.*, f.self AS self, f.late AS late, IFNULL(u.code, '') AS voucher, IFNULL(p.name, '') AS payer FROM orders o " +
   'LEFT JOIN order_flags f ON f.order_id = o.id LEFT JOIN voucher_uses u ON u.order_id = o.id LEFT JOIN order_payer p ON p.order_id = o.id';
+/* 이 주문(?)이 쓴 쿠폰이 한도까지 다 쓰였는가 (이 주문 자신은 빼고 센다). 반려된 주문을 되살리기 전에 본다.
+ * UPDATE 의 조건으로 넣어, 확인과 상태 변경이 한 문장에서 일어나게 한다. */
+export const VOUCHER_FULL_FOR = "EXISTS (SELECT 1 FROM voucher_uses u JOIN voucher_limits l ON l.code = u.code WHERE u.order_id = ? AND l.max_uses > 0 AND " +
+  "(SELECT COUNT(*) FROM voucher_uses u2 LEFT JOIN orders o2 ON o2.id = u2.order_id WHERE u2.code = u.code AND IFNULL(o2.pay, '') != 'rejected' AND u2.order_id != u.order_id) >= l.max_uses)";
 /* 쿠폰 한 번 쓰기를 예약한다. 한도 확인과 기록을 한 문장으로 하므로, 마지막 한 장을 두 주문이 같은 순간에 쓰려 해도 하나만 된다.
  * 성공하면 true. 주문을 넣지 못하면 부르는 쪽이 이 기록을 지운다. */
 export async function reserveVoucher(db, code, orderId, max) {

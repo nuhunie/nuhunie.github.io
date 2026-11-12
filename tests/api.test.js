@@ -210,7 +210,7 @@ test('쿠폰: 운영자가 만들고 지우며, 사용 한도를 넘으면 받�
 
 test('한 장짜리 쿠폰: 여러 장을 만들고, 한 장은 한 번만 쓰이며 같은 순간에 써도 하나만 된다', async () => {
   await nap(WINDOW_MS);
-  for (const bad of [{ off: 1000, count: 0 }, { off: 1000, count: 101 }, { off: 0, count: 2 }, { off: 1000, count: 2, note: 'n'.repeat(101) }])
+  for (const bad of [{ off: 1000, count: 0 }, { off: 1000, count: 101 }, { off: 0, count: 2 }, { off: 1000, count: 2, note: 'n'.repeat(101) }, { off: 1000, count: 2, note: 5 }])
     assert.equal((await admin('POST', '/admin/voucher/bulk', bad)).status, 400, JSON.stringify(bad));
   const made = await admin('POST', '/admin/voucher/bulk', { off: 2000, count: 3, note: 'pelanggan baru' });
   assert.equal(made.status, 200);
@@ -241,10 +241,45 @@ test('한 장짜리 쿠폰: 여러 장을 만들고, 한 장은 한 번만 쓰�
   await nap(WINDOW_MS);
 });
 
+test('반려된 주문 되살리기: 반려된 사이 한 장짜리 쿠폰이 다른 주문에 쓰였으면 운영자도 고객도 되살리지 못한다', async () => {
+  await nap(WINDOW_MS);
+  const [code] = (await admin('POST', '/admin/voucher/bulk', { off: 1000, count: 1 })).json.codes;
+  const a = (await call('POST', '/order', { batchId: 'kr-5', buyer: 'pertama', item: 'Album', qty: 1, base: 20000, voucher: code })).json.order;
+  assert.equal((await call('POST', '/pay', { orderId: a.id, method: 'QRIS', proofName: 'a.jpg' })).status, 200);
+  assert.equal((await admin('PATCH', '/admin/order/' + a.id, { pay: 'rejected' })).status, 200);
+  const b = await call('POST', '/order', { batchId: 'kr-5', buyer: 'kedua', item: 'Album', qty: 1, base: 20000, voucher: code });
+  assert.equal(b.status, 200);                                            // 반려된 주문의 쿠폰은 다른 사람이 쓸 수 있다
+  for (const pay of ['paid', 'pending', 'unpaid']) {
+    const r = await admin('PATCH', '/admin/order/' + a.id, { pay });
+    assert.equal(r.status, 409, pay);
+    assert.equal(r.json.error, 'The voucher on this order was used up while it was rejected.');
+  }
+  const again = await call('POST', '/pay', { orderId: a.id, method: 'QRIS', proofName: 'a2.jpg' });   // 고객이 증빙을 다시 내도
+  assert.equal(again.status, 409);
+  let st = (await admin('GET', '/admin/state')).json;
+  assert.equal(st.orders.find(o => o.id === a.id).pay, 'rejected');
+  assert.equal(st.vouchers.find(v => v.code === code).used, 1);          // 한도를 넘지 않았다
+  assert.equal((await admin('PATCH', '/admin/order/' + a.id, { pay: 'rejected' })).status, 200);   // 반려 그대로 두기는 된다
+  assert.equal((await admin('PATCH', '/admin/order/zz-none', { pay: 'paid' })).status, 404);
+  // 다른 주문이 지워져 쿠폰이 돌아오면 되살릴 수 있다
+  assert.equal((await admin('DELETE', '/admin/order/' + b.json.order.id)).status, 200);
+  assert.equal((await call('POST', '/pay', { orderId: a.id, method: 'QRIS', proofName: 'a3.jpg' })).status, 200);
+  st = (await admin('GET', '/admin/state')).json;
+  assert.equal(st.vouchers.find(v => v.code === code).used, 1);
+  // 쿠폰 없는 주문과 한도 없는 쿠폰은 그대로 되살린다
+  const c = (await call('POST', '/order', { batchId: 'kr-5', buyer: 'ketiga', item: 'Album', qty: 1, base: 20000, voucher: 'NUH5000' })).json.order;
+  assert.equal((await admin('PATCH', '/admin/order/' + c.id, { pay: 'rejected' })).status, 200);
+  assert.equal((await admin('PATCH', '/admin/order/' + c.id, { pay: 'paid' })).status, 200);
+  for (const id of [a.id, c.id]) await admin('DELETE', '/admin/order/' + id);
+  await admin('DELETE', '/admin/voucher/' + code);
+  await nap(WINDOW_MS);
+});
+
 test('입금자 이름: 승인할 때 적으면 운영자 화면에만 남는다', async () => {
   const o = (await call('POST', '/order', { batchId: 'kr-5', buyer: 'pengirim', item: 'Album', qty: 1, base: 30000 })).json.order;
   assert.equal((await call('POST', '/pay', { orderId: o.id, method: 'QRIS', proofName: 'p.jpg' })).status, 200);
   assert.equal((await admin('PATCH', '/admin/order/' + o.id, { pay: 'paid', payer: 'n'.repeat(61) })).status, 400);
+  assert.equal((await admin('PATCH', '/admin/order/' + o.id, { pay: 'paid', payer: 12345 })).status, 400);   // 글자가 아니면 빈 이름으로 바꾸지 않고 거절
   assert.equal((await admin('PATCH', '/admin/order/' + o.id, { pay: 'paid', payer: 'SITI AMINAH' })).status, 200);
   assert.equal((await admin('GET', '/admin/state')).json.orders.find(x => x.id === o.id).payer, 'SITI AMINAH');
   const pub = (await call('GET', '/order?id=' + o.id)).json.order, tr = (await call('GET', '/track?q=' + o.id)).json.orders[0];

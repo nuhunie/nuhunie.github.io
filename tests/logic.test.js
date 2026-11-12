@@ -250,6 +250,16 @@ test('입금자 경고: 같은 쿠폰을 같은 입금자가 쓴 다른 주문�
   assert.equal(X.payerClash(orders, 'E', 'siti aminah'), '');      // 쿠폰을 쓰지 않은 주문
   assert.equal(X.payerClash(orders, 'B', ''), '');
 });
+test('반려된 주문 되살리기: 그 사이 쿠폰 한도가 찼으면 안 된다', () => {
+  const vouchers = [{ code: 'ONE1', off: 1000, max: 1 }, { code: 'FREE', off: 1000, max: 0 }];
+  const A = { id: 'A', voucher: 'ONE1', pay: 'rejected' }, B = { id: 'B', voucher: 'ONE1', pay: 'pending' };
+  assert.equal(X.canRevive(A, [A], vouchers), true);                  // 아무도 안 썼다
+  assert.equal(X.canRevive(A, [A, B], vouchers), false);              // 그 사이 B가 썼다
+  assert.equal(X.canRevive(A, [A, Object.assign({}, B, { pay: 'rejected' })], vouchers), true);
+  assert.equal(X.canRevive({ id: 'C', voucher: 'FREE', pay: 'rejected' }, [B, { id: 'D', voucher: 'FREE', pay: 'paid' }], vouchers), true);   // 한도 없는 쿠폰
+  assert.equal(X.canRevive({ id: 'E', voucher: '', pay: 'rejected' }, [B], vouchers), true);   // 쿠폰을 안 쓴 주문
+  assert.equal(X.canRevive(B, [A, B], vouchers), true);               // 반려된 주문이 아니면 해당 없음
+});
 test('쿠폰 한도: 한도가 없거나 0이면 무제한, 있으면 그 수까지', () => {
   assert.equal(X.voucherLeft({ code: 'A', off: 1 }, 999), true);
   assert.equal(X.voucherLeft({ code: 'A', off: 1, max: 0 }, 999), true);
