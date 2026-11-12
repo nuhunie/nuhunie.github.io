@@ -1,12 +1,12 @@
 // 공격 검사: 나쁜 의도를 가진 방문자가 할 만한 일을 내 컴퓨터의 서버에 실제로 해 본다.
-//   서버를 띄운 뒤(.dev.vars에 RATE_WINDOW_SEC=6):  node --test tests/abuse.test.js
+//   서버를 띄운 뒤(npm run dev):  npm run test:server   (.dev.vars에 RATE_WINDOW_SEC=6 필요, npm run setup이 넣어 준다)
 // 데이터를 더럽히고 마지막에 초기화하므로 배포된 사이트에는 돌리지 않는다.
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path');
 global.window = global;
-require('../js/data.js');
-require('../js/logic.js');
+require('../site/js/data.js');
+require('../site/js/logic.js');
 
 const BASE = process.env.BASE || 'http://localhost:8788';
 if (!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(BASE)) throw new Error('이 검사는 내 컴퓨터의 서버에만 돌린다: ' + BASE);

@@ -1,9 +1,9 @@
-// 알고리즘(js/logic.js) 단위 테스트.  실행: node --test tests/
+// 알고리즘(site/js/logic.js) 단위 테스트.  실행: npm test
 const test = require('node:test');
 const assert = require('node:assert/strict');
 global.window = global;
-require('../js/data.js');
-require('../js/logic.js');
+require('../site/js/data.js');
+require('../site/js/logic.js');
 const X = GO.logic;
 const base = { price: 2000, qty: 1, kurs: 110, feeGo: { mode: 'pct', val: 10 }, feeCo: { mode: 'nom', val: 10000 }, tax: { mode: 'pct', val: 0, base: 'conv' }, extra: 0 };
 const withv = patch => Object.assign({}, base, patch);

@@ -1,7 +1,7 @@
 /* 서버 공통 도구: 응답, 입력 검사, 관리자 세션, DB ↔ 화면 데이터 변환.
- * 계산 규칙은 새로 쓰지 않고 브라우저와 같은 js/data.js, js/logic.js를 그대로 불러 쓴다. */
-import '../js/data.js';
-import '../js/logic.js';
+ * 계산 규칙은 새로 쓰지 않고 브라우저와 같은 site/js/data.js, site/js/logic.js를 그대로 불러 쓴다. */
+import '../site/js/data.js';
+import '../site/js/logic.js';
 
 export const GO = globalThis.GO;
 export const X = GO.logic;

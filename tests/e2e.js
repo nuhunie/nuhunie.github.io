@@ -1,6 +1,6 @@
 /* 여정 자동 실행: 고객과 운영자가 실제로 누르는 순서대로 화면을 조작하고 결과를 확인한다.
- * 사용법: 사이트를 연 브라우저 콘솔에서
- *   await import('./tests/e2e.js'); await runE2E()
+ * 사용법: npm run mock 으로 띄운 뒤 http://localhost:4173/site/ 를 열고 브라우저 콘솔에서
+ *   await import('../tests/e2e.js'); await runE2E()
  * 예시 데이터로 초기화한 뒤 실행하고, 끝나면 다시 초기화한다. (브라우저에 저장된 데이터가 지워진다) */
 window.runE2E = async function () {
   const S = GO.store, X = GO.logic, out = [];

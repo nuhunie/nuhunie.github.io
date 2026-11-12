@@ -20,10 +20,9 @@ jobs:
 
       - name: 서버 띄우기
         run: |
-          node build.js
           printf 'ADMIN_PASSWORD=%s\nSESSION_SECRET=%s\nRATE_WINDOW_SEC=6\n' "$(openssl rand -hex 8)" "$(openssl rand -hex 32)" > .dev.vars
-          npx --yes wrangler@4 d1 execute nuhunie --local --file schema.sql
-          npx wrangler@4 pages dev dist --port 8788 > server.log 2>&1 &
+          npx --yes wrangler@4 d1 execute nuhunie --local --file db/schema.sql
+          npx wrangler@4 pages dev site --port 8788 > server.log 2>&1 &
           for i in $(seq 1 60); do curl -sf http://localhost:8788/api/public > /dev/null && exit 0; sleep 2; done
           cat server.log; exit 1
 
@@ -59,6 +58,6 @@ jobs:
             echo "배포용 토큰이 등록되지 않아 건너뜁니다."
             exit 0
           fi
-          node build.js
-          npx --yes wrangler@4 d1 execute nuhunie --remote --file schema.sql
-          npx wrangler@4 pages deploy dist --project-name nuhunie --branch main
+          echo "$GITHUB_SHA" > site/version.txt      # 지금 올라가 있는 것이 어느 커밋인지 (/version.txt)
+          npx --yes wrangler@4 d1 execute nuhunie --remote --file db/schema.sql
+          npx wrangler@4 pages deploy site --project-name nuhunie --branch main

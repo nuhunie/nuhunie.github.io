@@ -1,13 +1,13 @@
 // 서버 API 검사. 내 컴퓨터에서 띄운 서버를 대상으로 한다 (배포된 사이트에는 돌리지 않는다: 데이터를 초기화한다).
-//   1) node build.js
-//   2) npx wrangler pages dev dist --port 8788 --persist-to <짧은 경로>
-//   3) node --test tests/api.test.js
+//   1) npm run setup   (처음 한 번)
+//   2) npm run dev
+//   3) npm run test:server
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs'), path = require('path');
 global.window = global;
-require('../js/data.js');
-require('../js/logic.js');
+require('../site/js/data.js');
+require('../site/js/logic.js');
 const X = GO.logic;
 
 const BASE = process.env.BASE || 'http://localhost:8788';

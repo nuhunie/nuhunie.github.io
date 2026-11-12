@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "nuhunie-server",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "npx wrangler pages dev site --port 8788"],
+      "port": 8788
+    },
+    {
+      "name": "nuhunie-mock",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "4173"],
+      "port": 4173
+    }
+  ]
+}

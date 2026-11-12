@@ -1,7 +1,7 @@
-# Cloudflare Pages 설정. 화면 파일은 build.js가 dist/에 모으고, API는 functions/에서 온다.
+# Cloudflare Pages 설정. 화면 파일은 site/, API는 functions/에서 온다.
 name = "nuhunie"
 compatibility_date = "2026-10-01"
-pages_build_output_dir = "dist"
+pages_build_output_dir = "site"
 
 [[d1_databases]]
 binding = "DB"
