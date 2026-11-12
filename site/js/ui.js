@@ -19,15 +19,6 @@
   var lang = 'id';
   try { lang = localStorage.getItem('go-lang') || 'id'; } catch (e) {}
 
-  // 배색 후보: [이름, 견본색, 표시 이름]. 실제 색 값은 css/app.css의 [data-theme]에 있다.
-  var THEMES = [
-    ['pink', '#d6336c', ['Pink', '핑크']], ['blossom', '#f3acd0', ['Pink pastel', '파스텔 핑크']], ['sky', '#0b76b8', ['Biru langit', '스카이블루']], ['mint', '#0b7f63', ['Mint', '민트']],
-    ['violet', '#6d45c4', ['Ungu', '바이올렛']], ['mono', '#111', ['Hitam putih', '흑백']]
-  ];
-
-  // 글씨체 후보: [이름, 표시 이름]. 실제 글꼴 값은 css/app.css의 [data-font]에 있다.
-  var FONTS = [['jakarta', 'Plus Jakarta Sans'], ['pretendard', 'Pretendard'], ['nunito', 'Nunito'], ['system', 'System']];
-
   /* ── 공통 도구 ── */
   function L(id, ko) { return lang === 'ko' ? ko : lang === 'en' ? (GO.EN[id] || id) : id; }
   function LL(pair) { return L(pair[0], pair[1]); }
@@ -550,21 +541,18 @@
     linkLabels();
     var navKey = page === 's' || page === 'b' ? 'home' : page;
     $('#nav').innerHTML = (GO.app === 'admin'
-      ? [['site', ROOT, L('Lihat situs pelanggan', '고객 사이트 보기')]]
-      : [['home', '#/', L('Layanan', '서비스')], ['track', '#/track', L('Lacak pesanan', '주문 조회')], ['pay', '#/pay', L('Konfirmasi pembayaran', '결제 확인')]])
-      .map(function (n) { return '<a href="' + n[1] + '"' + (n[0] === navKey ? ' class="on" aria-current="page"' : '') + '>' + n[2] + '</a>'; }).join('');
+      // 고객 사이트 보기는 새 탭으로 연다: 관리자 사이트가 그대로 남아 있어 돌아오기 쉽다
+      ? [['site', ROOT, L('Lihat situs pelanggan', '고객 사이트 보기') + ' ↗', true]]
+      : [['home', '#/', L('Layanan', '서비스')], ['track', '#/track', L('Lacak pesanan', '주문 조회')], ['pay', '#/pay', L('Konfirmasi pembayaran', '결제 확인')]]
+          // 로그인한 운영자에게만 관리자 사이트로 돌아가는 길을 보여 준다 (고객에게는 보이지 않는다)
+          .concat(S.mode === 'server' && S.isAdmin ? [['admin', 'admin/', L('Kembali ke admin', '관리자로 돌아가기')]] : []))
+      .map(function (n) { return '<a href="' + n[1] + '"' + (n[3] ? ' target="_blank" rel="noopener"' : '') + (n[0] === navKey ? ' class="on" aria-current="page"' : '') + '>' + n[2] + '</a>'; }).join('');
     $('#langs').innerHTML = [['id', 'ID', 'Bahasa Indonesia'], ['en', 'EN', 'English'], ['ko', 'KO', '한국어']].map(function (l) { return '<button type="button" class="link' + (l[0] === lang ? ' on' : '') + '" data-act="lang" data-id="' + l[0] + '" title="' + l[2] + '" aria-label="' + l[2] + '" aria-pressed="' + (l[0] === lang) + '">' + l[1] + '</button>'; }).join('');
     $('#jumpTop').setAttribute('aria-label', L('Ke atas', '맨 위로')); $('#jumpTop').title = L('Ke atas', '맨 위로');
     $('#jumpBottom').setAttribute('aria-label', L('Ke bawah', '맨 아래로')); $('#jumpBottom').title = L('Ke bawah', '맨 아래로');
     showJump();
     document.documentElement.lang = lang;
-    document.title = GO.BRAND.name + (GO.app === 'admin' ? ' Admin' : ''); $('#logo').innerHTML = '<img src="' + ROOT + GO.BRAND.mark + '" alt="" width="26" height="26">' + esc(GO.BRAND.name) + (GO.app === 'admin' ? ' <small>Admin</small>' : ''); $('#foot').textContent = GO.BRAND.name + ' · mockup';
-    var font = document.documentElement.dataset.font || 'jakarta';
-    $('#fonts').innerHTML = FONTS.map(function (f) { return '<button type="button" class="link' + (f[0] === font ? ' on' : '') + '" data-act="font" data-id="' + f[0] + '" aria-pressed="' + (f[0] === font) + '">' + f[1] + '</button>'; }).join('');
-    var theme = document.documentElement.dataset.theme || 'pink';
-    $('#themes').innerHTML = THEMES.map(function (t) {
-      return '<button type="button" data-act="theme" data-id="' + t[0] + '" class="' + (t[0] === theme ? 'on' : '') + '" style="background:' + t[1] + '" title="' + LL(t[2]) + '" aria-label="' + LL(t[2]) + '" aria-pressed="' + (t[0] === theme) + '"></button>';
-    }).join('');
+    document.title = GO.BRAND.name + (GO.app === 'admin' ? ' Admin' : ''); $('#logo').innerHTML = '<img src="' + ROOT + GO.BRAND.mark + '" alt="" width="26" height="26">' + esc(GO.BRAND.name) + (GO.app === 'admin' ? ' <small>Admin</small>' : ''); $('#foot').textContent = GO.BRAND.name + (S.mode === 'local' ? ' · mockup' : '');   // 서버 없이 도는 목업판에만 표시
     if (page === 'admin' && r[1] === 'calc' && S.isAdmin) drawCalc();
     if (page === 'track') drawTrack(r[1] || '');
     if (page === 'b') drawBatch(r[1]);
@@ -599,8 +587,6 @@
     if (act === 'top') window.scrollTo({ top: 0, behavior: 'smooth' });
     else if (act === 'bottom') window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
     else if (act === 'lang') { lang = id; try { localStorage.setItem('go-lang', lang); } catch (x) {} render(); }
-    else if (act === 'font') { document.documentElement.dataset.font = id; try { localStorage.setItem('go-font', id); } catch (x) {} render(); }
-    else if (act === 'theme') { document.documentElement.dataset.theme = id; try { localStorage.setItem('go-theme', id); } catch (x) {} render(); }
     else if (act === 'calc-reset') { C = null; render(); }
     else if (act === 'calc-save') { S.setCalcDefaults(C); t.textContent = L('Tersimpan', '저장됨'); }
     else if (act === 'pay-svc') { P.svc = id; P.batchId = (S.batchesOf(id)[0] || {}).id; render(); }

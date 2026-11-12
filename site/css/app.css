@@ -1,22 +1,13 @@
-/* 넥슨 형식의 구조(흰 바탕, 가는 테두리, 4px 모서리, 밑줄형 탭)는 그대로 두고 색만 테마로 바꾼다.
- * 테마는 <html data-theme="...">로 고른다. 강조색 위의 흰 글자는 모두 명암비 4.5:1 이상. */
+/* 넥슨 형식의 구조: 흰 바탕, 가는 테두리, 4px 모서리, 밑줄형 탭.
+ * 색과 글씨체는 아래 변수 한 곳에서 정한다. 강조색 위의 흰 글자는 명암비 4.5:1 이상. */
 :root {
   --text: #1f1a1c; --sub: #666; --line: #e6e0e2; --bg: #fff;
   --accent: #d6336c; --accent-hover: #b82659; --soft: #fff3f7; --line-strong: var(--accent);
   --on-accent: #fff; --ink: var(--accent); /* on-accent: 강조색 위 글자, ink: 흰 바탕 위 강조 글자 */
   --blue: #0a5cd8; --green: #0a7d43; --amber: #9a5b00; --red: #d0021b; --r: 4px;
+  /* 글씨체: Nunito. 한글은 Nunito에 없어서 Pretendard로 나온다. */
+  --font: Nunito, "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
 }
-/* 요청받은 파스텔 핑크(#f3acd0)는 밝아서 흰 글자를 올릴 수 없다. 면에는 그대로 쓰고 글자는 짙은 자주색으로 둔다. */
-[data-theme=blossom] { --accent: #f3acd0; --accent-hover: #ee97c4; --on-accent: #4a1230; --ink: #b02a76; --soft: #fdf1f7; --line: #f0dce6; }
-/* 글씨체 후보. 한글은 어느 후보에서든 Pretendard로 나온다(앞의 두 글꼴에는 한글이 없다). */
-:root { --font: "Plus Jakarta Sans", "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
-[data-font=pretendard] { --font: "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
-[data-font=nunito] { --font: Nunito, "Pretendard Variable", Pretendard, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; }
-[data-font=system] { --font: -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", Roboto, sans-serif; }
-[data-theme=sky]    { --accent: #0b76b8; --accent-hover: #095f95; --soft: #eff7fc; --line: #dfe5e9; }
-[data-theme=mint]   { --accent: #0b7f63; --accent-hover: #09684f; --soft: #eef8f5; --line: #dfe7e4; }
-[data-theme=violet] { --accent: #6d45c4; --accent-hover: #5836a3; --soft: #f4f0fc; --line: #e3e0ea; }
-[data-theme=mono]   { --accent: #111;    --accent-hover: #333;    --soft: #f7f7f7; --line: #e0e0e0; }
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.6 var(--font); }
@@ -45,9 +36,6 @@ section + section { margin-top: 44px; }
 .nav a { display: flex; align-items: center; white-space: nowrap; color: var(--sub); border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .nav a:hover { color: var(--text); }
 .nav a.on { color: var(--text); font-weight: 700; border-bottom-color: var(--line-strong); }
-.themes { display: flex; gap: 6px; align-items: center; }
-.themes button { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px var(--line); padding: 0; cursor: pointer; }
-.themes button.on { box-shadow: 0 0 0 2px var(--text); }
 .langs { display: flex; gap: 10px; }
 .langs .on { color: var(--ink); font-weight: 700; }
 .jump { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; z-index: 6; border: 1px solid var(--line); border-radius: var(--r); background: #fff; overflow: hidden; }
@@ -56,9 +44,6 @@ section + section { margin-top: 44px; }
 .jump button + button { border-top: 1px solid var(--line); }
 .jump button:hover { background: var(--soft); color: var(--ink); }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
-.foot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-.fonts { display: flex; gap: 12px; flex-wrap: wrap; }
-.fonts .on { color: var(--ink); font-weight: 700; }
 .foot { border-top: 1px solid var(--line); padding-top: 20px; padding-bottom: 28px; color: var(--sub); font-size: 12px; }
 
 /* 버튼·링크 */

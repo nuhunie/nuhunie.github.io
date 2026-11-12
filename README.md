@@ -21,7 +21,7 @@ site/        화면. 이 폴더만 사이트로 올라간다
   js/store.js      3층  읽고 쓰는 통로. /api 가 있으면 서버, 없으면 브라우저 저장소
   js/ui.js         4층  화면과 이벤트
   js/i18n-en.js    영어 문구
-  css/app.css      스타일, 배색, 글씨체
+  css/app.css      스타일 (색과 글씨체는 맨 위 :root 에서 정한다)
   _headers         보안 헤더
 functions/   API (Cloudflare Pages Functions).  /api/... 요청이 여기로 온다
 server/      서버 공통 코드: 입력 검사, 로그인, 횟수 제한, DB 변환
