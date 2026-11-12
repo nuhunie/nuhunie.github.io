@@ -214,7 +214,7 @@
       var o = find(db.orders, id);
       // 되돌리는 순간 지워질 접수는 미결제로 바꾸지 않는다(logic.js 의 canUnpay). 화면이 먼저 막고 이유를 알린다; 여기는 마지막 안전판이다.
       if (o && patch && patch.pay === 'unpaid' && o.pay !== 'unpaid' && !X.canUnpay(o)) return o;
-      if (o) { Object.assign(o, patch); save(); push('PATCH', '/admin/order/' + encodeURIComponent(id), { pay: o.pay }); }
+      if (o) { Object.assign(o, patch); save(); push('PATCH', '/admin/order/' + encodeURIComponent(id), 'payer' in patch ? { pay: o.pay, payer: o.payer } : { pay: o.pay }); }
       return o;
     },
     removeOrder: function (id) {
@@ -241,11 +241,30 @@
     /* 쿠폰: { code, off, max }. 같은 코드가 있으면 null */
     voucherUses: function (v) { return mode === 'server' ? (v.used || 0) : voucherUsed(v.code); },
     addVoucher: function (v) {
-      v = { code: String(v.code || '').trim().toUpperCase(), off: Math.round(Number(v.off)), max: Math.max(0, Math.round(Number(v.max)) || 0), used: 0 };
+      v = { code: String(v.code || '').trim().toUpperCase(), off: Math.round(Number(v.off)), max: Math.max(0, Math.round(Number(v.max)) || 0), used: 0, note: '' };
       if (voucherOf(v.code)) return null;
       db.vouchers.push(v); save();
       push('POST', '/admin/voucher', { code: v.code, off: v.off, max: v.max });
       return v;
+    },
+    /* 한 장짜리 쿠폰 여러 장 { off, count, note } → 만든 코드 목록 (Promise). 서버판은 서버가 코드를 뽑는다. */
+    addVoucherBatch: function (p) {
+      if (mode === 'server') return api('POST', '/admin/voucher/bulk', p).then(function (r) { return pull().catch(function () {}).then(function () { return r.codes; }); });
+      var codes = [], n = Math.round(Number(p.count)), off = Math.round(Number(p.off));
+      if (!(n >= 1 && n <= GO.LIMITS.voucherBulk) || !(off >= 1)) return Promise.reject(new Error('Check the voucher fields.'));
+      while (codes.length < n) {
+        var b = new Uint8Array(6); globalThis.crypto.getRandomValues(b);
+        var c = X.voucherCodeFrom(b);
+        if (!voucherOf(c) && codes.indexOf(c) < 0) codes.push(c);
+      }
+      codes.forEach(function (c) { db.vouchers.push({ code: c, off: off, max: 1, used: 0, note: String(p.note || '').trim() }); });
+      save();
+      return Promise.resolve(codes);
+    },
+    setVoucherNote: function (code, note) {
+      var v = voucherOf(code); if (!v) return;
+      v.note = note; save();
+      push('PATCH', '/admin/voucher/' + encodeURIComponent(code), { note: note });
     },
     removeVoucher: function (code) {
       db.vouchers = db.vouchers.filter(function (v) { return v.code !== code; });

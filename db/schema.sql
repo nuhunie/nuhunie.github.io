@@ -54,6 +54,17 @@ CREATE TABLE IF NOT EXISTS voucher_uses (
   code TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS voucher_uses_code ON voucher_uses (code);
+-- 쿠폰 메모: 한 장짜리 코드를 누구에게 줬는지 등 (운영자만 본다)
+CREATE TABLE IF NOT EXISTS voucher_notes (
+  code TEXT PRIMARY KEY,
+  note TEXT NOT NULL DEFAULT ''
+);
+-- 입금자 이름: 운영자가 결제를 승인할 때 은행 기록을 보고 적는다. 같은 입금자가 같은 쿠폰을 또 쓰면 승인 화면이 알린다.
+-- 개인정보이므로 고객 화면과 공개 API에는 내보내지 않는다.
+CREATE TABLE IF NOT EXISTS order_payer (
+  order_id TEXT PRIMARY KEY,
+  name TEXT NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,

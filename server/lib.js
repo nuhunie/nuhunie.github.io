@@ -142,9 +142,20 @@ export async function recordHit(db, request, kind) {
 export const toService = r => ({ id: r.id, name: [r.name_id, r.name_ko], desc: [r.desc_id, r.desc_ko], cur: r.cur });
 // 쿠폰과 사용 한도·사용 횟수. 첫 번째 값으로 "세지 않을 주문번호"를 넣는다(같은 주문이 다시 낼 때 자기 자신을 세지 않게).
 // 지워진 주문과 반려된 주문은 세지 않는다.
-export const VOUCHER_SELECT = "SELECT v.code AS code, v.off AS off, IFNULL(l.max_uses, 0) AS max, " +
-  "(SELECT COUNT(*) FROM voucher_uses u JOIN orders o ON o.id = u.order_id WHERE u.code = v.code AND o.pay != 'rejected' AND u.order_id != ?) AS used " +
-  'FROM vouchers v LEFT JOIN voucher_limits l ON l.code = v.code';
+export const VOUCHER_USED = "SELECT COUNT(*) FROM voucher_uses u LEFT JOIN orders o ON o.id = u.order_id WHERE u.code = ? AND IFNULL(o.pay, '') != 'rejected' AND u.order_id != ?";
+export const VOUCHER_SELECT = "SELECT v.code AS code, v.off AS off, IFNULL(l.max_uses, 0) AS max, IFNULL(n.note, '') AS note, " +
+  "(SELECT COUNT(*) FROM voucher_uses u LEFT JOIN orders o ON o.id = u.order_id WHERE u.code = v.code AND IFNULL(o.pay, '') != 'rejected' AND u.order_id != ?) AS used " +
+  'FROM vouchers v LEFT JOIN voucher_limits l ON l.code = v.code LEFT JOIN voucher_notes n ON n.code = v.code';
+// 운영자 화면용 주문: 쓴 쿠폰과 입금자 이름을 함께 읽는다 (고객에게 가는 응답에는 넣지 않는다)
+export const ADMIN_ORDER_SELECT = "SELECT o.*, f.self AS self, f.late AS late, IFNULL(u.code, '') AS voucher, IFNULL(p.name, '') AS payer FROM orders o " +
+  'LEFT JOIN order_flags f ON f.order_id = o.id LEFT JOIN voucher_uses u ON u.order_id = o.id LEFT JOIN order_payer p ON p.order_id = o.id';
+/* 쿠폰 한 번 쓰기를 예약한다. 한도 확인과 기록을 한 문장으로 하므로, 마지막 한 장을 두 주문이 같은 순간에 쓰려 해도 하나만 된다.
+ * 성공하면 true. 주문을 넣지 못하면 부르는 쪽이 이 기록을 지운다. */
+export async function reserveVoucher(db, code, orderId, max) {
+  const r = await db.prepare('INSERT OR REPLACE INTO voucher_uses (order_id, code) SELECT ?, ? WHERE ? = 0 OR (' + VOUCHER_USED + ') < ?')
+    .bind(orderId, code, max, code, orderId, max).run();
+  return !!(r.meta && r.meta.changes);
+}
 export const toBatch = r => ({ id: r.id, svc: r.svc, no: r.no, title: r.title, month: r.month, stage: r.stage, closeDate: r.close_date, kurs: r.kurs, note: r.note });
 export const toOrder = r => ({ id: r.id, batchId: r.batch_id, buyer: r.buyer, item: r.item, qty: r.qty, base: r.base, total: r.total, pay: r.pay, method: r.method, proofName: r.proof_name, createdAt: r.created_at, self: r.self ? 1 : 0, late: r.late || 0 });
 // 주문을 읽을 때는 표시(order_flags)를 함께 읽는다
@@ -175,11 +186,13 @@ export async function purgeExpired(db, env) {
   const stmts = [];
   rows.forEach(r => stmts.push(
     db.prepare("DELETE FROM orders WHERE id = ? AND pay = 'unpaid' AND proof_name = ''").bind(r.id),
-    db.prepare('DELETE FROM order_flags WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id)
+    db.prepare('DELETE FROM order_flags WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id),
+    db.prepare('DELETE FROM voucher_uses WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id),   // 쓴 쿠폰을 돌려준다
+    db.prepare('DELETE FROM order_payer WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id)
   ));
   const done = await db.batch(stmts);
   // 실제로 지워진 주문만 적는다(그 사이 증빙을 냈거나, 같은 순간의 다른 요청이 먼저 지웠을 수 있다)
-  const ids = rows.filter((r, i) => done[i * 2] && done[i * 2].meta && done[i * 2].meta.changes).map(r => r.id);
+  const ids = rows.filter((r, i) => done[i * 4] && done[i * 4].meta && done[i * 4].meta.changes).map(r => r.id);
   if (!ids.length) return [];
   // 활동 기록 한 줄은 200자까지 보인다. 주문번호가 잘려 빠지지 않게 12개씩 나눠 적는다.
   const at = new Date().toISOString(), logs = [];
@@ -193,7 +206,7 @@ export async function seed(db) {
   const s = GO.seed();
   const stmts = [
     db.prepare('DELETE FROM order_flags'), db.prepare('DELETE FROM orders'), db.prepare('DELETE FROM batches'), db.prepare('DELETE FROM services'),
-    db.prepare('DELETE FROM vouchers'), db.prepare('DELETE FROM voucher_limits'), db.prepare('DELETE FROM voucher_uses'), db.prepare('DELETE FROM settings')
+    db.prepare('DELETE FROM vouchers'), db.prepare('DELETE FROM voucher_limits'), db.prepare('DELETE FROM voucher_uses'), db.prepare('DELETE FROM voucher_notes'), db.prepare('DELETE FROM order_payer'), db.prepare('DELETE FROM settings')
   ];
   s.services.forEach((v, i) => stmts.push(db.prepare('INSERT INTO services (id, name_id, name_ko, desc_id, desc_ko, cur, sort) VALUES (?,?,?,?,?,?,?)').bind(v.id, v.name[0], v.name[1], v.desc[0], v.desc[1], v.cur, i)));
   s.batches.forEach(b => stmts.push(db.prepare('INSERT INTO batches (id, svc, no, title, month, stage, close_date, kurs, note) VALUES (?,?,?,?,?,?,?,?,?)').bind(b.id, b.svc, b.no, b.title, b.month, b.stage, b.closeDate, b.kurs, b.note)));
@@ -228,12 +241,12 @@ export async function loadState(db, admin, env) {
 
   await purgeExpired(db, env);                  // 지울 때가 된 접수(기한이 한참 지나도록 결제 전)를 먼저 지운다
   const [orders, vouchers, calc] = await Promise.all([
-    db.prepare(ORDER_SELECT + ' ORDER BY o.created_at, o.id').all(),
+    db.prepare(ADMIN_ORDER_SELECT + ' ORDER BY o.created_at, o.id').all(),
     db.prepare(VOUCHER_SELECT + ' ORDER BY v.code').bind('').all(),
     db.prepare('SELECT value FROM settings WHERE key = ?').bind('calcDefaults').first()
   ]);
   state.batches = batches.map(toBatch);
-  state.orders = orders.results.map(r => withDeadline(toOrder(r), env));
+  state.orders = orders.results.map(r => Object.assign(withDeadline(toOrder(r), env), { voucher: r.voucher || '', payer: r.payer || '' }));
   state.vouchers = vouchers.results;
   state.calcDefaults = calc ? JSON.parse(calc.value) : GO.seed().calcDefaults;
   return state;

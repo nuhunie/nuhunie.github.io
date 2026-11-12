@@ -571,7 +571,7 @@
   }
 
   /* ── 관리자 ── */
-  var A = { batchId: '', text: '', rows: null, engine: '', q: '', edit: {}, saved: '', priceMode: 'each' };
+  var A = { batchId: '', text: '', rows: null, engine: '', q: '', edit: {}, saved: '', priceMode: 'each', payers: {}, newCodes: null };
   /* 표에서 고친 값은 "저장"을 누르기 전까지 A.edit 에만 둔다 (열쇠: 'b:배치' 또는 'o:주문').
    * 화면을 다시 그려도 남아 있고, 저장을 눌러야 서버로 가서 고객 화면에 반영된다. */
   function batchDraft(b) { return A.edit['b:' + b.id] || { stage: b.stage, note: b.note }; }
@@ -580,11 +580,12 @@
   // 다른 곳에서 이미 같은 값이 됐거나 지워진 항목의 고친 값은 버린다
   function pruneEdits() {
     Object.keys(A.edit).forEach(function (key) {
-      var id = key.slice(2), d = A.edit[key], b = key[0] === 'b' && S.batch(id), o = key[0] === 'o' && S.order(id), s = key[0] === 's' && S.service(id);
-      if (!(b || o || s) || (b && d.stage === b.stage && d.note === b.note) || (o && d.pay === o.pay) || (s && svcSame(s, d))) delete A.edit[key];
+      var id = key.slice(2), d = A.edit[key], b = key[0] === 'b' && S.batch(id), o = key[0] === 'o' && S.order(id), s = key[0] === 's' && S.service(id), v = key[0] === 'v' && voucherByCode(id);
+      if (!(b || o || s || v) || (b && d.stage === b.stage && d.note === b.note) || (o && d.pay === o.pay) || (s && svcSame(s, d)) || (v && d.note === (v.note || ''))) delete A.edit[key];
     });
   }
   // 서비스 표: 저장된 값과 화면 값 (열쇠 's:서비스')
+  function voucherByCode(code) { return S.db.vouchers.filter(function (v) { return v.code === code; })[0]; }
   function svcFields(s) { return { nameId: s.name[0], nameKo: s.name[1], descId: s.desc[0], descKo: s.desc[1], cur: s.cur }; }
   function svcSame(s, d) { var f = svcFields(s); return Object.keys(f).every(function (k) { return f[k] === d[k]; }); }
   function saveCell(act, id, key) {
@@ -610,6 +611,9 @@
       var s = S.service(k); if (!s) return;
       d = {}; tr.querySelectorAll('[data-svc]').forEach(function (x) { d[x.getAttribute('data-f')] = x.value.trim(); });
       key = 's:' + k; dirty = !svcSame(s, d);
+    } else if ((k = t.getAttribute('data-vnote'))) {
+      var vc = voucherByCode(k); if (!vc) return;
+      d = { note: t.value.trim() }; key = 'v:' + k; dirty = d.note !== (vc.note || '');
     } else return;
     if (dirty) A.edit[key] = d; else delete A.edit[key];
     tr.classList.toggle('dirty', dirty);
@@ -660,9 +664,12 @@
         '<td class="acts">' + saveCell('svc-save', s.id, key) + '<button class="link" data-act="svc-del" data-id="' + s.id + '">' + L('Hapus', '삭제') + '</button></td></tr>';
     }).join('');
     var vRows = S.db.vouchers.map(function (v) {
-      var used = S.voucherUses(v);
-      return '<tr><td><b>' + esc(v.code) + '</b></td><td class="r">−' + rp(v.off) + '</td><td class="r">' + used + ' / ' + (v.max ? v.max : L('tanpa batas', '무제한')) + (v.max && used >= v.max ? ' <span class="badge">' + L('Habis', '다 씀') + '</span>' : '') + '</td>' +
-        '<td><button class="link" data-act="voucher-del" data-id="' + esc(v.code) + '">' + L('Hapus', '삭제') + '</button></td></tr>';
+      var used = S.voucherUses(v), key = 'v:' + v.code, note = A.edit[key] ? A.edit[key].note : (v.note || '');
+      var by = S.db.orders.filter(function (o) { return o.voucher === v.code; }).map(function (o) { return o.id; });
+      return '<tr' + (A.edit[key] ? ' class="dirty"' : '') + '><td><b>' + esc(v.code) + '</b>' + (v.max === 1 ? ' <span class="badge">' + L('sekali pakai', '한 장짜리') + '</span>' : '') + '</td><td class="r">−' + rp(v.off) + '</td>' +
+        '<td class="r">' + used + ' / ' + (v.max ? v.max : L('tanpa batas', '무제한')) + (v.max && used >= v.max ? ' <span class="badge">' + L('Habis', '다 씀') + '</span>' : '') + (by.length ? '<small class="vby">' + by.map(esc).join(', ') + '</small>' : '') + '</td>' +
+        '<td><input data-vnote="' + esc(v.code) + '" value="' + esc(note) + '" maxlength="' + GO.LIMITS.note + '" placeholder="' + L('Catatan, mis. untuk siapa', '메모 (예: 누구에게 줬는지)') + '" aria-label="' + L('Catatan', '메모') + '"></td>' +
+        '<td class="acts">' + saveCell('vnote-save', esc(v.code), key) + '<button class="link" data-act="voucher-del" data-id="' + esc(v.code) + '">' + L('Hapus', '삭제') + '</button></td></tr>';
     }).join('');
     return '<div class="panel"><h2>' + L('Layanan', '서비스') + '</h2><p class="lead">' + L('Nama dan keterangan tampil di halaman pelanggan. Layanan yang masih punya batch tidak bisa dihapus.', '이름과 설명은 고객 화면에 나옵니다. 배치가 남아 있는 서비스는 지울 수 없습니다.') + '</p>' +
       '<div class="tbl"><table class="edit"><thead><tr><th>' + L('Kode', '코드') + '</th><th>' + L('Nama (ID)', '이름 (인도네시아어)') + '</th><th>' + L('Nama (KO)', '이름 (한국어)') + '</th><th>' + L('Keterangan (ID)', '설명 (인도네시아어)') + '</th><th>' + L('Keterangan (KO)', '설명 (한국어)') + '</th><th>' + L('Mata uang', '통화') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' + svcRows + '</tbody></table></div>' +
@@ -677,12 +684,20 @@
       '<div class="field"><label>&nbsp;</label><button class="btn">' + L('Tambah', '추가') + '</button></div></form><p class="err" id="svcErr" role="alert"></p></div>' +
 
       '<div class="panel"><h2>Voucher</h2><p class="lead">' + L('Batas pakai dihitung dari pesanan yang memakai voucher ini (pesanan yang ditolak atau dihapus tidak dihitung). Kosongkan untuk tanpa batas.', '사용 한도는 이 쿠폰을 쓴 주문 수로 셉니다(반려되거나 지워진 주문은 세지 않음). 비워 두면 무제한입니다.') + '</p>' +
-      (vRows ? '<div class="tbl"><table class="edit"><thead><tr><th>' + L('Kode', '코드') + '</th><th class="r">' + L('Potongan', '할인') + '</th><th class="r">' + L('Terpakai / batas', '사용 / 한도') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' + vRows + '</tbody></table></div>' : empty(L('Belum ada voucher.', '쿠폰이 없습니다.'))) +
+      (vRows ? '<div class="tbl"><table class="edit"><thead><tr><th>' + L('Kode', '코드') + '</th><th class="r">' + L('Potongan', '할인') + '</th><th class="r">' + L('Terpakai / batas', '사용 / 한도') + '</th><th>' + L('Catatan', '메모') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' + vRows + '</tbody></table></div>' : empty(L('Belum ada voucher.', '쿠폰이 없습니다.'))) +
       '<h3 class="sub">' + L('Tambah voucher', '쿠폰 추가') + '</h3><form data-form="voucher" class="grid3">' +
       '<div class="field"><label>' + L('Kode', '코드') + ' (A-Z, 0-9)</label><input name="code" required pattern="[A-Za-z0-9_\-]{3,30}" maxlength="' + GO.LIMITS.voucher + '" placeholder="NUH10K"></div>' +
       '<div class="field"><label>' + L('Potongan (Rp)', '할인 (Rp)') + '</label><input name="off" type="number" min="1" max="' + GO.LIMITS.amount + '" required></div>' +
       '<div class="field"><label>' + L('Batas pakai', '사용 한도') + '</label><input name="max" type="number" min="0" max="' + GO.LIMITS.voucherUses + '" placeholder="' + L('tanpa batas', '무제한') + '"></div>' +
-      '<div class="field"><label>&nbsp;</label><button class="btn">' + L('Tambah', '추가') + '</button></div></form><p class="err" id="voucherErr" role="alert"></p></div>' +
+      '<div class="field"><label>&nbsp;</label><button class="btn">' + L('Tambah', '추가') + '</button></div></form><p class="err" id="voucherErr" role="alert"></p>' +
+      '<h3 class="sub">' + L('Buat voucher sekali pakai', '한 장짜리 쿠폰 여러 장 만들기') + '</h3><p class="hint">' + L('Untuk "1 orang 1 kali": buat satu kode untuk satu pelanggan, lalu kirim lewat chat. Kode hanya bisa dipakai sekali.', '"1인 1회"용: 고객 한 사람에게 코드 한 장씩 만들어 채팅으로 건넵니다. 한 번만 쓸 수 있습니다.') + '</p>' +
+      '<form data-form="vbulk" class="grid3">' +
+      '<div class="field"><label>' + L('Potongan (Rp)', '할인 (Rp)') + '</label><input name="off" type="number" min="1" max="' + GO.LIMITS.amount + '" required></div>' +
+      '<div class="field"><label>' + L('Jumlah kode', '장 수') + ' (1–' + GO.LIMITS.voucherBulk + ')</label><input name="count" type="number" min="1" max="' + GO.LIMITS.voucherBulk + '" value="1" required></div>' +
+      '<div class="field"><label>' + L('Catatan', '메모') + '</label><input name="note" maxlength="' + GO.LIMITS.note + '" placeholder="' + L('mis. pelanggan baru November', '예: 11월 신규 고객') + '"></div>' +
+      '<div class="field"><label>&nbsp;</label><button class="btn">' + L('Buat', '만들기') + '</button></div></form><p class="err" id="vbulkErr" role="alert"></p>' +
+      (A.newCodes ? '<div class="field"><label for="newCodes">' + L('Kode baru (salin dan kirim satu per pelanggan)', '새로 만든 코드 (복사해서 한 사람에게 한 장씩 보내세요)') + '</label><textarea id="newCodes" rows="' + Math.min(8, A.newCodes.length + 1) + '" readonly>' + esc(A.newCodes.join('\n')) + '</textarea></div>' : '') +
+      '</div>' +
 
       '<div class="panel"><h2>' + L('Unduh data', '자료 내려받기') + '</h2><p class="lead">' + L('CSV bisa dibuka di Excel atau Google Sheets. Cadangan lengkap (JSON) berisi semua data untuk disimpan; belum ada fitur memulihkan dari file ini.', 'CSV는 엑셀이나 구글 시트에서 열립니다. 전체 백업(JSON)은 모든 자료를 보관용으로 담습니다. 이 파일로 되살리는 기능은 아직 없습니다.') + '</p>' +
       '<div class="btns"><button class="btn line" data-act="export">' + L('Pesanan (CSV)', '주문 (CSV)') + '</button><button class="btn line" data-act="export-batches">' + L('Batch (CSV)', '배치 (CSV)') + '</button><button class="btn line" data-act="export-vouchers">Voucher (CSV)</button><button class="btn line" data-act="export-backup">' + L('Cadangan lengkap (JSON)', '전체 백업 (JSON)') + '</button></div></div>';
@@ -775,7 +790,7 @@
     'batch.add': ['Tambah batch', '배치 추가'], 'batch.update': ['Ubah batch', '배치 변경'], 'batch.delete': ['Hapus batch', '배치 삭제'],
     'order.add': ['Tambah pesanan', '주문 추가'], 'order.pay': ['Ubah status bayar', '결제 상태 변경'], 'order.delete': ['Hapus pesanan', '주문 삭제'], 'order.expire': ['Pesanan kedaluwarsa dihapus', '기한 지난 접수 자동 삭제'],
     calc: ['Simpan rumus kalkulator', '계산기 수식 저장'],
-    'voucher.add': ['Tambah voucher', '쿠폰 추가'], 'voucher.delete': ['Hapus voucher', '쿠폰 삭제'],
+    'voucher.add': ['Tambah voucher', '쿠폰 추가'], 'voucher.delete': ['Hapus voucher', '쿠폰 삭제'], 'voucher.bulk': ['Buat voucher sekali pakai', '한 장짜리 쿠폰 발급'], 'voucher.note': ['Ubah catatan voucher', '쿠폰 메모 변경'],
     'service.add': ['Tambah layanan', '서비스 추가'], 'service.update': ['Ubah layanan', '서비스 변경'], 'service.delete': ['Hapus layanan', '서비스 삭제']
   };
   function aLog() { return '<div id="logOut"><p class="hint">' + L('Memuat…', '불러오는 중…') + '</p></div>'; }
@@ -808,21 +823,32 @@
   function aPay() {
     var list = S.db.orders.filter(function (o) { return o.pay === 'pending'; });
     var dup = X.duplicateTotals(S.db.orders);
-    return waitingNote() + (list.length ? (Object.keys(dup).length ? '<p class="note warn"><b>' + L('Perhatian', '주의') + '</b> ' + L('Ada pesanan dengan nominal yang sama. Cocokkan dengan bukti dan nama sebelum menyetujui.', '결제 금액이 같은 주문이 있습니다. 승인하기 전에 증빙과 이름을 대조하세요.') + '</p>' : '') + '<div class="tbl"><table><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>Batch</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">Total</th><th>' + L('Metode', '수단') + '</th><th>' + L('Bukti', '증빙') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' +
+    return waitingNote() + (list.length ? (Object.keys(dup).length ? '<p class="note warn"><b>' + L('Perhatian', '주의') + '</b> ' + L('Ada pesanan dengan nominal yang sama. Cocokkan dengan bukti dan nama sebelum menyetujui.', '결제 금액이 같은 주문이 있습니다. 승인하기 전에 증빙과 이름을 대조하세요.') + '</p>' : '') + '<div class="tbl"><table><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>Batch</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">Total</th><th>' + L('Metode', '수단') + '</th><th>' + L('Bukti', '증빙') + '</th><th>' + L('Nama pengirim', '입금자 이름') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' +
       list.map(function (o) {
         var b = S.batch(o.batchId);
         return '<tr><td>' + o.id + '</td><td>' + esc(batchName(b)) + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td>' + esc(o.item) + '</td><td class="r">' + rp(o.total) + (dup[o.total] ? ' <span class="badge pay-rejected">' + L('Nominal sama', '금액 같음') + '</span>' : '') + '</td><td>' + esc(o.method) + '</td><td>' + esc(o.proofName || '-') + '</td>' +
+          '<td><input data-payer="' + o.id + '" value="' + esc(A.payers[o.id] != null ? A.payers[o.id] : (o.payer || '')) + '" maxlength="' + GO.LIMITS.payer + '" placeholder="' + L('sesuai mutasi bank', '은행 입금 내역대로') + '" aria-label="' + L('Nama pengirim', '입금자 이름') + '">' +
+            (o.voucher ? '<small class="vby">Voucher ' + esc(o.voucher) + '</small>' : '') + '<small class="rowwarn" data-payerwarn="' + o.id + '" hidden></small></td>' +
           '<td class="acts"><button class="btn sm" data-act="pay-ok" data-id="' + o.id + '">' + L('Setujui', '승인') + '</button><button class="btn line sm" data-act="pay-no" data-id="' + o.id + '">' + L('Tolak', '반려') + '</button></td></tr>';
       }).join('') + '</tbody></table></div><p class="hint">' + L('Mockup hanya menyimpan nama file bukti, bukan gambarnya.', '목업에서는 증빙 이미지가 아니라 파일 이름만 저장합니다.') + '</p>'
       : empty(L('Tidak ada pembayaran yang menunggu verifikasi.', '확인을 기다리는 결제가 없습니다.')));
   }
 
+  // 같은 입금자가 같은 쿠폰을 이미 썼으면 승인 화면의 그 줄에 알린다 (자동으로 막지는 않는다: 운영자가 판단한다)
+  function payerWarn(id) {
+    var w = document.querySelector('[data-payerwarn="' + id + '"]'), inp = document.querySelector('[data-payer="' + id + '"]');
+    if (!w || !inp) return '';
+    var hit = X.payerClash(S.db.orders, id, inp.value);
+    w.hidden = !hit;
+    w.textContent = hit ? L('Pengirim yang sama sudah memakai voucher ini di pesanan', '같은 입금자가 이 쿠폰을 이미 쓴 주문이 있습니다') + ': ' + hit : '';
+    return hit;
+  }
   // 전체 주문을 스프레드시트용 CSV 파일로 내려받는다 (Excel·Google Sheets에서 열림)
   function exportOrders() {
-    var rows = [['order_no', 'date', 'service', 'month', 'batch', 'batch_stage', 'buyer', 'item', 'qty', 'total_idr', 'payment', 'method', 'after_close']];
+    var rows = [['order_no', 'date', 'service', 'month', 'batch', 'batch_stage', 'buyer', 'item', 'qty', 'total_idr', 'payment', 'method', 'after_close', 'voucher', 'payer']];
     S.db.orders.forEach(function (o) {
       var b = S.batch(o.batchId), s = S.service(b.svc);
-      rows.push([o.id, X.shopDate(o.createdAt), LL(s.name), b.month, batchName(b), LL(GO.STAGES[b.stage]), o.buyer, o.item, o.qty, o.total, LL(GO.PAY[o.pay]), o.method, o.late ? 'yes' : '']);
+      rows.push([o.id, X.shopDate(o.createdAt), LL(s.name), b.month, batchName(b), LL(GO.STAGES[b.stage]), o.buyer, o.item, o.qty, o.total, LL(GO.PAY[o.pay]), o.method, o.late ? 'yes' : '', o.voucher || '', o.payer || '']);
     });
     var blob = new Blob(['﻿' + X.toCSV(rows)], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a');
@@ -927,6 +953,7 @@
     document.documentElement.lang = lang;
     document.title = GO.BRAND.name + (GO.app === 'admin' ? ' Admin' : ''); $('#logo').innerHTML = '<img src="' + ROOT + GO.BRAND.mark + '" alt="" width="26" height="26">' + esc(GO.BRAND.name) + (GO.app === 'admin' ? ' <small>Admin</small>' : ''); $('#foot').textContent = GO.BRAND.name + (S.mode === 'local' ? ' · mockup' : '');   // 서버 없이 도는 목업판에만 표시
     if (page === 'admin' && r[1] === 'calc' && S.isAdmin) drawCalc();
+    if (page === 'admin' && r[1] === 'pay' && S.isAdmin) document.querySelectorAll('[data-payer]').forEach(function (x) { payerWarn(x.getAttribute('data-payer')); });
     if (page === 'track') drawTrack(r[1] || '');
     if (page === 'b') drawBatch(r[1]);
     if (page === 'admin' && S.isAdmin) { if (r[1] === 'order') drawFind(); if (r[1] === 'log') drawLog(); }
@@ -956,6 +983,10 @@
       if (!/^[a-z][a-z0-9]{1,9}$/.test(sid)) { $('#svcErr').textContent = L('Kode: 2–10 huruf kecil/angka, diawali huruf.', '코드는 영문 소문자로 시작하는 2~10자(영문·숫자)입니다.'); return; }
       var ns = S.addService({ id: sid, name: [sf.nameId.value.trim(), sf.nameKo.value.trim()], desc: [sf.descId.value.trim(), sf.descKo.value.trim()], cur: sf.cur.value });
       if (!ns) $('#svcErr').textContent = errText({ message: 'That service code already exists.' }); else render();
+    }
+    else if (f === 'vbulk') {
+      var bf = e.target;
+      S.addVoucherBatch({ off: bf.off.value, count: bf.count.value, note: bf.note.value.trim() }).then(function (codes) { A.newCodes = codes; render(); }, function (err) { $('#vbulkErr').textContent = errText(err); });
     }
     else if (f === 'voucher') {
       var vf = e.target, nv = S.addVoucher({ code: vf.code.value, off: vf.off.value, max: vf.max.value });
@@ -1007,8 +1038,13 @@
     }
     else if (act === 'batch-del') { if (confirm(L('Hapus batch ini beserta pesanannya?', '이 배치와 그 안의 주문을 삭제할까요?'))) { S.removeBatch(id); render(); } }
     else if (act === 'order-del') { if (confirm(L('Hapus pesanan ini?', '이 주문을 삭제할까요?'))) { S.removeOrder(id); render(); } }
-    else if (act === 'pay-ok') { S.updateOrder(id, { pay: 'paid' }); render(); }
-    else if (act === 'pay-no') { S.updateOrder(id, { pay: 'rejected' }); render(); }
+    else if (act === 'pay-ok') {
+      var pn = ($('[data-payer="' + id + '"]') || {}).value || '', clash = payerWarn(id);
+      if (clash && !confirm(L('Pengirim yang sama sudah memakai voucher ini. Tetap setujui?', '같은 입금자가 이 쿠폰을 이미 썼습니다. 그래도 승인할까요?'))) return;
+      S.updateOrder(id, { pay: 'paid', payer: pn.trim() }); delete A.payers[id]; render();
+    }
+    else if (act === 'pay-no') { var pr = ($('[data-payer="' + id + '"]') || {}).value || ''; S.updateOrder(id, pr.trim() ? { pay: 'rejected', payer: pr.trim() } : { pay: 'rejected' }); delete A.payers[id]; render(); }
+    else if (act === 'vnote-save') { var vn = A.edit['v:' + id]; if (vn) { S.setVoucherNote(id, vn.note); saved('v:' + id); } }
     else if (act === 'sample') { A.text = $('[data-admin="text"]').getAttribute('placeholder'); A.rows = null; render(); }
     else if (act === 'classify') {
       var batch = S.batch(A.batchId);
@@ -1069,7 +1105,10 @@
   document.addEventListener('change', function (e) {
     draftRow(e.target);                         // 바로 저장하지 않는다. 저장 버튼을 눌러야 반영된다
   });
-  document.addEventListener('input', function (e) { if (e.target.hasAttribute('data-bnote') || e.target.hasAttribute('data-svc')) draftRow(e.target); });
+  document.addEventListener('input', function (e) {
+    if (e.target.hasAttribute('data-bnote') || e.target.hasAttribute('data-svc') || e.target.hasAttribute('data-vnote')) draftRow(e.target);
+    if (e.target.hasAttribute('data-payer')) { A.payers[e.target.getAttribute('data-payer')] = e.target.value; payerWarn(e.target.getAttribute('data-payer')); }
+  });
   // 저장하지 않은 변경이 있는데 창을 닫거나 새로 고치려 하면 브라우저가 한 번 묻는다
   window.addEventListener('beforeunload', function (e) { if (Object.keys(A.edit).length) { e.preventDefault(); e.returnValue = ''; } });
   document.addEventListener('keydown', function (e) { var m = $('.modal'); if (e.key === 'Escape' && m) m.remove(); });

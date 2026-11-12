@@ -14,13 +14,13 @@
  *   GET  state                 전체 상태
  *   POST batch · PATCH batch/:id · DELETE batch/:id
  *   POST order · PATCH order/:id · DELETE order/:id
- *   POST voucher · DELETE voucher/:code      쿠폰과 사용 한도
+ *   POST voucher · POST voucher/bulk · PATCH voucher/:code · DELETE voucher/:code   쿠폰, 한 장짜리 쿠폰 여러 장, 메모
  *   POST service · PATCH service/:id · DELETE service/:id   서비스 종류
  *   PUT  calc                  계산기 기본 수식
  *   POST reset                 예시 데이터로 초기화 (ALLOW_RESET=1 인 곳에서만. 배포판에는 꺼져 있다)
  *   GET  log                   활동 기록
  */
-import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, startSession, endSession, clearCookie, loadState, seed, toOrder, overLimit, recordHit, logAct, canReset, weakPassword, ORDER_SELECT, PUBLIC_ORDERS, withDeadline, expired, purgeExpired, canUnpay, VOUCHER_SELECT, toService } from '../../server/lib.js';
+import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, startSession, endSession, clearCookie, loadState, seed, toOrder, overLimit, recordHit, logAct, canReset, weakPassword, ORDER_SELECT, PUBLIC_ORDERS, withDeadline, expired, purgeExpired, canUnpay, VOUCHER_SELECT, toService, reserveVoucher } from '../../server/lib.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const NO_VOUCHER = 'Voucher not found.';
@@ -135,11 +135,17 @@ export async function onRequest({ request, env, params }) {
       // 주문 마감 뒤(단계 1 이상)에 들어온 새 주문도 받는다. 다만 이미 진행 중인 배치와 같은 일정으로는 처리할 수 없으므로
       // "마감 뒤 주문"으로 표시해 고객과 운영자 모두에게 알린다.
       const late = batch.stage >= 1 ? batch.stage : 0, now = new Date().toISOString();
-      await db.batch([
-        db.prepare("INSERT INTO orders (id, batch_id, buyer, item, qty, base, total, pay, method, proof_name, created_at) VALUES (?,?,?,?,?,?,?,'unpaid','','',?)")
-          .bind(id, batch.id, buyer, item, qty, base, total, now),
-        db.prepare('INSERT INTO order_flags (order_id, self, late) VALUES (?, 1, ?)').bind(id, late)
-      ].concat(vr.code ? [db.prepare('INSERT OR REPLACE INTO voucher_uses (order_id, code) VALUES (?, ?)').bind(id, vr.code)] : []));
+      if (vr.code && !(await reserveVoucher(db, vr.code, id, vr.max))) return fail('This voucher has been used up.', 409);
+      try {
+        await db.batch([
+          db.prepare("INSERT INTO orders (id, batch_id, buyer, item, qty, base, total, pay, method, proof_name, created_at) VALUES (?,?,?,?,?,?,?,'unpaid','','',?)")
+            .bind(id, batch.id, buyer, item, qty, base, total, now),
+          db.prepare('INSERT INTO order_flags (order_id, self, late) VALUES (?, 1, ?)').bind(id, late)
+        ]);
+      } catch (e) {
+        if (vr.code) await db.prepare('DELETE FROM voucher_uses WHERE order_id = ?').bind(id).run();   // 예약을 돌려준다
+        throw e;
+      }
       await recordHit(db, request, 'pay');
       return json({ order: withDeadline({ id, batchId: batch.id, buyer, item, qty, base, total, pay: 'unpaid', method: '', proofName: '', createdAt: now, self: 1, late }, env) });
     }
@@ -160,10 +166,18 @@ export async function onRequest({ request, env, params }) {
       const vr = row.self ? { off: 0, code: '' } : await voucherFor(b.voucher, id);
       if (vr.err) return fail(vr.err, vr.err === NO_VOUCHER ? 400 : 409);
       const total = row.self ? row.total : X.payable(row.base, vr.off, id);
+      const before = row.self ? null : await db.prepare('SELECT code FROM voucher_uses WHERE order_id = ?').bind(id).first();
+      if (!row.self) {
+        if (vr.code) { if (!(await reserveVoucher(db, vr.code, id, vr.max))) return fail('This voucher has been used up.', 409); }
+        else await db.prepare('DELETE FROM voucher_uses WHERE order_id = ?').bind(id).run();
+      }
       // "아직 결제 전인 주문만"이라는 조건을 UPDATE 안에 둔다: 이미 제출된 주문이나 동시에 들어온 두 번째 요청은 바뀌는 줄이 0이다
       const done = await db.prepare("UPDATE orders SET total = ?, pay = 'pending', method = ?, proof_name = ? WHERE id = ? AND pay IN ('unpaid', 'rejected')").bind(total, methodName, proof, id).run();
-      if (!done.meta.changes) return fail('This order has already been submitted.', 409);
-      if (!row.self) await (vr.code ? db.prepare('INSERT OR REPLACE INTO voucher_uses (order_id, code) VALUES (?, ?)').bind(id, vr.code) : db.prepare('DELETE FROM voucher_uses WHERE order_id = ?').bind(id)).run();
+      if (!done.meta.changes) {
+        // 이미 제출된 주문: 쿠폰 기록을 제출 전으로 되돌린다
+        if (!row.self) await (before ? db.prepare('INSERT OR REPLACE INTO voucher_uses (order_id, code) VALUES (?, ?)').bind(id, before.code) : db.prepare('DELETE FROM voucher_uses WHERE order_id = ?').bind(id)).run();
+        return fail('This order has already been submitted.', 409);
+      }
       await dropPublicCache();
       const saved = toOrder(Object.assign(row, { total, pay: 'pending', method: methodName, proof_name: proof }));
       saved.buyer = X.maskName(saved.buyer);
@@ -194,7 +208,7 @@ export async function onRequest({ request, env, params }) {
     const v = c && await db.prepare(VOUCHER_SELECT + ' WHERE v.code = ?').bind(orderId || '', c).first();
     if (!v) return { err: NO_VOUCHER };
     if (!X.voucherLeft(v, v.used)) return { err: 'This voucher has been used up.' };
-    return { off: v.off, code: c };
+    return { off: v.off, code: c, max: v.max };
   }
 
   async function adminRoute() {
@@ -244,10 +258,12 @@ export async function onRequest({ request, env, params }) {
     if (sub === 'DELETE /batch') {
       const gone = await db.batch([
         db.prepare('DELETE FROM order_flags WHERE order_id IN (SELECT id FROM orders WHERE batch_id = ?)').bind(id),
+        db.prepare('DELETE FROM voucher_uses WHERE order_id IN (SELECT id FROM orders WHERE batch_id = ?)').bind(id),
+        db.prepare('DELETE FROM order_payer WHERE order_id IN (SELECT id FROM orders WHERE batch_id = ?)').bind(id),
         db.prepare('DELETE FROM orders WHERE batch_id = ?').bind(id),
         db.prepare('DELETE FROM batches WHERE id = ?').bind(id)
       ]);
-      if (!gone[2].meta.changes) return fail('Batch not found.', 404);     // 없는 배치: 지운 것이 없으니 기록하지 않는다
+      if (!gone[4].meta.changes) return fail('Batch not found.', 404);     // 없는 배치: 지운 것이 없으니 기록하지 않는다
       await logAct(db, request, 'batch.delete', id);
       return json({ ok: true });
     }
@@ -266,6 +282,8 @@ export async function onRequest({ request, env, params }) {
     if (sub === 'PATCH /order') {
       const pay = V.oneOf(b.pay, PAY);
       if (!pay) return fail('Bad payment status.');
+      const payer = 'payer' in b ? V.optText(b.payer, GO.LIMITS.payer) : undefined;   // 승인할 때 운영자가 적는 입금자 이름
+      if (payer === null) return fail('Check the order fields.');
       if (pay === 'unpaid') {
         // 증빙을 낸 적 없는 고객 접수가 지울 때를 넘겼으면 미결제로 되돌리지 않는다: 되돌리는 순간 자동으로 지워진다. 반려하거나 삭제하게 한다.
         const row = await db.prepare(ORDER_SELECT + ' WHERE o.id = ?').bind(id).first();
@@ -273,16 +291,47 @@ export async function onRequest({ request, env, params }) {
       }
       const r = await db.prepare('UPDATE orders SET pay = ? WHERE id = ?').bind(pay, id).run();
       if (!r.meta.changes) return fail('Order not found.', 404);
+      if (payer !== undefined) await (payer ? db.prepare('INSERT OR REPLACE INTO order_payer (order_id, name) VALUES (?, ?)').bind(id, payer) : db.prepare('DELETE FROM order_payer WHERE order_id = ?').bind(id)).run();
       await logAct(db, request, 'order.pay', id + ' ' + pay);
       return json({ ok: true });
     }
     if (sub === 'DELETE /order') {
-      const gone = await db.batch([db.prepare('DELETE FROM order_flags WHERE order_id = ?').bind(id), db.prepare('DELETE FROM orders WHERE id = ?').bind(id)]);
+      const gone = await db.batch([db.prepare('DELETE FROM order_flags WHERE order_id = ?').bind(id), db.prepare('DELETE FROM orders WHERE id = ?').bind(id),
+        db.prepare('DELETE FROM voucher_uses WHERE order_id = ?').bind(id), db.prepare('DELETE FROM order_payer WHERE order_id = ?').bind(id)]);   // 쓴 쿠폰을 돌려준다
       if (!gone[1].meta.changes) return fail('Order not found.', 404);     // 없는 주문
       await logAct(db, request, 'order.delete', id);
       return json({ ok: true });
     }
 
+    if (sub === 'POST /voucher' && path[2] === 'bulk') {   // 주소 그대로 본다 (쿠폰 코드처럼 대문자로 바꾸기 전)
+      // 한 장짜리 쿠폰 여러 장: 같은 할인액, 한 번만 쓸 수 있다. 코드는 서버가 뽑는다(운영자가 한 장씩 고객에게 건넨다).
+      const off = V.int(b.off, 1, GO.LIMITS.amount), count = V.int(b.count, 1, GO.LIMITS.voucherBulk), note = V.optText(b.note, GO.LIMITS.note);
+      if (off === null || count === null || note === null) return fail('Check the voucher fields.');
+      const codes = [];
+      for (let tries = 0; codes.length < count && tries < count * 5; tries++) {
+        const c = X.voucherCodeFrom(crypto.getRandomValues(new Uint8Array(6)));
+        if (codes.includes(c) || await db.prepare('SELECT 1 FROM vouchers WHERE code = ?').bind(c).first()) continue;
+        codes.push(c);
+      }
+      const stmts = [];
+      codes.forEach(c => stmts.push(
+        db.prepare('INSERT INTO vouchers (code, off) VALUES (?, ?)').bind(c, off),
+        db.prepare('INSERT OR REPLACE INTO voucher_limits (code, max_uses) VALUES (?, 1)').bind(c),
+        db.prepare('INSERT OR REPLACE INTO voucher_notes (code, note) VALUES (?, ?)').bind(c, note),
+        db.prepare('DELETE FROM voucher_uses WHERE code = ?').bind(c)
+      ));
+      await db.batch(stmts);
+      await logAct(db, request, 'voucher.bulk', codes.length + ' x ' + off + (note ? ' ' + note : ''));
+      return json({ codes });
+    }
+    if (sub === 'PATCH /voucher') {
+      const note = V.optText(b.note, GO.LIMITS.note);
+      if (note === null) return fail('Check the voucher fields.');
+      if (!(await db.prepare('SELECT 1 FROM vouchers WHERE code = ?').bind(id).first())) return fail(NO_VOUCHER, 404);
+      await db.prepare('INSERT OR REPLACE INTO voucher_notes (code, note) VALUES (?, ?)').bind(id, note).run();
+      await logAct(db, request, 'voucher.note', id);
+      return json({ ok: true });
+    }
     if (sub === 'POST /voucher') {
       const code = V.voucherCode(b.code), off = V.int(b.off, 1, GO.LIMITS.amount), max = b.max === '' || b.max == null ? 0 : V.int(b.max, 0, GO.LIMITS.voucherUses);
       if (!code || off === null || max === null) return fail('Check the voucher fields.');
@@ -299,6 +348,7 @@ export async function onRequest({ request, env, params }) {
       const gone = await db.batch([
         db.prepare('DELETE FROM vouchers WHERE code = ?').bind(id),
         db.prepare('DELETE FROM voucher_limits WHERE code = ?').bind(id),
+        db.prepare('DELETE FROM voucher_notes WHERE code = ?').bind(id),
         db.prepare('DELETE FROM voucher_uses WHERE code = ?').bind(id)        // 이미 쓴 주문의 할인은 그대로 남는다(금액에 들어가 있다)
       ]);
       if (!gone[0].meta.changes) return fail(NO_VOUCHER, 404);

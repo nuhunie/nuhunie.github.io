@@ -45,7 +45,7 @@ GO.PAY_HOURS = 24;
 GO.PURGE_HOURS = 48;
 
 // 입력 한도. 서버 검사와 화면 입력칸이 같이 쓴다.
-GO.LIMITS = { buyer: 40, item: 120, proof: 200, qty: 999, amount: 1e9, voucher: 30, voucherUses: 100000, svcName: 40, svcDesc: 120 };
+GO.LIMITS = { buyer: 40, item: 120, proof: 200, qty: 999, amount: 1e9, voucher: 30, voucherUses: 100000, voucherBulk: 100, note: 100, payer: 60, svcName: 40, svcDesc: 120 };
 
 GO.CURRENCIES = {
   JPY: { label: 'JPY – Yen Jepang', sym: '¥', kurs: 110 },

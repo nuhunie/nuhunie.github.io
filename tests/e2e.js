@@ -141,6 +141,34 @@ window.runE2E = async function () {
   $('[data-act=voucher-del][data-id="SATU1"]').click(); await wait(40);
   window.confirm = realConfirm;
   check('가게 설정: 쿠폰을 지우면 표에서 빠지고 쓴 주문 금액은 그대로다', !S.db.vouchers.some(v => v.code === 'SATU1') && S.order(vo.id).total === 28000 + X.uniqueCode(vo.id));
+  // 한 장짜리 쿠폰 여러 장
+  const bf = $('form[data-form=vbulk]');
+  bf.off.value = '3000'; bf.count.value = '2'; bf.note.value = 'baru';
+  bf.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })); await wait(80);
+  const ones = S.db.vouchers.filter(v => /^ONE/.test(v.code));
+  check('가게 설정: 한 장짜리 쿠폰을 여러 장 만들면 새 코드가 복사할 칸에 나온다', ones.length === 2 && ones.every(v => v.max === 1 && v.note === 'baru') && $('#newCodes') && ones.every(v => $('#newCodes').value.includes(v.code)), $('#newCodes') && $('#newCodes').value);
+  type('[data-vnote="' + ones[0].code + '"]', 'untuk rara'); await wait(20);
+  $('[data-act=vnote-save][data-id="' + ones[0].code + '"]').click(); await wait(40);
+  check('가게 설정: 쿠폰 메모를 저장한다', S.db.vouchers.find(v => v.code === ones[0].code).note === 'untuk rara');
+  // 입금자 경고: 같은 쿠폰을 같은 입금자가 두 번 쓰면 승인 화면이 알린다
+  S.addVoucher({ code: 'DUAKALI', off: 1000, max: 0 });
+  const pa = await S.createOrder({ batchId: 'kr-5', buyer: 'satu', item: 'Album', qty: 1, base: 20000, voucher: 'DUAKALI' });
+  const pb = await S.createOrder({ batchId: 'kr-5', buyer: 'dua', item: 'Album', qty: 1, base: 20000, voucher: 'DUAKALI' });
+  await S.submitPayment({ orderId: pa.id, method: 'QRIS', proofName: 'a.jpg' });
+  await S.submitPayment({ orderId: pb.id, method: 'QRIS', proofName: 'b.jpg' });
+  await go('#/admin/pay');
+  type('[data-payer="' + pa.id + '"]', 'SITI AMINAH');
+  check('승인: 처음 쓰는 입금자는 경고가 없다', $('[data-payerwarn="' + pa.id + '"]').hidden);
+  $('[data-act=pay-ok][data-id="' + pa.id + '"]').click(); await wait(60);
+  check('승인: 입금자 이름이 주문에 남는다', S.order(pa.id).pay === 'paid' && S.order(pa.id).payer === 'SITI AMINAH');
+  type('[data-payer="' + pb.id + '"]', ' siti  aminah. ');
+  check('승인: 같은 입금자가 같은 쿠폰을 또 쓰면 그 줄에 알린다', !$('[data-payerwarn="' + pb.id + '"]').hidden && $('[data-payerwarn="' + pb.id + '"]').textContent.includes(pa.id), $('[data-payerwarn="' + pb.id + '"]').textContent);
+  let asked = false; window.confirm = () => { asked = true; return false; };
+  $('[data-act=pay-ok][data-id="' + pb.id + '"]').click(); await wait(40);
+  check('승인: 경고가 있으면 한 번 묻고, 취소하면 승인하지 않는다', asked && S.order(pb.id).pay === 'pending');
+  window.confirm = realConfirm;
+  S.removeOrder(pa.id); S.removeOrder(pb.id); S.removeVoucher('DUAKALI'); ones.forEach(v => S.removeVoucher(v.code));
+  await go('#/admin/shop');
   check('가게 설정: 내려받기 단추 4개가 있다', ['export', 'export-batches', 'export-vouchers', 'export-backup'].every(a => !!$('[data-act="' + a + '"]')));
   S.removeOrder(vo.id);
 

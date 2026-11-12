@@ -225,6 +225,31 @@ test('자동 분류: 가격이 개당인지 합계인지에 따라 줄 금액이
   assert.equal(X.lineUnitPrice(X.classifyLine('sasa / album / 2pcs / @250k'), 'total'), 250000);
   assert.equal(X.lineUnitPrice({ price: null }, 'each'), null);
 });
+test('한 장짜리 쿠폰 코드: ONE + 주문번호와 같은 글자 6자리', () => {
+  assert.equal(X.voucherCodeFrom(new Uint8Array([0, 1, 2, 3, 4, 5])), 'ONEABCDEF');
+  for (let i = 0; i < 50; i++) assert.match(X.voucherCodeFrom(require('crypto').randomBytes(6)), new RegExp('^ONE[' + X.ORDER_CHARS + ']{6}$'));
+});
+test('입금자 이름: 대소문자·띄어쓰기·문장부호·악센트가 달라도 같은 이름으로 본다', () => {
+  assert.equal(X.normPayer('  SITI  Aminah. '), 'siti aminah');
+  assert.equal(X.normPayer('Siti-Aminah'), 'siti aminah');
+  assert.equal(X.normPayer('Sîti Amínah'), 'siti aminah');
+  assert.notEqual(X.normPayer('Siti Aminah'), X.normPayer('Siti Amina'));
+});
+test('입금자 경고: 같은 쿠폰을 같은 입금자가 쓴 다른 주문이 있을 때만', () => {
+  const orders = [
+    { id: 'A', voucher: 'NEW10', pay: 'paid', payer: 'SITI AMINAH' },
+    { id: 'B', voucher: 'NEW10', pay: 'pending', payer: '' },
+    { id: 'C', voucher: 'OTHER', pay: 'pending', payer: '' },
+    { id: 'D', voucher: 'NEW10', pay: 'rejected', payer: 'BUDI' },
+    { id: 'E', voucher: '', pay: 'pending', payer: '' }
+  ];
+  assert.equal(X.payerClash(orders, 'B', 'siti  aminah'), 'A');
+  assert.equal(X.payerClash(orders, 'B', 'Siti Amina'), '');       // 다른 이름
+  assert.equal(X.payerClash(orders, 'C', 'siti aminah'), '');      // 다른 쿠폰
+  assert.equal(X.payerClash(orders, 'B', 'budi'), '');             // 반려된 주문은 세지 않는다
+  assert.equal(X.payerClash(orders, 'E', 'siti aminah'), '');      // 쿠폰을 쓰지 않은 주문
+  assert.equal(X.payerClash(orders, 'B', ''), '');
+});
 test('쿠폰 한도: 한도가 없거나 0이면 무제한, 있으면 그 수까지', () => {
   assert.equal(X.voucherLeft({ code: 'A', off: 1 }, 999), true);
   assert.equal(X.voucherLeft({ code: 'A', off: 1, max: 0 }, 999), true);
@@ -236,7 +261,7 @@ test('백업: 배치·쿠폰 표와 전체 자료', () => {
   assert.equal(rows.length, s.batches.length + 1);
   const kr4 = rows.find(r => r[0] === 'kr-4'), rec = X.batchRecap('kr-4', s.orders);
   assert.deepEqual([kr4[9], kr4[10], kr4[11], kr4[12]], [rec.count, rec.pcs, rec.total, rec.paidTotal]);
-  assert.deepEqual(X.voucherRows({ vouchers: [{ code: 'A1', off: 5000, max: 3, used: 1 }, { code: 'B2', off: 1000 }] }), [['code', 'discount_idr', 'max_uses', 'used'], ['A1', 5000, 3, 1], ['B2', 1000, '', 0]]);
+  assert.deepEqual(X.voucherRows({ vouchers: [{ code: 'A1', off: 5000, max: 3, used: 1, note: 'rara' }, { code: 'B2', off: 1000 }] }), [['code', 'discount_idr', 'max_uses', 'used', 'note'], ['A1', 5000, 3, 1, 'rara'], ['B2', 1000, '', 0, '']]);
   const b = X.backup(s, Date.UTC(2026, 10, 12));
   assert.equal(b.exportedAt, '2026-11-12T00:00:00.000Z');
   assert.equal(b.orders.length, s.orders.length);
@@ -300,5 +325,5 @@ test('입금 기한: 기한 안 → 기한 지남(유예) → 지울 때', () =>
   assert.ok(GO.PURGE_HOURS > GO.PAY_HOURS, '지우는 시각은 기한보다 뒤여야 한다(유예)');
 });
 test('입력 한도는 한 곳(GO.LIMITS)에 있다', () => {
-  assert.deepEqual(GO.LIMITS, { buyer: 40, item: 120, proof: 200, qty: 999, amount: 1e9, voucher: 30, voucherUses: 100000, svcName: 40, svcDesc: 120 });
+  assert.deepEqual(GO.LIMITS, { buyer: 40, item: 120, proof: 200, qty: 999, amount: 1e9, voucher: 30, voucherUses: 100000, voucherBulk: 100, note: 100, payer: 60, svcName: 40, svcDesc: 120 });
 });

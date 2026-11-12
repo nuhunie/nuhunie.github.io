@@ -7,5 +7,7 @@ DELETE FROM batches;
 DELETE FROM vouchers;
 DELETE FROM voucher_limits;
 DELETE FROM voucher_uses;
+DELETE FROM voucher_notes;
+DELETE FROM order_payer;
 DELETE FROM hits;
 DELETE FROM audit;

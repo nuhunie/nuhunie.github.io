@@ -387,5 +387,20 @@ GO.EN = {
   'Nomor pesanan ada di bukti pesanan (struk).': 'Your order number is on your order receipt.',
   'Belum punya pesanan?': 'No order yet?',
   'Bayar lewat QR atau transfer, lalu unggah bukti pembayaran.': 'Pay by QR or transfer, then upload your payment proof.',
-  'Isi data pesanan, lalu tekan "Buat pesanan & lihat nominal". Setelah itu bayar lewat QR dan unggah bukti.': 'Fill in your order, then press "Create order & see amount". After that, pay by QR and upload your proof.'
+  'Isi data pesanan, lalu tekan "Buat pesanan & lihat nominal". Setelah itu bayar lewat QR dan unggah bukti.': 'Fill in your order, then press "Create order & see amount". After that, pay by QR and upload your proof.',
+  // 한 장짜리 쿠폰, 입금자 이름
+  'sekali pakai': 'single-use',
+  'Catatan': 'Note',
+  'Catatan, mis. untuk siapa': 'Note, e.g. who it was given to',
+  'Buat voucher sekali pakai': 'Create single-use vouchers',
+  'Untuk "1 orang 1 kali": buat satu kode untuk satu pelanggan, lalu kirim lewat chat. Kode hanya bisa dipakai sekali.': 'For "one per person": create one code per customer and send it by chat. Each code can be used only once.',
+  'Jumlah kode': 'Number of codes',
+  'mis. pelanggan baru November': 'e.g. new customers in November',
+  'Buat': 'Create',
+  'Kode baru (salin dan kirim satu per pelanggan)': 'New codes (copy and send one per customer)',
+  'Nama pengirim': 'Payer name',
+  'sesuai mutasi bank': 'as shown in the bank record',
+  'Pengirim yang sama sudah memakai voucher ini di pesanan': 'The same payer already used this voucher in order',
+  'Pengirim yang sama sudah memakai voucher ini. Tetap setujui?': 'The same payer already used this voucher. Approve anyway?',
+  'Ubah catatan voucher': 'Edit voucher note'
 };

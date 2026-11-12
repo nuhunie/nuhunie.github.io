@@ -161,6 +161,7 @@ table.edit td.acts { align-items: center; white-space: nowrap; }
 .rowwarn { display: block; color: var(--amber); font-size: 12px; margin-top: 4px; white-space: normal; }
 .rowwarn[hidden] { display: none; }
 .rowsaved { color: var(--green); font-size: 12px; }
+.vby { display: block; color: var(--sub); font-size: 12px; margin-top: 4px; white-space: normal; }
 table.edit td.miss input { border-color: var(--red); background: #fff5f5; }
 td.src { color: var(--sub); }
 

@@ -329,6 +329,24 @@
     var each = (r.priceIs || fallback || 'each') === 'each';
     return each ? r.price : r.price / Math.max(1, r.qty || 1);
   };
+  // 한 장짜리 쿠폰 코드: 'ONE' + 무작위 6자리(주문번호와 같은 글자). 맞히기 어렵도록 부르는 쪽이 암호용 난수 6바이트를 넘긴다.
+  X.voucherCodeFrom = function (bytes) {
+    var c = 'ONE';
+    for (var i = 0; i < 6; i++) c += X.ORDER_CHARS.charAt(bytes[i] & 31);
+    return c;
+  };
+  // 입금자 이름 비교용: 대소문자·악센트·문장부호·띄어쓰기 차이는 같은 이름으로 본다 ("SITI A." = "siti  a")
+  X.normPayer = function (name) {
+    return String(name || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  };
+  // 이 주문(orderId)의 입금자가 같은 쿠폰을 쓴 다른 주문의 입금자와 같으면 그 주문번호. 아니면 ''.
+  // 반려된 주문은 세지 않는다. 쿠폰을 쓰지 않은 주문이나 이름이 비어 있으면 비교하지 않는다.
+  X.payerClash = function (orders, orderId, name) {
+    var me = orders.filter(function (o) { return o.id === orderId; })[0], n = X.normPayer(name);
+    if (!me || !me.voucher || !n) return '';
+    var hit = orders.filter(function (o) { return o.id !== orderId && o.voucher === me.voucher && o.pay !== 'rejected' && o.payer && X.normPayer(o.payer) === n; })[0];
+    return hit ? hit.id : '';
+  };
   // 쿠폰을 더 쓸 수 있는가. max 가 없거나 0이면 한도 없음.
   X.voucherLeft = function (v, used) { return !v.max || (used || 0) < v.max; };
 
@@ -342,7 +360,7 @@
     return rows;
   };
   X.voucherRows = function (db) {
-    return [['code', 'discount_idr', 'max_uses', 'used']].concat(db.vouchers.map(function (v) { return [v.code, v.off, v.max || '', v.used || 0]; }));
+    return [['code', 'discount_idr', 'max_uses', 'used', 'note']].concat(db.vouchers.map(function (v) { return [v.code, v.off, v.max || '', v.used || 0, v.note || '']; }));
   };
   // 전체 자료를 한 파일로. 다시 불러오는 기능은 아직 없다(보관용).
   X.backup = function (db, now) {

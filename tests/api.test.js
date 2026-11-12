@@ -208,6 +208,56 @@ test('쿠폰: 운영자가 만들고 지우며, 사용 한도를 넘으면 받�
   await nap(WINDOW_MS);
 });
 
+test('한 장짜리 쿠폰: 여러 장을 만들고, 한 장은 한 번만 쓰이며 같은 순간에 써도 하나만 된다', async () => {
+  await nap(WINDOW_MS);
+  for (const bad of [{ off: 1000, count: 0 }, { off: 1000, count: 101 }, { off: 0, count: 2 }, { off: 1000, count: 2, note: 'n'.repeat(101) }])
+    assert.equal((await admin('POST', '/admin/voucher/bulk', bad)).status, 400, JSON.stringify(bad));
+  const made = await admin('POST', '/admin/voucher/bulk', { off: 2000, count: 3, note: 'pelanggan baru' });
+  assert.equal(made.status, 200);
+  const codes = made.json.codes;
+  assert.equal(codes.length, 3);
+  assert.equal(new Set(codes).size, 3);
+  codes.forEach(c => assert.match(c, /^ONE[A-Z2-9]{6}$/));
+  let vs = (await admin('GET', '/admin/state')).json.vouchers.filter(v => codes.includes(v.code));
+  assert.deepEqual(vs.map(v => [v.off, v.max, v.used, v.note]), codes.map(() => [2000, 1, 0, 'pelanggan baru']));
+  // 메모 고치기
+  assert.equal((await admin('PATCH', '/admin/voucher/' + codes[0].toLowerCase(), { note: 'untuk rara' })).status, 200);
+  assert.equal((await admin('PATCH', '/admin/voucher/ONEZZZZZZ', { note: 'x' })).status, 404);
+  assert.equal((await admin('GET', '/admin/state')).json.vouchers.find(v => v.code === codes[0]).note, 'untuk rara');
+  // 같은 코드로 동시에 네 건을 접수하면 하나만 된다
+  const body = { batchId: 'kr-5', buyer: 'serentak', item: 'Album', qty: 1, base: 30000, voucher: codes[1] };
+  const got = await Promise.all([1, 2, 3, 4].map(() => call('POST', '/order', body)));
+  assert.deepEqual(got.map(r => r.status).sort(), [200, 409, 409, 409]);
+  const won = got.find(r => r.status === 200).json.order;
+  assert.equal(won.total, 28000 + X.uniqueCode(won.id));
+  assert.equal((await call('POST', '/voucher', { code: codes[1] })).status, 409);
+  // 운영자 화면에는 쓴 쿠폰이 보이고, 고객 응답에는 쿠폰·입금자가 없다
+  const st = (await admin('GET', '/admin/state')).json;
+  assert.equal(st.orders.find(o => o.id === won.id).voucher, codes[1]);
+  assert.equal(st.vouchers.find(v => v.code === codes[1]).used, 1);
+  // 운영자가 그 주문을 지우면 쿠폰이 다시 살아난다
+  assert.equal((await admin('DELETE', '/admin/order/' + won.id)).status, 200);
+  assert.equal((await call('POST', '/voucher', { code: codes[1] })).status, 200);
+  await nap(WINDOW_MS);
+});
+
+test('입금자 이름: 승인할 때 적으면 운영자 화면에만 남는다', async () => {
+  const o = (await call('POST', '/order', { batchId: 'kr-5', buyer: 'pengirim', item: 'Album', qty: 1, base: 30000 })).json.order;
+  assert.equal((await call('POST', '/pay', { orderId: o.id, method: 'QRIS', proofName: 'p.jpg' })).status, 200);
+  assert.equal((await admin('PATCH', '/admin/order/' + o.id, { pay: 'paid', payer: 'n'.repeat(61) })).status, 400);
+  assert.equal((await admin('PATCH', '/admin/order/' + o.id, { pay: 'paid', payer: 'SITI AMINAH' })).status, 200);
+  assert.equal((await admin('GET', '/admin/state')).json.orders.find(x => x.id === o.id).payer, 'SITI AMINAH');
+  const pub = (await call('GET', '/order?id=' + o.id)).json.order, tr = (await call('GET', '/track?q=' + o.id)).json.orders[0];
+  for (const x of [pub, tr]) { assert.equal(x.payer, undefined); assert.equal(x.voucher, undefined); }
+  assert.ok(!JSON.stringify(await call('GET', '/public')).includes('SITI AMINAH'));
+  // 입금자 칸 없이 상태만 바꾸면 적힌 이름은 그대로, 빈 이름을 보내면 지운다
+  assert.equal((await admin('PATCH', '/admin/order/' + o.id, { pay: 'pending' })).status, 200);
+  assert.equal((await admin('GET', '/admin/state')).json.orders.find(x => x.id === o.id).payer, 'SITI AMINAH');
+  assert.equal((await admin('PATCH', '/admin/order/' + o.id, { pay: 'paid', payer: '' })).status, 200);
+  assert.equal((await admin('GET', '/admin/state')).json.orders.find(x => x.id === o.id).payer, '');
+  assert.equal((await admin('DELETE', '/admin/order/' + o.id)).status, 200);
+});
+
 test('서비스: 운영자가 더하고 고치고, 배치가 없을 때만 지운다. 고객 화면에 바로 나온다', async () => {
   const s = { id: 'cn', nameId: 'Jastip China', nameKo: '중국 구매대행', descId: 'Barang dari China', descKo: '중국 상품', cur: 'IDR' };
   for (const bad of [{ id: 'C' }, { id: '9ab' }, { id: 'toolongcode1' }, { nameId: '' }, { nameKo: 5 }, { cur: 'EUR' }, { descId: 'd'.repeat(200) }])
