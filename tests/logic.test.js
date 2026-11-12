@@ -64,6 +64,44 @@ test('고유 코드: 99개가 아니라 999개에 고르게 퍼진다 (같은 �
   for (let i = 0; i < 20000; i++) seen.add(X.uniqueCode(GO.BRAND.orderPrefix + '-' + X.orderCode(i)));
   assert.ok(seen.size > 900, '서로 다른 코드가 ' + seen.size + '개뿐');
 });
+// QRIS 예시: 실제 가게가 아닌 꾸며 낸 값으로 규격대로 조립한다
+const tlv = (id, v) => id + String(v.length).padStart(2, '0') + v;
+const qrisOf = parts => { const body = parts.map(p => tlv(p[0], p[1])).join('') + '6304'; return body + X.crc16(body); };
+const SHOP = [['00', '01'], ['01', '11'], ['26', tlv('00', 'ID.CO.CONTOH.WWW') + tlv('01', '936000000000000001') + tlv('03', 'UMI')],
+  ['52', '5999'], ['53', '360'], ['58', 'ID'], ['59', 'TOKO CONTOH'], ['60', 'JAKARTA'], ['61', '10110']];
+test('QRIS 검사값: 규격 문서의 예제와 같은 값이 나온다', () => {
+  assert.equal(X.crc16('123456789'), '29B1');
+  // EMV QR 규격 문서에 실린 예시(중국어 포함). 맨 끝 4자리가 검사값이다.
+  const doc = '00020101021229300012D156000000000510A93FO3230Q31280012D15600000001030812345678520441115802CN5914BEST TRANSPORT6007BEIJING64200002ZH0104最佳运输0202北京540523.7253031565502016233030412340603***0708A60086670902ME91320016A0112233449988770708123456786304A13A';
+  assert.equal(X.qrisValid(doc), true);
+  assert.equal(X.qrisValid(doc.replace('23.72', '99.72')), false, '금액만 바꾸고 검사값을 그대로 두면 틀린 것으로 본다');
+});
+test('QRIS 금액 넣기: 고정 QR에 주문 금액을 넣으면 금액 지정 QR이 되고 나머지는 그대로다', () => {
+  const shop = qrisOf(SHOP);
+  assert.equal(X.qrisValid(shop), true);
+  const out = X.qrisWithAmount(shop, 285056);
+  assert.equal(X.qrisValid(out), true);
+  const get = (p, id) => (X.qrisParse(p).find(x => x.id === id) || {}).val;
+  assert.equal(get(out, '01'), '12');
+  assert.equal(get(out, '54'), '285056');
+  for (const id of ['00', '26', '52', '53', '58', '59', '60', '61']) assert.equal(get(out, id), get(shop, id), id + '번이 바뀌었다');
+  assert.deepEqual(X.qrisParse(out).map(x => x.id), ['00', '01', '26', '52', '53', '54', '58', '59', '60', '61', '63']);
+  // 이미 금액이 든 QR에 다른 금액을 넣으면 금액이 하나만 남는다
+  const again = X.qrisWithAmount(out, 100001);
+  assert.equal(get(again, '54'), '100001');
+  assert.equal(X.qrisParse(again).filter(x => x.id === '54').length, 1);
+  assert.equal(X.qrisValid(again), true);
+});
+test('QRIS 금액 넣기: 원본이 잘못됐거나 금액이 없으면 아무것도 만들지 않는다', () => {
+  const shop = qrisOf(SHOP);
+  assert.equal(X.qrisWithAmount('', 1000), '');
+  assert.equal(X.qrisWithAmount('bukan qris', 1000), '');
+  assert.equal(X.qrisWithAmount(shop.slice(0, -1) + (shop.slice(-1) === '0' ? '1' : '0'), 1000), '');
+  assert.equal(X.qrisWithAmount(shop, 0), '');
+  assert.equal(X.qrisWithAmount(shop, -5), '');
+  assert.equal(GO.BRAND.qris === '' || X.qrisValid(GO.BRAND.qris), true, '등록한 가게 QRIS가 규격에 맞지 않는다');
+});
+
 test('금액 겹침: 확인 대기 중인 주문끼리 결제 금액이 같으면 찾아낸다', () => {
   const orders = [
     { id: 'A', pay: 'pending', total: 285056 }, { id: 'B', pay: 'pending', total: 285056 },

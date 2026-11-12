@@ -44,6 +44,44 @@
     for (var i = 0; i < orderId.length; i++) h = (h * 31 + orderId.charCodeAt(i)) % 1000003;
     return (h % 999) + 1;
   };
+  /* ── QRIS: 가게 QR 한 장에 주문 금액을 넣는다 ──
+   * QRIS 내용은 "번호 2자리 + 길이 2자리 + 값" 이 이어진 글자열이다 (국제 규격 EMV QR).
+   * 01번 = 고정(11)/금액 지정(12), 54번 = 금액, 맨 끝 63번 = 앞 내용 전체의 검사값.
+   * 금액을 넣으면 검사값이 달라지므로 다시 계산해 붙인다. 은행 앱은 검사값이 틀리면 읽지 않는다. */
+  X.crc16 = function (s) {
+    var bytes = new TextEncoder().encode(String(s)), crc = 0xFFFF;
+    for (var i = 0; i < bytes.length; i++) {
+      crc ^= bytes[i] << 8;
+      for (var k = 0; k < 8; k++) crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) & 0xFFFF : (crc << 1) & 0xFFFF;
+    }
+    return ('000' + crc.toString(16).toUpperCase()).slice(-4);
+  };
+  X.qrisParse = function (payload) {
+    var p = String(payload || '').trim(), out = [], i = 0;
+    while (i < p.length) {
+      var head = p.substr(i, 4), len = Number(head.slice(2));
+      if (!/^\d{4}$/.test(head) || i + 4 + len > p.length) return null;
+      out.push({ id: head.slice(0, 2), val: p.substr(i + 4, len) });
+      i += 4 + len;
+    }
+    return out.length ? out : null;
+  };
+  X.qrisValid = function (payload) {
+    var p = String(payload || '').trim(), t = X.qrisParse(p);
+    if (!t || t[0].id !== '00' || t[t.length - 1].id !== '63' || t[t.length - 1].val.length !== 4) return false;
+    return X.crc16(p.slice(0, -4)) === t[t.length - 1].val.toUpperCase();
+  };
+  // 금액이 든 새 QRIS 글자열을 돌려준다. 원본이 올바르지 않거나 금액이 0 이하면 빈 글자열.
+  X.qrisWithAmount = function (payload, amount) {
+    var n = Math.round(Number(amount));
+    if (!X.qrisValid(payload) || !(n > 0)) return '';
+    var t = X.qrisParse(payload).filter(function (x) { return x.id !== '01' && x.id !== '54' && x.id !== '63'; });
+    t.splice(1, 0, { id: '01', val: '12' });
+    var at = t.findIndex(function (x) { return Number(x.id) > 54; });
+    t.splice(at < 0 ? t.length : at, 0, { id: '54', val: String(n) });
+    var body = t.map(function (x) { return x.id + ('0' + x.val.length).slice(-2) + x.val; }).join('') + '6304';
+    return body + X.crc16(body);
+  };
   // 공개 리캡에 넣는 주문: 고객이 직접 만든 주문(self)은 승인(결제 완료)된 뒤에만 넣는다.
   // 아무나 적은 글이 공개 화면에 바로 뜨지 않게 하려는 것이다. 서버의 PUBLIC_ORDERS 조건과 같은 규칙.
   X.publicOrders = function (orders) {

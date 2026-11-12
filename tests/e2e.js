@@ -52,6 +52,8 @@ window.runE2E = async function () {
   type('#payLookup', o1.id.toLowerCase()); $('[data-act=pay-lookup]').click(); await wait(100);
   check('결제: 주문번호로 불러오면 내용이 채워지고 잠긴다', $('[data-pay=buyer]').value === X.maskName(o1.buyer) && $('[data-pay=buyer]').readOnly && num($('[data-pay=base]').value) === base1);
   check('결제: QR과 결제 금액이 나온다', $('#qrC') && num($('#payOut .total b').textContent) === base1 + X.uniqueCode(o1.id), $('#payOut') && $('#payOut').innerText);
+  await wait(300);
+  check('결제: QR 위에 마크가 얹힌다', $('#qrC') && $('#qrC').dataset.mark === '1' && $('#qrC').width >= 600, $('#qrC') && $('#qrC').width);
   $('form[data-form=pay] .btn.block').click(); await wait(60);
   check('결제: 증빙 없이 내면 막고 이유를 알려 준다', $('#payErr').textContent.length > 0 && S.order(o1.id).pay === 'unpaid');
   attach(); $('form[data-form=pay] .btn.block').click(); await wait(120);

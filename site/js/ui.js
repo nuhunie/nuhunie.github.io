@@ -275,32 +275,39 @@
   }
   // 관리자 화면에서 마감 뒤 주문을 알아보게 하는 표시
   function lateBadge(o) { return o.late ? ' <span class="badge run">' + L('Setelah tutup order', '마감 뒤 주문') + '</span>' : ''; }
-  function drawQR(canvas, seedStr) {
-    var n = 25, c = canvas.getContext('2d'), px = canvas.width / n, h = 7;
-    for (var i = 0; i < seedStr.length; i++) h = (h * 31 + seedStr.charCodeAt(i)) >>> 0;
-    function rnd() { h ^= h << 13; h >>>= 0; h ^= h >> 17; h ^= h << 5; h >>>= 0; return h / 4294967296; }
-    c.fillStyle = '#fff'; c.fillRect(0, 0, canvas.width, canvas.width); c.fillStyle = '#111';
-    for (var y = 0; y < n; y++) for (var x = 0; x < n; x++) if (rnd() > 0.5) c.fillRect(x * px, y * px, px, px);
-    [[0, 0], [n - 7, 0], [0, n - 7]].forEach(function (p) {
-      c.fillStyle = '#fff'; c.fillRect(p[0] * px - px, p[1] * px - px, 9 * px, 9 * px);
-      c.fillStyle = '#111'; c.fillRect(p[0] * px, p[1] * px, 7 * px, 7 * px);
-      c.fillStyle = '#fff'; c.fillRect((p[0] + 1) * px, (p[1] + 1) * px, 5 * px, 5 * px);
-      c.fillStyle = '#111'; c.fillRect((p[0] + 2) * px, (p[1] + 2) * px, 3 * px, 3 * px);
-    });
+  // 진짜 QR을 그린다(js/vendor/qrcode.js). 가운데에 마크를 얹어도 읽히도록 오류 복원 수준을 높게 잡는다.
+  // 가장 높은 수준(H, 30%)이 기본이고, QRIS처럼 내용이 길어 칸이 너무 잘아지면 한 단계 낮춘다(Q, 25%).
+  // 마크가 가리는 넓이는 5%쯤이라 둘 다 여유가 있다. 작은 화면에서는 칸 크기가 더 중요했다(직접 읽혀 본 결과).
+  function makeQR(text, level) {
+    var qr = qrcode(0, level); qr.addData(unescape(encodeURIComponent(text)), 'Byte'); qr.make(); return qr;
+  }
+  function drawQR(canvas, text) {
+    var qr = makeQR(text, 'H');
+    if (qr.getModuleCount() > 57) qr = makeQR(text, 'Q');
+    var n = qr.getModuleCount(), quiet = 4, px = Math.max(2, Math.ceil(720 / (n + quiet * 2)));
+    canvas.width = canvas.height = (n + quiet * 2) * px;
+    var c = canvas.getContext('2d');
+    c.fillStyle = '#fff'; c.fillRect(0, 0, canvas.width, canvas.height); c.fillStyle = '#111';
+    for (var y = 0; y < n; y++) for (var x = 0; x < n; x++) if (qr.isDark(y, x)) c.fillRect((x + quiet) * px, (y + quiet) * px, px, px);
     drawMark(canvas);
   }
-  // QR 가운데에 흰 바탕을 깔고 상호 마크를 얹는다. 실제 QR에서는 오류 복원 수준을 높여야 가운데를 가려도 읽힌다.
-  var markImg = null;
+  // QR 위 가운데에 상호 마크를 그대로 얹는다. 흰 사각형으로 파내지 않는다(마크 그림의 바탕이 투명하다).
+  var QR_MARK = 0.24, markImg = null;
   function drawMark(canvas) {
-    if (!GO.BRAND.mark) return;
-    if (!markImg) { markImg = new Image(); markImg.src = GO.BRAND.mark; }
+    if (!GO.BRAND.markQr) return;
+    if (!markImg) { markImg = new Image(); markImg.src = ROOT + GO.BRAND.markQr; }
     function paint() {
       if (!canvas.isConnected) return;
-      var c = canvas.getContext('2d'), s = Math.round(canvas.width * 0.3), o = Math.round((canvas.width - s) / 2), pad = Math.round(s * 0.08);
-      c.fillStyle = '#fff'; c.fillRect(o, o, s, s);
-      c.drawImage(markImg, o + pad, o + pad, s - pad * 2, s - pad * 2);
+      var s = Math.round(canvas.width * QR_MARK), o = Math.round((canvas.width - s) / 2);
+      canvas.getContext('2d').drawImage(markImg, o, o, s, s);
+      canvas.dataset.mark = '1';
     }
     if (markImg.complete && markImg.naturalWidth) paint(); else markImg.addEventListener('load', paint, { once: true });
+  }
+  // QR에 담을 내용: 가게 QRIS가 등록되어 있으면 그 주문 금액을 넣은 QRIS, 없으면 예시 문구.
+  function qrText(id, total) {
+    return GO.logic.qrisWithAmount(GO.BRAND.qris, total) ||
+      GO.BRAND.name + ' ' + id + ' Rp ' + total + ' - ' + L('QR contoh, belum bisa dipakai membayar', '예시 QR, 아직 결제에 쓸 수 없습니다');
   }
   function drawPay() {
     var out = $('#payOut'); if (!out) return;
@@ -312,9 +319,9 @@
       '<div class="brk"><div><b>' + L('Kode unik', '고유 코드') + '</b><small>' + L('untuk mencocokkan pembayaran otomatis', '입금 자동 대조용') + '</small></div><span>+' + rp(a.code) + '</span></div>' +
       '<div class="total"><span>' + L('Nominal yang dibayar', '결제할 금액') + '</span><b>' + rp(a.total) + '</b></div></div>' +
       (P.method === 'QRIS'
-        ? '<div class="qr"><canvas width="400" height="400" id="qrC"></canvas><div><b>' + L('QRIS dinamis', '동적 QRIS') + '</b><p>' + L('Nominal terisi otomatis saat di-scan, tidak perlu ketik harga.', '스캔하면 금액이 자동 입력되어 직접 칠 필요가 없습니다.') + '</p><small>' + L('QR contoh untuk mockup, belum terhubung ke penyedia pembayaran.', '목업용 예시 QR이며 결제사와 연결되어 있지 않습니다.') + '</small></div></div>'
+        ? '<div class="qr"><canvas width="400" height="400" id="qrC"></canvas><div><b>' + L('QRIS dinamis', '동적 QRIS') + '</b><p>' + L('Nominal terisi otomatis saat di-scan, tidak perlu ketik harga.', '스캔하면 금액이 자동 입력되어 직접 칠 필요가 없습니다.') + '</p>' + (GO.logic.qrisValid(GO.BRAND.qris) ? '' : '<small>' + L('QR contoh untuk mockup, belum terhubung ke penyedia pembayaran.', '목업용 예시 QR이며 결제사와 연결되어 있지 않습니다.') + '</small>') + '</div></div>'
         : '<p class="note"><b>BCA 000-000-0000</b> a.n. ' + esc(GO.BRAND.name) + '<br>' + L('Transfer tepat sesuai nominal di atas.', '위 금액과 정확히 같게 이체해 주세요.') + ' <small>(' + L('rekening contoh', '예시 계좌') + ')</small></p>');
-    var q = $('#qrC'); if (q) drawQR(q, P.id + a.total);
+    var q = $('#qrC'); if (q) drawQR(q, qrText(P.id, a.total));
     ensureFreeAmount(a.total);
   }
   // 새 주문이면, 지금 보여 주는 결제 금액을 확인 대기 중인 다른 주문이 쓰고 있는지 묻는다.

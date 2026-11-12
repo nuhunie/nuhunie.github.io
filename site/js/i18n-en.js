@@ -128,6 +128,7 @@ GO.EN = {
   'Nominal yang dibayar': 'Amount to pay',
   'QRIS dinamis': 'Dynamic QRIS',
   'Nominal terisi otomatis saat di-scan, tidak perlu ketik harga.': 'The amount is filled in when you scan, so there is nothing to type.',
+  'QR contoh, belum bisa dipakai membayar': 'Sample QR, cannot be used to pay yet',
   'QR contoh untuk mockup, belum terhubung ke penyedia pembayaran.': 'Sample QR for the mockup; not connected to a payment provider yet.',
   'Transfer tepat sesuai nominal di atas.': 'Transfer exactly the amount shown above.',
   'rekening contoh': 'sample account',

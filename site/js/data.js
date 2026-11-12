@@ -11,9 +11,10 @@ globalThis.GO = globalThis.GO || {};
 var GO = globalThis.GO;
 
 // 상호와 주문번호 머리글자. 가게 이름이 정해지면 여기 두 값만 바꾸면 화면·영수증 전체에 반영된다.
-GO.BRAND = { name: 'Nuhunie', orderPrefix: 'NUH', mark: 'assets/mark-a.png',
+GO.BRAND = { name: 'Nuhunie', orderPrefix: 'NUH', mark: 'assets/mark-a.png', markQr: 'assets/mark-a-cut.png', qris: '',
   tagline: ['Jastip Korea, Jepang, dan tiket. Order, bayar, dan lacak di satu tempat.', '한국·일본 구매대행과 티켓 대행. 주문, 결제, 조회를 한곳에서.'] };
-// mark: 로고·QR 가운데·탭 아이콘에 쓰는 마크 (다른 시안: assets/mark-b.png)
+// mark: 로고·탭 아이콘에 쓰는 마크 (다른 시안: assets/mark-b.png).  markQr: QR 위에 얹는 마크(바탕이 투명한 그림)
+// qris: 가게 QRIS 그림을 읽어서 나온 글자열. 넣으면 결제 화면 QR이 '가게 QRIS + 그 주문 금액'으로 바뀐다. 비어 있으면 예시 QR.
 
 // 배치 진행 단계: 순서가 곧 진행도다 (index가 클수록 뒤 단계)
 GO.STAGES = [
