@@ -43,6 +43,20 @@
     return (h % 99) + 1;
   };
 
+  /* ── B2. 주문번호: 머리글자-8자리 ──
+   * 숫자 6자리는 훑어서 맞힐 수 있어, 영문+숫자 8자리(32^8 ≈ 1조 가지)로 쓴다.
+   * 헷갈리는 글자(0 O 1 I)는 쓰지 않는다. */
+  X.ORDER_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  X.isOrderId = function (v) {
+    return new RegExp('^' + GO.BRAND.orderPrefix + '-[' + X.ORDER_CHARS + ']{8}$').test(String(v || ''));
+  };
+  // 숫자 하나로 늘 같은 8자리를 만든다. 예시 데이터와 검사에만 쓴다 (실제 주문번호는 무작위로 만든다).
+  X.orderCode = function (n) {
+    var h = ((Number(n) || 0) + 987654321) % 2147483647, out = '';
+    for (var i = 0; i < 8; i++) { h = (h * 48271) % 2147483647; out += X.ORDER_CHARS.charAt(h % 32); }
+    return out;
+  };
+
   /* ── C. 집계 ───────────────────────────────────────────────── */
   X.batchRecap = function (batchId, orders) {
     var r = { count: 0, pcs: 0, total: 0, paid: 0, pending: 0, unpaid: 0, paidTotal: 0, items: [] };

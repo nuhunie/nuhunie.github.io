@@ -2,7 +2,7 @@
  *
  * Service  { id, name[id,ko], desc[id,ko], cur }
  * Batch    { id, svc→Service, no, title, month'YYYY-MM', stage(0~5), closeDate, kurs, note }
- * Order    { id, batchId→Batch, buyer, item, qty, total(IDR), pay, method, proofName, createdAt }
+ * Order    { id('NUH-8자리'), batchId→Batch, buyer, item, qty, base, total(IDR), pay, method, proofName, createdAt }
  * Voucher  { code, off(IDR) }
  * CalcDefaults  계산기 기본 수식
  */
@@ -76,7 +76,7 @@ GO.seed = function () {
   ];
   var orders = rows.map(function (r, i) {
     return {
-      id: GO.BRAND.orderPrefix + '-' + (100101 + i * 137),
+      id: GO.BRAND.orderPrefix + '-' + GO.logic.orderCode(100101 + i * 137),
       batchId: r[0], buyer: r[1], item: r[2], qty: r[3], total: r[4], pay: r[5],
       method: r[5] === 'unpaid' ? '' : 'QRIS',
       proofName: r[5] === 'unpaid' ? '' : 'bukti-' + (i + 1) + '.jpg',

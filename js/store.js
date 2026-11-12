@@ -10,7 +10,7 @@
  *   고객 흐름    조회·결제는 서버가 판단해야 하므로 Promise를 돌려준다 (track, fetchOrder, submitPayment ...)
  */
 (function (GO) {
-  var KEY = 'jastip-mockup-v3';
+  var KEY = 'jastip-mockup-v4';
   var X = GO.logic;
   var db, mode = 'local', admin = false, loginReady = true;
 
@@ -39,7 +39,7 @@
     });
   }
   function setState(s) {
-    db = { services: s.services, batches: s.batches, orders: s.orders, vouchers: s.vouchers || [], calcDefaults: s.calcDefaults || (db && db.calcDefaults) || GO.seed().calcDefaults };
+    db = { services: s.services, batches: s.batches, orders: s.orders || [], vouchers: s.vouchers || [], calcDefaults: s.calcDefaults || (db && db.calcDefaults) || GO.seed().calcDefaults };
   }
   function pull() { return api('GET', admin ? '/admin/state' : '/public').then(setState); }
   // 관리자 쓰기를 서버에 보낸다. 실패하면 서버 내용을 다시 읽어 화면을 되돌린다.
@@ -93,9 +93,39 @@
       return Object.keys(seen).sort().reverse();
     },
     ordersOf: function (batchId) { return db.orders.filter(function (o) { return o.batchId === batchId; }); },
+    /* 배치 집계. 서버의 공개 데이터에는 주문이 없고 배치마다 합계(stats)가 붙어 온다. 그 밖에는 가진 주문으로 계산한다. */
+    recap: function (batchId) {
+      var b = find(db.batches, batchId);
+      return b && b.stats ? b.stats : X.batchRecap(batchId, db.orders);
+    },
+    monthRecap: function (list) {
+      var self = this, r = { batches: list.length, ongoing: 0, count: 0, pcs: 0, total: 0, paidTotal: 0 };
+      list.forEach(function (b) {
+        if (b.stage < GO.LAST_STAGE) r.ongoing++;
+        var br = self.recap(b.id);
+        r.count += br.count; r.pcs += br.pcs; r.total += br.total; r.paidTotal += br.paidTotal;
+      });
+      return r;
+    },
+    /* 배치 하나의 주문 목록 (Promise). 공개 화면에서는 배치를 열 때 서버에서 그 배치 것만 받아 온다. */
+    batchOrders: function (batchId) {
+      var b = find(db.batches, batchId);
+      if (mode === 'server' && b && b.stats) return api('GET', '/batch-orders?id=' + encodeURIComponent(batchId)).then(function (r) { return r.orders; });
+      return Promise.resolve(this.ordersOf(batchId));
+    },
+    /* 관리자 활동 기록 (server에서만). local이면 null */
+    fetchLog: function () {
+      if (mode !== 'server') return Promise.resolve(null);
+      return api('GET', '/admin/log').then(function (r) { return r.log; });
+    },
     newOrderId: function () {
-      var id;
-      do { id = GO.BRAND.orderPrefix + '-' + Math.floor(100000 + Math.random() * 900000); } while (find(db.orders, id));
+      // 무작위 8자리. 맞히기 어렵도록 암호용 난수를 쓴다.
+      var id, i, bytes;
+      do {
+        bytes = new Uint8Array(8); globalThis.crypto.getRandomValues(bytes);
+        id = GO.BRAND.orderPrefix + '-';
+        for (i = 0; i < 8; i++) id += X.ORDER_CHARS.charAt(bytes[i] & 31);
+      } while (find(db.orders, id));
       return id;
     },
 

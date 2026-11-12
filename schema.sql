@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS batches (
 );
 
 CREATE TABLE IF NOT EXISTS orders (
-  id TEXT PRIMARY KEY,                      -- 'NUH-123456'
+  id TEXT PRIMARY KEY,                      -- 'NUH-7K3M9Q2X' (머리글자-8자리)
   batch_id TEXT NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
   buyer TEXT NOT NULL,
   item TEXT NOT NULL,
@@ -56,3 +56,12 @@ CREATE TABLE IF NOT EXISTS hits (
   at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS hits_lookup ON hits (kind, ip, at);
+
+-- 관리자 활동 기록: 언제(at) 어디서(ip) 무엇을(action) 했는지
+CREATE TABLE IF NOT EXISTS audit (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  at TEXT NOT NULL,
+  ip TEXT NOT NULL,
+  action TEXT NOT NULL,                     -- login, reset, batch.add, batch.update, batch.delete, order.add, order.pay, order.delete, calc
+  detail TEXT NOT NULL DEFAULT ''
+);

@@ -35,7 +35,7 @@ export const V = {
   oneOf(v, list) { return list.indexOf(v) >= 0 ? v : null; },
   month(v) { return /^\d{4}-(0[1-9]|1[0-2])$/.test(v) ? v : null; },
   date(v) { return v === '' || v == null ? '' : /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null; },
-  orderId(v) { v = typeof v === 'string' ? v.trim().toUpperCase() : ''; return new RegExp('^' + GO.BRAND.orderPrefix + '-\\d{6}$').test(v) ? v : null; }
+  orderId(v) { v = typeof v === 'string' ? v.trim().toUpperCase() : ''; return X.isOrderId(v) ? v : null; }
 };
 export const PAY = Object.keys(GO.PAY);
 
@@ -115,18 +115,33 @@ export async function seed(db) {
 export async function loadState(db, admin) {
   let services = (await db.prepare('SELECT * FROM services ORDER BY sort').all()).results;
   if (!services.length) { await seed(db); services = (await db.prepare('SELECT * FROM services ORDER BY sort').all()).results; }
-  const [batches, orders] = await Promise.all([
-    db.prepare('SELECT * FROM batches').all(),
-    db.prepare('SELECT * FROM orders ORDER BY created_at, id').all()
-  ]);
-  const state = { services: services.map(toService), batches: batches.results.map(toBatch) };
-  if (!admin) { state.orders = orders.results.map(toPublicOrder); return state; }
-  const [vouchers, calc] = await Promise.all([
+  const batches = (await db.prepare('SELECT * FROM batches').all()).results;
+  const state = { services: services.map(toService) };
+
+  if (!admin) {
+    // 공개 화면에는 주문을 싣지 않는다. 배치마다 합계만 계산해 보낸다 (주문이 아무리 쌓여도 크기가 같다).
+    // 주문 목록은 고객이 배치를 열 때 /api/batch-orders 로 그 배치 것만 받아 간다.
+    const sums = {};
+    (await db.prepare("SELECT batch_id, COUNT(*) AS n, SUM(qty) AS pcs, SUM(total) AS total, SUM(pay = 'paid') AS paid, SUM(pay = 'pending') AS pending, SUM(CASE WHEN pay = 'paid' THEN total ELSE 0 END) AS paid_total FROM orders GROUP BY batch_id").all()).results
+      .forEach(r => { sums[r.batch_id] = { count: r.n, pcs: r.pcs, total: r.total, paid: r.paid, pending: r.pending, unpaid: r.n - r.paid - r.pending, paidTotal: r.paid_total, items: [] }; });
+    state.batches = batches.map(r => Object.assign(toBatch(r), { stats: sums[r.id] || { count: 0, pcs: 0, total: 0, paid: 0, pending: 0, unpaid: 0, paidTotal: 0, items: [] } }));
+    return state;
+  }
+
+  const [orders, vouchers, calc] = await Promise.all([
+    db.prepare('SELECT * FROM orders ORDER BY created_at, id').all(),
     db.prepare('SELECT * FROM vouchers').all(),
     db.prepare('SELECT value FROM settings WHERE key = ?').bind('calcDefaults').first()
   ]);
+  state.batches = batches.map(toBatch);
   state.orders = orders.results.map(toOrder);
   state.vouchers = vouchers.results;
   state.calcDefaults = calc ? JSON.parse(calc.value) : GO.seed().calcDefaults;
   return state;
+}
+
+/* ── 관리자 활동 기록: 누가(접속 주소) 언제 무엇을 했는지 ── */
+export async function logAct(db, request, action, detail) {
+  await db.prepare('INSERT INTO audit (at, ip, action, detail) VALUES (?,?,?,?)')
+    .bind(new Date().toISOString(), ipOf(request), action, String(detail || '').slice(0, 200)).run();
 }

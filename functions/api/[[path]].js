@@ -1,7 +1,8 @@
 /* API 한 파일 라우터 (Cloudflare Pages Functions).  /api/... 로 오는 모든 요청이 여기로 온다.
  *
  * 누구나
- *   GET  /api/public           서비스·배치·가린 주문 목록
+ *   GET  /api/public           서비스·배치와 배치별 합계 (주문은 싣지 않는다)
+ *   GET  /api/batch-orders?id= 배치 하나의 가린 주문 목록
  *   GET  /api/track?q=         주문번호 또는 아이디로 조회
  *   GET  /api/order?id=        주문 한 건 (결제 화면 불러오기)
  *   POST /api/voucher          쿠폰 확인
@@ -14,8 +15,9 @@
  *   POST order · PATCH order/:id · DELETE order/:id
  *   PUT  calc                  계산기 기본 수식
  *   POST reset                 예시 데이터로 초기화
+ *   GET  log                   활동 기록
  */
-import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, sessionCookie, clearCookie, loadState, seed, toOrder, overLimit, recordHit } from '../../server/lib.js';
+import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, sessionCookie, clearCookie, loadState, seed, toOrder, toPublicOrder, overLimit, recordHit, logAct } from '../../server/lib.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -31,6 +33,11 @@ export async function onRequest({ request, env, params }) {
     /* ── 누구나 ── */
     if (route === 'GET /public') return json(await loadState(db, false));
 
+    if (route === 'GET /batch-orders') {
+      const rows = await db.prepare('SELECT * FROM orders WHERE batch_id = ? ORDER BY created_at, id LIMIT 1000').bind(url.searchParams.get('id') || '').all();
+      return json({ orders: rows.results.map(toPublicOrder) });
+    }
+
     if (route === 'GET /me') return json({ admin: await isAdmin(request, env), configured: configured(env) });
 
     if (route === 'POST /login') {
@@ -38,6 +45,7 @@ export async function onRequest({ request, env, params }) {
       if (!configured(env)) return fail('Admin login is not set up yet.', 503);
       if (await overLimit(db, env, request, 'login')) return fail('Too many attempts. Try again later.', 429);   // 잠긴 동안은 맞는 비밀번호도 받지 않는다
       if (!b || !(await passwordOk(env, b.password))) { await recordHit(db, request, 'login'); await sleep(400); return fail('Wrong password.', 401); }
+      await logAct(db, request, 'login', '');
       return json({ admin: true }, 200, { 'set-cookie': await sessionCookie(env, request) });
     }
     if (route === 'POST /logout') return json({ admin: false }, 200, { 'set-cookie': clearCookie });
@@ -119,7 +127,12 @@ export async function onRequest({ request, env, params }) {
 
       if (sub === 'GET /state') return json(await loadState(db, true));
 
-      if (sub === 'POST /reset') { await seed(db); return json(await loadState(db, true)); }
+      if (sub === 'POST /reset') { await seed(db); await logAct(db, request, 'reset', ''); return json(await loadState(db, true)); }
+
+      if (sub === 'GET /log') {
+        const rows = await db.prepare('SELECT at, ip, action, detail FROM audit ORDER BY id DESC LIMIT 200').all();
+        return json({ log: rows.results });
+      }
 
       if (sub === 'POST /batch') {
         const svc = V.text(b.svc, 20), no = V.int(b.no, 1, 9999), title = V.text(b.title, 80), month = V.month(b.month);
@@ -129,6 +142,7 @@ export async function onRequest({ request, env, params }) {
         const bid = svc + '-' + no;
         if (await db.prepare('SELECT 1 FROM batches WHERE id = ?').bind(bid).first()) return fail('That batch number already exists.', 409);
         await db.prepare('INSERT INTO batches (id, svc, no, title, month, stage, close_date, kurs, note) VALUES (?,?,?,?,?,0,?,?,?)').bind(bid, svc, no, title, month, closeDate, kurs, note).run();
+        await logAct(db, request, 'batch.add', bid + ' ' + title);
         return json({ id: bid });
       }
       if (sub === 'PATCH /batch') {
@@ -137,10 +151,13 @@ export async function onRequest({ request, env, params }) {
         if ('note' in b) { const v = V.optText(b.note, 300); if (v === null) return fail('Note is too long.'); sets.push('note = ?'); vals.push(v); }
         if (!sets.length) return fail('Nothing to change.');
         const r = await db.prepare('UPDATE batches SET ' + sets.join(', ') + ' WHERE id = ?').bind(...vals, id).run();
-        return r.meta.changes ? json({ ok: true }) : fail('Batch not found.', 404);
+        if (!r.meta.changes) return fail('Batch not found.', 404);
+        await logAct(db, request, 'batch.update', id + ' ' + JSON.stringify(b));
+        return json({ ok: true });
       }
       if (sub === 'DELETE /batch') {
         await db.batch([db.prepare('DELETE FROM orders WHERE batch_id = ?').bind(id), db.prepare('DELETE FROM batches WHERE id = ?').bind(id)]);
+        await logAct(db, request, 'batch.delete', id);
         return json({ ok: true });
       }
 
@@ -152,16 +169,20 @@ export async function onRequest({ request, env, params }) {
         if (await db.prepare('SELECT 1 FROM orders WHERE id = ?').bind(oid).first()) return fail('Order number is taken.', 409);
         await db.prepare("INSERT INTO orders (id, batch_id, buyer, item, qty, base, total, pay, method, proof_name, created_at) VALUES (?,?,?,?,?,?,?,'unpaid','','',?)")
           .bind(oid, b.batchId, buyer, item, qty, total, total, new Date().toISOString()).run();
+        await logAct(db, request, 'order.add', oid + ' ' + b.batchId);
         return json({ id: oid });
       }
       if (sub === 'PATCH /order') {
         const pay = V.oneOf(b.pay, PAY);
         if (!pay) return fail('Bad payment status.');
         const r = await db.prepare('UPDATE orders SET pay = ? WHERE id = ?').bind(pay, id).run();
-        return r.meta.changes ? json({ ok: true }) : fail('Order not found.', 404);
+        if (!r.meta.changes) return fail('Order not found.', 404);
+        await logAct(db, request, 'order.pay', id + ' ' + pay);
+        return json({ ok: true });
       }
       if (sub === 'DELETE /order') {
         await db.prepare('DELETE FROM orders WHERE id = ?').bind(id).run();
+        await logAct(db, request, 'order.delete', id);
         return json({ ok: true });
       }
 
@@ -172,6 +193,7 @@ export async function onRequest({ request, env, params }) {
           feeGo: { mode: b.feeGo.mode, val: Number(b.feeGo.val) }, feeCo: { mode: b.feeCo.mode, val: Number(b.feeCo.val) },
           tax: { mode: b.tax.mode, val: Number(b.tax.val), base: b.tax.base }, extra: Number(b.extra) || 0 };
         await db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').bind('calcDefaults', JSON.stringify(clean)).run();
+        await logAct(db, request, 'calc', '');
         return json({ ok: true });
       }
     }

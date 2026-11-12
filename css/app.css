@@ -120,6 +120,9 @@ section + section { margin-top: 44px; }
 .rows { border-top: 1px solid var(--line-strong); }
 .row { display: grid; grid-template-columns: 1fr auto 90px 120px 20px; align-items: center; gap: 16px; padding: 16px 4px; border-bottom: 1px solid var(--line); }
 .row:hover { background: var(--soft); }
+.row.two-col { grid-template-columns: 1fr 20px; }
+.find { margin-bottom: 20px; }
+.find .tbl { margin-top: 4px; }
 .row b { display: block; }
 .row .num { text-align: right; font-variant-numeric: tabular-nums; color: var(--sub); }
 .row .arrow { color: #bbb; }

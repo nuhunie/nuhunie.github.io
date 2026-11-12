@@ -46,6 +46,19 @@ test('고유 코드: 1~99 범위이고 같은 주문번호면 항상 같다', ()
   }
 });
 
+test('주문번호: 머리글자-8자리, 헷갈리는 글자가 없고, 예시 데이터끼리 겹치지 않는다', () => {
+  const ids = GO.seed().orders.map(o => o.id);
+  ids.forEach(id => assert.ok(X.isOrderId(id), id));
+  assert.equal(new Set(ids).size, ids.length);
+  assert.equal(X.orderCode(5), X.orderCode(5));
+  assert.ok(!X.isOrderId(GO.BRAND.orderPrefix + '-123456'));      // 예전 6자리 숫자
+  assert.ok(!X.isOrderId(GO.BRAND.orderPrefix + '-ABCDEFG0'));    // 0은 쓰지 않는다
+  assert.ok(!X.isOrderId('XX-ABCDEFGH'));
+  const many = new Set();
+  for (let i = 0; i < 5000; i++) many.add(X.orderCode(i));
+  assert.equal(many.size, 5000);
+});
+
 test('집계: 예시 데이터의 Korea 11월 합계', () => {
   const db = GO.seed();
   const nov = db.batches.filter(b => b.svc === 'kr' && b.month === '2026-11');

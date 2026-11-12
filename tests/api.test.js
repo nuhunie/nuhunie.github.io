@@ -24,7 +24,7 @@ async function call(method, p, body, withCookie) {
 const admin = (m, p, b) => call(m, p, b, true);
 
 test('로그인 전에는 관리자 API가 모두 막혀 있다', async () => {
-  for (const [m, p] of [['GET', '/admin/state'], ['POST', '/admin/reset'], ['POST', '/admin/batch'], ['PATCH', '/admin/batch/kr-5'], ['DELETE', '/admin/batch/kr-5'], ['POST', '/admin/order'], ['PATCH', '/admin/order/NUH-100101'], ['DELETE', '/admin/order/NUH-100101'], ['PUT', '/admin/calc']]) {
+  for (const [m, p] of [['GET', '/admin/state'], ['POST', '/admin/reset'], ['POST', '/admin/batch'], ['PATCH', '/admin/batch/kr-5'], ['DELETE', '/admin/batch/kr-5'], ['POST', '/admin/order'], ['PATCH', '/admin/order/NUH-100101'], ['DELETE', '/admin/order/NUH-100101'], ['PUT', '/admin/calc'], ['GET', '/admin/log']]) {
     assert.equal((await call(m, p, m === 'GET' || m === 'DELETE' ? undefined : {})).status, 401, m + ' ' + p);
   }
   assert.equal((await call('GET', '/me')).json.admin, false);
@@ -52,21 +52,28 @@ test('초기화하면 예시 데이터와 같다', async () => {
   assert.deepEqual(r.json.calcDefaults, seed.calcDefaults);
 });
 
-test('공개 목록에는 주문번호·증빙·전체 이름이 없다', async () => {
+test('공개 목록에는 주문이 없고 배치별 합계만 있다. 주문은 배치를 열 때 가려진 채로 온다', async () => {
   const r = await call('GET', '/public'), seed = GO.seed();
   assert.equal(r.status, 200);
-  assert.equal(r.json.orders.length, seed.orders.length);
-  for (const o of r.json.orders) {
-    assert.deepEqual(Object.keys(o).sort(), ['batchId', 'buyer', 'item', 'pay', 'qty', 'total']);
-    assert.match(o.buyer, /\*/);
-  }
+  assert.equal(r.json.orders, undefined);
   assert.equal(r.json.vouchers, undefined);
   assert.equal(r.json.calcDefaults, undefined);
   const text = JSON.stringify(r.json);
   seed.orders.forEach(o => assert.ok(!text.includes(o.id), o.id));
-  // 공개 데이터만으로도 집계는 원래와 같다
+  // 서버가 계산한 합계가 브라우저 계산(logic.batchRecap)과 같다
+  r.json.batches.forEach(b => {
+    const want = X.batchRecap(b.id, seed.orders), s = b.stats;
+    assert.deepEqual([s.count, s.pcs, s.total, s.paid, s.pending, s.unpaid, s.paidTotal], [want.count, want.pcs, want.total, want.paid, want.pending, want.unpaid, want.paidTotal], b.id);
+  });
   const nov = r.json.batches.filter(b => b.svc === 'kr' && b.month === '2026-11');
-  assert.equal(X.monthRecap(nov, r.json.orders).total, 1734000);
+  assert.equal(nov.reduce((s, b) => s + b.stats.total, 0), 1734000);
+  const list = (await call('GET', '/batch-orders?id=kr-4')).json.orders;
+  assert.equal(list.length, seed.orders.filter(o => o.batchId === 'kr-4').length);
+  for (const o of list) {
+    assert.deepEqual(Object.keys(o).sort(), ['batchId', 'buyer', 'item', 'pay', 'qty', 'total']);
+    assert.match(o.buyer, /\*/);
+  }
+  assert.equal((await call('GET', '/batch-orders?id=nope')).json.orders.length, 0);
 });
 test('조회: 주문번호나 아이디 전체로만 찾는다', async () => {
   const first = GO.seed().orders[0];
@@ -95,7 +102,7 @@ test('결제: 있는 주문은 금액 = 주문 금액 − 쿠폰 + 고유 코드
   assert.equal(again.json.order.total, o.total + X.uniqueCode(o.id));
 });
 test('결제: 새 주문은 서버가 금액을 계산하고, 잘못된 입력은 거절한다', async () => {
-  const id = GO.BRAND.orderPrefix + '-777001';
+  const id = GO.BRAND.orderPrefix + '-' + X.orderCode(777001);
   const good = { id, batchId: 'kr-5', buyer: '@tester', item: 'Keyring uji', qty: 2, base: 50000, method: 'QRIS', proofName: 'p.jpg' };
   for (const bad of [{ base: 0 }, { base: -5 }, { qty: 0 }, { buyer: '' }, { item: '' }, { id: 'XX-1' }, { batchId: 'nope' }, { method: 'Cash' }, { total: 1 , base: 'abc' }]) {
     const r = await call('POST', '/pay', Object.assign({}, good, bad));
@@ -107,7 +114,7 @@ test('결제: 새 주문은 서버가 금액을 계산하고, 잘못된 입력�
   assert.equal(r.json.order.pay, 'pending');
   assert.equal(r.json.order.buyer, 'tester');   // 방금 만든 새 주문은 입력한 이름 그대로 돌려준다
   assert.equal((await call('POST', '/pay', good)).status, 409);                             // 같은 주문번호
-  assert.equal((await call('POST', '/pay', Object.assign({}, good, { id: GO.BRAND.orderPrefix + '-777002', batchId: 'kr-1' }))).status, 409);  // 완료된 배치
+  assert.equal((await call('POST', '/pay', Object.assign({}, good, { id: GO.BRAND.orderPrefix + '-' + X.orderCode(777002), batchId: 'kr-1' }))).status, 409);  // 완료된 배치
 });
 
 test('관리자: 배치 추가·단계 변경이 공개 화면에 반영된다', async () => {
@@ -122,7 +129,7 @@ test('관리자: 배치 추가·단계 변경이 공개 화면에 반영된다',
   assert.deepEqual([pub.stage, pub.note, pub.title, pub.closeDate], [3, 'Sudah jalan', 'Uji Coba', '2026-11-30']);
 });
 test('관리자: 주문 추가·결제 승인·삭제', async () => {
-  const id = GO.BRAND.orderPrefix + '-888001';
+  const id = GO.BRAND.orderPrefix + '-' + X.orderCode(888001);
   assert.equal((await admin('POST', '/admin/order', { id, batchId: 'kr-9', buyer: 'dinda', item: 'Album', qty: 1, total: 285000 })).status, 200);
   assert.equal((await admin('POST', '/admin/order', { id, batchId: 'kr-9', buyer: 'dinda', item: 'Album', qty: 1, total: 285000 })).status, 409);
   assert.equal((await admin('PATCH', '/admin/order/' + id, { pay: 'bogus' })).status, 400);
@@ -138,6 +145,13 @@ test('관리자: 계산기 기본 수식 저장', async () => {
   assert.equal((await admin('PUT', '/admin/calc', c)).status, 200);
   assert.equal((await admin('GET', '/admin/state')).json.calcDefaults.kurs, 123);
   assert.equal((await admin('PUT', '/admin/calc', Object.assign({}, c, { feeGo: { mode: 'x', val: 1 } }))).status, 400);
+});
+test('관리자: 한 일이 활동 기록에 남는다', async () => {
+  const log = (await admin('GET', '/admin/log')).json.log;
+  const actions = log.map(x => x.action);
+  for (const a of ['login', 'reset', 'batch.add', 'batch.update', 'batch.delete', 'order.add', 'order.pay', 'calc']) assert.ok(actions.includes(a), a + ' 기록 없음');
+  assert.ok(log[0].at && typeof log[0].ip === 'string');
+  assert.ok(new Date(log[0].at) >= new Date(log[log.length - 1].at));   // 최근 것이 위
 });
 test('로그아웃하면 다시 막힌다. 끝으로 예시 데이터로 되돌린다', async () => {
   assert.equal((await admin('POST', '/admin/reset')).status, 200);

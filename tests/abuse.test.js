@@ -13,7 +13,7 @@ if (!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(BASE)) throw new Error('�
 const vars = Object.fromEntries(fs.readFileSync(path.join(__dirname, '..', '.dev.vars'), 'utf8').split(/\r?\n/).filter(l => l && l[0] !== '#').map(l => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]));
 const WINDOW = (Number(vars.RATE_WINDOW_SEC) || 6) * 1000 + 700;   // 제한이 풀릴 때까지 기다리는 시간
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const PFX = GO.BRAND.orderPrefix;
+const PFX = GO.BRAND.orderPrefix, X = GO.logic;
 const seed = GO.seed();
 
 let cookie = '';
@@ -38,7 +38,7 @@ test('준비: 앞선 검사의 제한이 풀리기를 기다린 뒤 예시 데�
 });
 
 test('주문 훑기: 주문번호 일부만으로는 주문 목록을 뽑을 수 없다', async () => {
-  for (const q of [PFX.toLowerCase(), PFX + '-', PFX + '-1', '100', '00']) {
+  for (const q of [PFX.toLowerCase(), PFX + '-', PFX + '-A', seed.orders[0].id.slice(0, -1), seed.orders[0].id.slice(4)]) {
     const r = await call('GET', '/track?q=' + encodeURIComponent(q));
     assert.equal(r.json.orders.length, 0, '"' + q + '" → ' + r.json.orders.length + '건');
   }
@@ -56,7 +56,7 @@ test('주문 훑기: 주문번호로 한 건을 불러와도 전체 이름은 �
 });
 test('주문 훑기: 주문번호를 빠르게 연달아 넣어 보면 막힌다', async () => {
   let blocked = 0;
-  for (let i = 0; i < 80; i++) if ((await call('GET', '/order?id=' + PFX + '-' + (500000 + i))).status === 429) blocked++;
+  for (let i = 0; i < 80; i++) if ((await call('GET', '/order?id=' + PFX + '-' + X.orderCode(500000 + i))).status === 429) blocked++;
   assert.ok(blocked > 0, '80번 연속 조회가 한 번도 막히지 않았다');
   await sleep(WINDOW);
 });
@@ -73,7 +73,7 @@ test('무차별 대입: 틀린 비밀번호가 이어지면 잠기고, 잠긴 �
 
 test('가짜 주문 도배: 같은 곳에서 새 주문을 계속 넣으면 막힌다', async () => {
   const codes = [];
-  for (let i = 0; i < 20; i++) codes.push((await call('POST', '/pay', { id: PFX + '-' + (910000 + i), batchId: 'kr-5', buyer: 'spam', item: 'Spam', qty: 1, base: 1000, method: 'QRIS', proofName: 'x.jpg' })).status);
+  for (let i = 0; i < 20; i++) codes.push((await call('POST', '/pay', { id: PFX + '-' + X.orderCode(910000 + i), batchId: 'kr-5', buyer: 'spam', item: 'Spam', qty: 1, base: 1000, method: 'QRIS', proofName: 'x.jpg' })).status);
   assert.ok(codes.includes(429), '20건을 넣어도 막히지 않았다: ' + codes.join(','));
   assert.ok(codes.filter(c => c === 200).length <= 10);
   await sleep(WINDOW);
@@ -87,7 +87,7 @@ test('동시 결제: 같은 주문에 결제가 동시에 두 번 들어오면 �
 });
 
 test('과대 입력: 지나치게 긴 값과 큰 본문은 거절한다', async () => {
-  const base = { id: PFX + '-920001', batchId: 'kr-5', buyer: 'big', item: 'x', qty: 1, base: 1000, method: 'QRIS', proofName: 'x.jpg' };
+  const base = { id: PFX + '-' + X.orderCode(920001), batchId: 'kr-5', buyer: 'big', item: 'x', qty: 1, base: 1000, method: 'QRIS', proofName: 'x.jpg' };
   for (const bad of [{ item: 'x'.repeat(5000) }, { buyer: 'b'.repeat(500) }, { proofName: 'p'.repeat(5000) }, { qty: 1e9 }, { base: 1e15 }]) {
     const r = await call('POST', '/pay', Object.assign({}, base, bad));
     assert.ok(r.status === 400 || r.status === 413, JSON.stringify(Object.keys(bad)) + ' → ' + r.status);
@@ -100,8 +100,8 @@ test('과대 입력: 지나치게 긴 값과 큰 본문은 거절한다', async 
 test('심는 글: 스크립트가 든 값은 글자 그대로 저장되고 JSON으로만 나간다', async () => {
   assert.equal(await login(), 200);
   const evil = '<img src=x onerror="window.__pwned=1">';
-  assert.equal((await call('POST', '/admin/order', { id: PFX + '-930001', batchId: 'kr-5', buyer: 'evil', item: evil, qty: 1, total: 1000 })).status, 200);
-  const pub = await call('GET', '/public');
+  assert.equal((await call('POST', '/admin/order', { id: PFX + '-' + X.orderCode(930001), batchId: 'kr-5', buyer: 'evil', item: evil, qty: 1, total: 1000 })).status, 200);
+  const pub = await call('GET', '/batch-orders?id=kr-5');
   assert.match(pub.headers.get('content-type'), /application\/json/);
   assert.equal(pub.headers.get('x-content-type-options'), 'nosniff');
   assert.ok(pub.json.orders.some(o => o.item === evil));
