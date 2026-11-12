@@ -418,5 +418,7 @@ GO.EN = {
   'Pilih batch, isi pesanan, dan dapatkan nomor pesanan.': 'Pick a batch, fill in your order and get an order number.',
   'Bayar tepat sesuai nominal, lalu unggah foto bukti.': 'Pay the exact amount, then upload a photo of your proof.',
   'Cek tahap pengiriman dengan nomor pesanan.': 'Check the shipping stage with your order number.',
-  'Nomor pesanan ada di struk. Simpan baik-baik.': 'Your order number is on your receipt. Keep it safe.'
+  'Nomor pesanan ada di struk. Simpan baik-baik.': 'Your order number is on your receipt. Keep it safe.',
+  'Transfer tepat sesuai nominal, lalu unggah foto bukti.': 'Transfer the exact amount, then upload a photo of your proof.',
+  'Sudah memesan? Masukkan nomor pesanan untuk melihat nominal dan cara bayar, lalu unggah bukti pembayaran.': 'Already ordered? Enter your order number to see the amount and how to pay, then upload your payment proof.'
 };

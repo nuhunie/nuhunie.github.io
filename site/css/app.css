@@ -181,8 +181,8 @@ table.edit td.acts { align-items: center; white-space: nowrap; }
 .rowwarn[hidden] { display: none; }
 .rowsaved { color: var(--green); font-size: 12px; }
 /* 결제 확인 표: 배치 이름·품목·증빙 파일 이름은 줄을 바꿔 표가 옆으로 넘치지 않게, 입금자 이름 칸은 넓게 */
-.tbl td.wrap { white-space: normal; min-width: 96px; max-width: 200px; overflow-wrap: anywhere; }
-.tbl td.payer { min-width: 170px; }
+.tbl td.wrap { white-space: normal; min-width: 110px; max-width: 200px; overflow-wrap: break-word; }
+.tbl td.payer { min-width: 160px; }
 .tbl td.payer input { height: 34px; }
 .fixedval { margin: 0; padding: 8px 0; font-weight: 700; }
 .vby { display: block; color: var(--sub); font-size: 12px; margin-top: 4px; white-space: normal; }

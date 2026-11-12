@@ -141,7 +141,7 @@
     }).join('');
     var how = [
       [L('Pilih layanan dan batch', '서비스와 배치 선택'), L('Cek batch yang sedang open order di bulan ini.', '이번 달 접수 중인 배치를 확인합니다.')],
-      [L('Bayar dan kirim bukti', '결제 후 증빙 제출'), L('Scan QR dengan nominal otomatis, lalu unggah bukti.', '금액이 자동 입력된 QR로 결제하고 증빙을 올립니다.')],
+      [L('Bayar dan kirim bukti', '결제 후 증빙 제출'), L('Transfer tepat sesuai nominal, lalu unggah foto bukti.', '안내된 금액을 그대로 이체하고 증빙 사진을 올립니다.')],
       [L('Lacak pesanan', '주문 조회'), L('Cek posisi pesanan kapan saja dengan nomor pesanan.', '주문번호로 언제든 진행 상황을 확인합니다.')]
     ].map(function (h, i) { return '<li><em>' + (i + 1) + '</em><div><b>' + esc(h[0]) + '</b><p>' + esc(h[1]) + '</p></div></li>'; }).join('');
     var ongoing = S.db.batches.filter(function (b) { return b.stage < GO.LAST_STAGE; })
@@ -191,7 +191,7 @@
   /* 결제 확인하기: 이미 주문한 사람이 주문번호를 넣어 그 주문의 결제 화면으로 간다. 결제 화면은 주문하기와 같은 화면이다. */
   function vConfirm() {
     var open = openOrder();
-    return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="lead">' + L('Sudah memesan? Masukkan nomor pesanan untuk melihat nominal dan QR, lalu unggah bukti pembayaran.', '이미 주문하셨나요? 주문번호를 넣으면 결제 금액과 QR이 나오고, 증빙을 올릴 수 있습니다.') + '</p>' +
+    return '<h1>' + L('Konfirmasi pembayaran', '결제 확인') + '</h1><p class="lead">' + L('Sudah memesan? Masukkan nomor pesanan untuk melihat nominal dan cara bayar, lalu unggah bukti pembayaran.', '이미 주문하셨나요? 주문번호를 넣으면 결제 금액과 결제 방법이 나오고, 증빙을 올릴 수 있습니다.') + '</p>' +
       (open ? '<p class="note">' + L('Ada pesanan yang belum selesai dibayar', '결제를 마치지 않은 주문이 있습니다') + ': <b>' + open.id + '</b> · <a href="#/pay/' + encodeURIComponent(open.batchId || '-') + '/' + open.id + '">' + L('Lanjutkan pembayaran', '이어서 결제하기') + '</a></p>' : '') +
       '<form class="panel" data-form="confirm"><div class="field"><label for="confirmId">' + L('Nomor pesanan', '주문번호') + '</label><div class="inline"><input id="confirmId" name="q" placeholder="' + GO.BRAND.orderPrefix + '-7K3M9Q2X" autocomplete="off" required><button class="btn">' + L('Muat', '불러오기') + '</button></div>' +
       '<small id="confirmMsg" role="status">' + L('Nomor pesanan ada di bukti pesanan (struk).', '주문번호는 주문 영수증에 있습니다.') + '</small></div></form>' +
@@ -858,10 +858,10 @@
   function aPay() {
     var list = S.db.orders.filter(function (o) { return o.pay === 'pending'; });
     var dup = X.duplicateTotals(S.db.orders);
-    return waitingNote() + (list.length ? (Object.keys(dup).length ? '<p class="note warn"><b>' + L('Perhatian', '주의') + '</b> ' + L('Ada pesanan dengan nominal yang sama. Cocokkan dengan bukti dan nama sebelum menyetujui.', '결제 금액이 같은 주문이 있습니다. 승인하기 전에 증빙과 이름을 대조하세요.') + '</p>' : '') + '<div class="tbl"><table><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>Batch</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">Total</th><th>' + L('Metode', '수단') + '</th><th>' + L('Bukti', '증빙') + '</th><th>' + L('Nama pengirim', '입금자 이름') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' +
+    return waitingNote() + (list.length ? (Object.keys(dup).length ? '<p class="note warn"><b>' + L('Perhatian', '주의') + '</b> ' + L('Ada pesanan dengan nominal yang sama. Cocokkan dengan bukti dan nama sebelum menyetujui.', '결제 금액이 같은 주문이 있습니다. 승인하기 전에 증빙과 이름을 대조하세요.') + '</p>' : '') + '<div class="tbl"><table><thead><tr><th>' + L('No. pesanan', '주문번호') + '</th><th>Batch</th><th>' + L('Pembeli', '구매자') + '</th><th>Item</th><th class="r">Total</th><th>' + L('Bukti', '증빙') + '</th><th>' + L('Nama pengirim', '입금자 이름') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' +
       list.map(function (o) {
         var b = S.batch(o.batchId);
-        return '<tr><td>' + o.id + '</td><td class="wrap">' + esc(batchName(b)) + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td class="wrap">' + esc(o.item) + '</td><td class="r">' + rp(o.total) + (dup[o.total] ? ' <span class="badge pay-rejected">' + L('Nominal sama', '금액 같음') + '</span>' : '') + '</td><td>' + esc(o.method) + '</td><td class="wrap">' + (o.photo ? '<button type="button" class="link" data-act="proof-view" data-id="' + o.id + '">' + L('Lihat foto', '사진 보기') + '</button><small class="vby">' + esc(o.proofName || '') + '</small>' : esc(o.proofName || '-')) + '</td>' +
+        return '<tr><td>' + o.id + '</td><td class="wrap">' + esc(batchName(b)) + lateBadge(o) + '</td><td>' + esc(o.buyer) + '</td><td class="wrap">' + esc(o.item) + '</td><td class="r">' + rp(o.total) + (dup[o.total] ? ' <span class="badge pay-rejected">' + L('Nominal sama', '금액 같음') + '</span>' : '') + '</td><td class="wrap">' + (o.photo ? '<button type="button" class="link" data-act="proof-view" data-id="' + o.id + '">' + L('Lihat foto', '사진 보기') + '</button>' : esc(o.proofName || '-')) + '<small class="vby">' + esc(o.method || '') + '</small></td>' +
           '<td class="payer"><input data-payer="' + o.id + '" value="' + esc(A.payers[o.id] != null ? A.payers[o.id] : (o.payer || '')) + '" maxlength="' + GO.LIMITS.payer + '" placeholder="' + L('sesuai mutasi bank', '은행 입금 내역대로') + '" aria-label="' + L('Nama pengirim', '입금자 이름') + '">' +
             (o.voucher ? '<small class="vby">Voucher ' + esc(o.voucher) + '</small>' : '') + '<small class="rowwarn" data-payerwarn="' + o.id + '" hidden></small></td>' +
           '<td class="acts"><button class="btn sm" data-act="pay-ok" data-id="' + o.id + '">' + L('Setujui', '승인') + '</button><button class="btn line sm" data-act="pay-no" data-id="' + o.id + '">' + L('Tolak', '반려') + '</button></td></tr>';
