@@ -64,10 +64,16 @@ test('집계: 배치 합계 = 품목별 합계의 합 = 주문 합계', () => {
   });
 });
 
-test('조회: 주문번호 일부 또는 아이디 전체로 찾고, 1글자는 찾지 않는다', () => {
+test('조회: 주문번호 전체 또는 아이디 전체로만 찾는다', () => {
   const db = GO.seed(), first = db.orders[0];
-  assert.equal(X.searchOrders(db.orders, first.id.toLowerCase()).length, 1);
-  assert.equal(X.searchOrders(db.orders, '@' + first.buyer).length, db.orders.filter(o => o.buyer === first.buyer).length);
+  const byId = X.searchOrders(db.orders, first.id.toLowerCase());
+  assert.equal(byId.length, 1); assert.equal(byId[0].id, first.id); assert.equal(byId[0].buyer, X.maskName(first.buyer));
+  const byName = X.searchOrders(db.orders, '@' + first.buyer);
+  assert.equal(byName.length, db.orders.filter(o => o.buyer === first.buyer).length);
+  byName.forEach(o => assert.equal(o.id, ''));                        // 아이디로 찾으면 주문번호는 나오지 않는다
+  assert.equal(X.searchOrders(db.orders, GO.BRAND.orderPrefix).length, 0);   // 주문번호 일부로는 찾지 않는다
+  assert.equal(X.searchOrders(db.orders, first.id.slice(0, -1)).length, 0);
+  assert.equal(db.orders[0].id, first.id);                            // 원본은 바뀌지 않는다
   assert.equal(X.searchOrders(db.orders, first.buyer.slice(0, 3)).length, 0);   // 아이디 일부로는 남의 주문이 나오지 않는다
   assert.equal(X.searchOrders(db.orders, 'n').length, 0);
 });

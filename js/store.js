@@ -105,7 +105,7 @@
       return api('GET', '/track?q=' + encodeURIComponent(q)).then(function (r) { return r.orders; });
     },
     fetchOrder: function (id) {
-      if (mode === 'local') return Promise.resolve(this.order(String(id || '').trim()) || null);
+      if (mode === 'local') { var o = this.order(String(id || '').trim()); return Promise.resolve(o ? Object.assign({}, o, { buyer: X.maskName(o.buyer), proofName: '' }) : null); }
       return api('GET', '/order?id=' + encodeURIComponent(String(id || '').trim())).then(function (r) { return r.order; }, function () { return null; });
     },
     checkVoucher: function (code) {

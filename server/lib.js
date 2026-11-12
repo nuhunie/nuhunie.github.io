@@ -10,14 +10,16 @@ export const X = GO.logic;
 export function json(data, status = 200, headers = {}) {
   return new Response(JSON.stringify(data), {
     status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers }
+    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', ...headers }
   });
 }
 export const fail = (message, status = 400) => json({ error: message }, status);
+const MAX_BODY = 20000;
 export async function readJson(request) {
   // 본문이 없는 요청(초기화, 로그아웃)은 빈 객체로 본다. 형식이 깨진 본문만 null.
   try {
     const text = await request.text();
+    if (text.length > MAX_BODY) return null;            // 지나치게 큰 본문은 받지 않는다
     if (!text.trim()) return {};
     const b = JSON.parse(text);
     return b && typeof b === 'object' && !Array.isArray(b) ? b : null;
@@ -68,6 +70,23 @@ export async function isAdmin(request, env) {
   const m = (request.headers.get('cookie') || '').match(/(?:^|;\s*)sid=(\d+)\.([0-9a-f]{64})/);
   if (!m || Number(m[1]) < Date.now()) return false;
   return sameText(m[2], await sign(env.SESSION_SECRET, 'admin.' + m[1]));
+}
+
+/* ── 횟수 제한: 같은 곳(ip)에서 같은 일을 너무 자주 하면 막는다 ──
+ *   kind: [허용 횟수, 기간(초)].  RATE_WINDOW_SEC가 있으면 기간을 그 값으로 바꾼다(검사용). */
+const LIMITS = { login: [5, 900], pay: [10, 3600], look: [60, 60] };
+const ipOf = request => request.headers.get('cf-connecting-ip') || 'local';
+export async function overLimit(db, env, request, kind) {
+  const max = LIMITS[kind][0], windowMs = (Number(env.RATE_WINDOW_SEC) || LIMITS[kind][1]) * 1000;
+  const row = await db.prepare('SELECT COUNT(*) AS n FROM hits WHERE kind = ? AND ip = ? AND at > ?').bind(kind, ipOf(request), Date.now() - windowMs).first();
+  return row.n >= max;
+}
+export async function recordHit(db, request, kind) {
+  const now = Date.now();
+  await db.batch([
+    db.prepare('INSERT INTO hits (kind, ip, at) VALUES (?,?,?)').bind(kind, ipOf(request), now),
+    db.prepare('DELETE FROM hits WHERE at < ?').bind(now - 86400000)
+  ]);
 }
 
 /* ── DB 행 → 화면이 쓰는 모양 ── */

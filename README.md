@@ -42,8 +42,10 @@ npx wrangler pages deploy dist --project-name nuhunie --branch main   # 배포
 
 - 계산 로직 단위 테스트: `node --test tests/logic.test.js`
 - 서버 API 검사: 내 컴퓨터에서 서버를 띄운 뒤 `node --test tests/api.test.js` (데이터를 초기화하므로 배포된 사이트에는 돌리지 않는다)
+- 공격 검사: 같은 방법으로 `node --test tests/abuse.test.js` (무차별 대입, 가짜 주문 도배, 주문번호 훑기, 동시 결제, 과대 입력, 보안 헤더). `.dev.vars`에 `RATE_WINDOW_SEC=6`이 있어야 한다
+- 위 세 가지는 코드를 올릴 때마다 GitHub Actions(`.github/workflows/test.yml`)에서도 돈다
 - 고객·운영자 여정 자동 실행(목업판): 사이트를 연 브라우저 콘솔에서 `await import('./tests/e2e.js'); await runE2E()` (저장된 데이터가 예시로 초기화된다)
 
 ## 아직 없는 것
 
-결제사 연결(QR·계좌는 예시), 증빙 이미지 저장(파일 이름만 저장), 주문 조회 본인 확인(아이디를 알면 조회됨), AI 자동 분류(규칙 기반), 결제 제출 횟수 제한.
+결제사 연결(QR·계좌는 예시), 증빙 이미지 저장(파일 이름만 저장), AI 자동 분류(규칙 기반). 주문번호를 아는 사람은 그 주문을 조회·결제 제출할 수 있다(본인 확인 없음).

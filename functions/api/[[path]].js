@@ -15,7 +15,7 @@
  *   PUT  calc                  계산기 기본 수식
  *   POST reset                 예시 데이터로 초기화
  */
-import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, sessionCookie, clearCookie, loadState, seed, toOrder } from '../../server/lib.js';
+import { GO, X, V, PAY, json, fail, readJson, isAdmin, configured, passwordOk, sessionCookie, clearCookie, loadState, seed, toOrder, overLimit, recordHit } from '../../server/lib.js';
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -36,7 +36,8 @@ export async function onRequest({ request, env, params }) {
     if (route === 'POST /login') {
       const b = await readJson(request);
       if (!configured(env)) return fail('Admin login is not set up yet.', 503);
-      if (!b || !(await passwordOk(env, b.password))) { await sleep(400); return fail('Wrong password.', 401); }
+      if (await overLimit(db, env, request, 'login')) return fail('Too many attempts. Try again later.', 429);   // 잠긴 동안은 맞는 비밀번호도 받지 않는다
+      if (!b || !(await passwordOk(env, b.password))) { await recordHit(db, request, 'login'); await sleep(400); return fail('Wrong password.', 401); }
       return json({ admin: true }, 200, { 'set-cookie': await sessionCookie(env, request) });
     }
     if (route === 'POST /logout') return json({ admin: false }, 200, { 'set-cookie': clearCookie });
@@ -44,16 +45,21 @@ export async function onRequest({ request, env, params }) {
     if (route === 'GET /track') {
       const q = (url.searchParams.get('q') || '').trim().toLowerCase().replace(/^@/, '');
       if (q.length < 2 || q.length > 40) return json({ orders: [] });
-      // 주문번호는 일부만 맞아도, 아이디는 전체가 맞아야 찾는다 (logic.searchOrders와 같은 규칙)
-      const rows = await db.prepare("SELECT * FROM orders WHERE instr(lower(id), ?1) > 0 OR lower(buyer) = ?1 ORDER BY created_at, id LIMIT 50").bind(q).all();
-      return json({ orders: rows.results.map(toOrder).map(o => Object.assign(o, { buyer: X.maskName(o.buyer), proofName: '' })) });
+      if (await overLimit(db, env, request, 'look')) return fail('Too many requests. Try again later.', 429);
+      await recordHit(db, request, 'look');
+      // 주문번호도 아이디도 전체가 맞아야 찾는다 (logic.searchOrders와 같은 규칙).
+      // 아이디로 찾은 주문에는 주문번호를 싣지 않는다: 주문번호는 결제·영수증을 여는 열쇠라 본인만 알아야 한다.
+      const rows = await db.prepare('SELECT * FROM orders WHERE lower(id) = ?1 OR lower(buyer) = ?1 ORDER BY created_at, id LIMIT 50').bind(q).all();
+      return json({ orders: rows.results.map(toOrder).map(o => Object.assign(o, { id: o.id.toLowerCase() === q ? o.id : '', buyer: X.maskName(o.buyer), proofName: '' })) });
     }
 
     if (route === 'GET /order') {
+      if (await overLimit(db, env, request, 'look')) return fail('Too many requests. Try again later.', 429);
+      await recordHit(db, request, 'look');
       const id = V.orderId(url.searchParams.get('id'));
       const row = id && await db.prepare('SELECT * FROM orders WHERE id = ?').bind(id).first();
       if (!row) return fail('Order not found.', 404);
-      const o = toOrder(row); o.proofName = '';
+      const o = toOrder(row); o.proofName = ''; o.buyer = X.maskName(o.buyer);
       return json({ order: o });
     }
 
@@ -81,10 +87,15 @@ export async function onRequest({ request, env, params }) {
         if (!row) return fail('Order not found.', 404);
         if (row.pay !== 'unpaid' && row.pay !== 'rejected') return fail('This order has already been submitted.', 409);
         const total = payable(row.base, id);
-        await db.prepare("UPDATE orders SET total = ?, pay = 'pending', method = ?, proof_name = ? WHERE id = ?").bind(total, methodName, proof, id).run();
-        return json({ order: toOrder(Object.assign(row, { total, pay: 'pending', method: methodName, proof_name: proof })) });
+        // 조건을 UPDATE 안에 넣어, 동시에 두 번 들어와도 한 번만 바뀌게 한다
+        const done = await db.prepare("UPDATE orders SET total = ?, pay = 'pending', method = ?, proof_name = ? WHERE id = ? AND pay IN ('unpaid', 'rejected')").bind(total, methodName, proof, id).run();
+        if (!done.meta.changes) return fail('This order has already been submitted.', 409);
+        const saved = toOrder(Object.assign(row, { total, pay: 'pending', method: methodName, proof_name: proof }));
+        saved.buyer = X.maskName(saved.buyer);
+        return json({ order: saved });
       }
       // 새 주문. 고객이 QR로 낸 금액과 같아야 하므로 화면이 미리 정한 주문번호를 그대로 쓴다.
+      if (await overLimit(db, env, request, 'pay')) return fail('Too many new orders from here. Try again later.', 429);
       const id = V.orderId(b.id), buyer = V.text(String(b.buyer || '').replace(/^@/, ''), 40), item = V.text(b.item, 120);
       const qty = V.int(b.qty, 1, 999), base = V.int(b.base, 1, 1e9);
       if (!id || !buyer || !item || qty === null || base === null) return fail('Buyer, item, quantity and total are required.');
@@ -95,6 +106,7 @@ export async function onRequest({ request, env, params }) {
       const total = payable(base, id), now = new Date().toISOString();
       await db.prepare("INSERT INTO orders (id, batch_id, buyer, item, qty, base, total, pay, method, proof_name, created_at) VALUES (?,?,?,?,?,?,?,'pending',?,?,?)")
         .bind(id, batch.id, buyer, item, qty, base, total, methodName, proof, now).run();
+      await recordHit(db, request, 'pay');
       return json({ order: { id, batchId: batch.id, buyer, item, qty, base, total, pay: 'pending', method: methodName, proofName: proof, createdAt: now } });
     }
 
@@ -166,6 +178,8 @@ export async function onRequest({ request, env, params }) {
 
     return fail('Not found.', 404);
   } catch (e) {
+    console.error(route, e && e.message);          // Cloudflare 로그에 남긴다
+    if (/UNIQUE|constraint/i.test(String(e && e.message))) return fail('Already exists.', 409);
     return fail('Server error.', 500);
   }
 }

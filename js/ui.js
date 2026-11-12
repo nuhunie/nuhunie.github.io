@@ -133,13 +133,14 @@
     var labels = [L('Pembayaran', '결제')].concat(GO.STAGES.slice(1).map(LL));
     return found.map(function (o) {
       var b = S.batch(o.batchId), s = S.service(b.svc), p = X.orderProgress(o, b);
-      receipts[o.id] = o;
-      return '<article class="card"><div class="head"><div><small>' + o.id + ' · ' + esc(dateLabel(o.createdAt)) + '</small><h2>' + esc(o.item) + '</h2>' +
-        '<p class="lead">' + esc(X.maskName(o.buyer)) + ' · ' + o.qty + ' pcs · ' + rp(o.total) + '</p></div><div class="right">' + payBadge(o.pay) + '</div></div>' +
+      if (o.id) receipts[o.id] = o;
+      return '<article class="card"><div class="head"><div><small>' + (o.id ? o.id + ' · ' : '') + esc(dateLabel(o.createdAt)) + '</small><h2>' + esc(o.item) + '</h2>' +
+        '<p class="lead">' + esc(o.buyer) + ' · ' + o.qty + ' pcs · ' + rp(o.total) + '</p></div><div class="right">' + payBadge(o.pay) + '</div></div>' +
         stepper(labels, p.cur, p.finished) +
         '<p class="where">' + L('Posisi sekarang', '현재 위치') + ': <b>' + esc(o.pay === 'paid' ? LL(GO.STAGES[b.stage]) : LL(GO.PAY[o.pay])) + '</b> · <a href="#/b/' + b.id + '">' + esc(LL(s.name) + ' / ' + batchName(b)) + '</a></p>' +
         (b.note ? '<p class="note"><b>' + L('Info', '안내') + '</b> ' + esc(b.note) + '</p>' : '') +
-        (o.pay === 'unpaid' || o.pay === 'rejected' ? '<a class="btn" href="#/pay/' + b.id + '/' + o.id + '">' + L('Bayar pesanan ini', '이 주문 결제하기') + '</a>'
+        (!o.id ? '<p class="hint">' + L('Untuk membayar atau melihat bukti, cari dengan nomor pesanan.', '결제하거나 영수증을 보려면 주문번호로 조회하세요.') + '</p>'
+          : o.pay === 'unpaid' || o.pay === 'rejected' ? '<a class="btn" href="#/pay/' + b.id + '/' + o.id + '">' + L('Bayar pesanan ini', '이 주문 결제하기') + '</a>'
           : '<button type="button" class="btn line" data-act="receipt" data-id="' + o.id + '">' + L('Lihat bukti pesanan', '영수증 보기') + '</button>') + '</article>';
     }).join('');
   }

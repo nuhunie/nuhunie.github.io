@@ -75,9 +75,18 @@
   X.searchOrders = function (orders, q) {
     q = String(q || '').trim().toLowerCase().replace(/^@/, '');
     if (q.length < 2) return [];
-    return orders.filter(function (o) {
-      return o.id.toLowerCase().indexOf(q) >= 0 || o.buyer.toLowerCase() === q;
+    // 주문번호도 아이디도 전체가 맞아야 찾는다. 일부만으로 찾게 두면 남의 주문 목록을 뽑을 수 있다.
+    // 아이디로 찾은 주문에는 주문번호를 싣지 않는다: 주문번호는 결제·영수증을 여는 열쇠다.
+    var out = [];
+    orders.forEach(function (o) {
+      var byId = o.id.toLowerCase() === q;
+      if (!byId && o.buyer.toLowerCase() !== q) return;
+      var copy = {}; for (var k in o) copy[k] = o[k];
+      copy.buyer = X.maskName(o.buyer); copy.proofName = '';
+      if (!byId) copy.id = '';
+      out.push(copy);
     });
+    return out;
   };
 
   // 주문 한 건의 진행 단계 = [결제] + 배치 단계 1~5. cur는 "지금 있는 칸"이다.

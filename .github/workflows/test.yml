@@ -1,0 +1,38 @@
+# 코드를 올릴 때마다 검사를 돌린다: 계산 로직 → 서버 API → 공격 검사.
+# 서버 검사는 GitHub 쪽 임시 컴퓨터에 서버를 띄워서 한다 (배포된 사이트는 건드리지 않는다).
+name: test
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 계산 로직
+        run: node --test tests/logic.test.js
+
+      - name: 서버 띄우기
+        run: |
+          node build.js
+          printf 'ADMIN_PASSWORD=%s\nSESSION_SECRET=%s\nRATE_WINDOW_SEC=6\n' "$(openssl rand -hex 8)" "$(openssl rand -hex 32)" > .dev.vars
+          npx --yes wrangler@4 d1 execute nuhunie --local --file schema.sql
+          npx wrangler@4 pages dev dist --port 8788 > server.log 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://localhost:8788/api/public > /dev/null && exit 0; sleep 2; done
+          cat server.log; exit 1
+
+      - name: 서버 API
+        run: node --test tests/api.test.js
+
+      - name: 공격 검사
+        run: node --test tests/abuse.test.js
+
+      - name: 실패하면 서버 기록 보기
+        if: failure()
+        run: cat server.log || true

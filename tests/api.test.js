@@ -74,6 +74,7 @@ test('조회: 주문번호나 아이디 전체로만 찾는다', async () => {
   assert.equal(byId.length, 1); assert.equal(byId[0].id, first.id); assert.match(byId[0].buyer, /\*/);
   const byName = (await call('GET', '/track?q=@' + first.buyer)).json.orders;
   assert.equal(byName.length, GO.seed().orders.filter(o => o.buyer === first.buyer).length);
+  byName.forEach(o => assert.equal(o.id, ''));
   assert.equal((await call('GET', '/track?q=' + first.buyer.slice(0, 3))).json.orders.length, 0);
   assert.equal((await call('GET', '/track?q=n')).json.orders.length, 0);
   assert.equal((await call('GET', "/track?q=' OR 1=1 --")).json.orders.length, 0);
@@ -104,7 +105,7 @@ test('결제: 새 주문은 서버가 금액을 계산하고, 잘못된 입력�
   assert.equal(r.status, 200);
   assert.equal(r.json.order.total, 50000 + X.uniqueCode(id));
   assert.equal(r.json.order.pay, 'pending');
-  assert.equal(r.json.order.buyer, 'tester');
+  assert.equal(r.json.order.buyer, 'tester');   // 방금 만든 새 주문은 입력한 이름 그대로 돌려준다
   assert.equal((await call('POST', '/pay', good)).status, 409);                             // 같은 주문번호
   assert.equal((await call('POST', '/pay', Object.assign({}, good, { id: GO.BRAND.orderPrefix + '-777002', batchId: 'kr-1' }))).status, 409);  // 완료된 배치
 });

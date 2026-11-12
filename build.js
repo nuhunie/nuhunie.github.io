@@ -4,5 +4,5 @@ const fs = require('fs'), path = require('path');
 const out = path.join(__dirname, 'dist');
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out);
-for (const name of ['index.html', 'admin', 'css', 'js', 'assets']) fs.cpSync(path.join(__dirname, name), path.join(out, name), { recursive: true });
+for (const name of ['index.html', '_headers', 'admin', 'css', 'js', 'assets']) fs.cpSync(path.join(__dirname, name), path.join(out, name), { recursive: true });
 console.log('dist ready');

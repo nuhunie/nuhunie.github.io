@@ -47,3 +47,12 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL                       -- JSON
 );
+
+-- 횟수 제한용 기록: 누가(ip) 무엇을(kind) 언제(at, ms) 했는지. 하루 지난 기록은 지운다.
+--   login 틀린 비밀번호 · pay 새 주문 제출 · look 주문 조회
+CREATE TABLE IF NOT EXISTS hits (
+  kind TEXT NOT NULL,
+  ip TEXT NOT NULL,
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS hits_lookup ON hits (kind, ip, at);
