@@ -134,8 +134,9 @@
   /* ── 계산기 ── */
   var C = null;
   function seg(name, mode) {
-    return '<div class="seg" data-seg="' + name + '">' + [['pct', '%'], ['nom', 'Nominal'], ['mul', L('Pengali ×', '배수 ×')]].map(function (m) {
-      return '<button type="button" class="' + (mode === m[0] ? 'on' : '') + '" data-mode="' + m[0] + '">' + m[1] + '</button>';
+    // 칸이 좁아도 들어가도록 기호만 보여 주고, 뜻은 title과 아래 설명 줄에 둔다
+    return '<div class="seg mini" data-seg="' + name + '">' + [['pct', '%', L('Persen', '퍼센트')], ['nom', 'Rp', L('Nominal per pcs', '개당 금액')], ['mul', '×', L('Pengali', '배수')]].map(function (m) {
+      return '<button type="button" class="' + (mode === m[0] ? 'on' : '') + '" data-mode="' + m[0] + '" title="' + m[2] + '" aria-label="' + m[2] + '" aria-pressed="' + (mode === m[0]) + '">' + m[1] + '</button>';
     }).join('') + '</div>';
   }
   function modeHint(mode) {
@@ -145,7 +146,7 @@
     if (!C) C = JSON.parse(JSON.stringify(S.db.calcDefaults));
     var cur = GO.CURRENCIES[C.cur];
     function fee(key, label) {
-      return '<div class="field"><label>' + label + '</label>' + seg(key, C[key].mode) + '<input type="number" step="any" data-calc="' + key + '.val" value="' + C[key].val + '" aria-label="' + label + '"><small>' + modeHint(C[key].mode) + '</small></div>';
+      return '<div class="field"><div class="lab"><label>' + label + '</label>' + seg(key, C[key].mode) + '</div><input type="number" step="any" data-calc="' + key + '.val" value="' + C[key].val + '" aria-label="' + label + '"><small>' + modeHint(C[key].mode) + '</small></div>';
     }
     return '<div class="head"><div><h1>' + L('Kalkulator harga', '가격 계산기') + '</h1><p class="lead">' + L('Atur cara hitung tiap biaya: persen, nominal per pcs, atau pengali.', '수수료마다 퍼센트·개당 금액·배수 중에서 고를 수 있습니다.') + '</p></div>' +
       '<div class="btns"><button class="btn line" data-act="calc-reset">' + L('Muat default', '기본값 불러오기') + '</button><button class="btn" data-act="calc-save">' + L('Simpan sebagai default', '기본값으로 저장') + '</button></div></div>' +
@@ -155,8 +156,8 @@
       '<div class="field"><label>' + L('Harga asli per pcs', '개당 원가') + ' (' + cur.sym + ')</label><input type="number" step="any" data-calc="price" value="' + C.price + '"></div>' +
       '<div class="field"><label>' + L('Jumlah (pcs)', '수량') + '</label><input type="number" min="1" data-calc="qty" value="' + C.qty + '"></div>' +
       fee('feeGo', 'Fee jastip') + fee('feeCo', 'Fee CO') + fee('tax', L('Pajak', '세금')) +
-      '<div class="field"><label>' + L('Biaya tambahan lain (IDR)', '기타 추가 비용 (IDR)') + '</label><input type="number" data-calc="extra" value="' + C.extra + '"><small>' + L('Contoh: ongkir internasional, packing (total)', '국제 배송비, 포장비 등 (합계)') + '</small></div>' +
-      '<div class="field"><label>' + L('Dasar pajak', '세금 기준') + '</label><select data-calc="tax.base"><option value="conv"' + (C.tax.base === 'conv' ? ' selected' : '') + '>' + L('Dari harga konversi', '환산가 기준') + '</option><option value="convfee"' + (C.tax.base === 'convfee' ? ' selected' : '') + '>' + L('Dari harga konversi + fee', '환산가 + 수수료 기준') + '</option></select></div>' +
+      '<div class="field"><div class="lab"><label>' + L('Dasar pajak', '세금 기준') + '</label></div><select data-calc="tax.base"><option value="conv"' + (C.tax.base === 'conv' ? ' selected' : '') + '>' + L('Dari harga konversi', '환산가 기준') + '</option><option value="convfee"' + (C.tax.base === 'convfee' ? ' selected' : '') + '>' + L('Dari harga konversi + fee', '환산가 + 수수료 기준') + '</option></select></div>' +
+      '<div class="field span2"><label>' + L('Biaya tambahan lain (IDR)', '기타 추가 비용 (IDR)') + '</label><input type="number" data-calc="extra" value="' + C.extra + '"><small>' + L('Contoh: ongkir internasional, packing (total)', '국제 배송비, 포장비 등 (합계)') + '</small></div>' +
       '</div></div><div class="panel"><h2>' + L('Rincian biaya', '자동 계산 내역') + '</h2><div id="calcOut"></div></div></div>';
   }
   function feeDesc(rule) {
@@ -165,7 +166,7 @@
   function drawCalc() {
     var out = $('#calcOut'); if (!out) return;
     var r = X.calcPrice(C), cur = GO.CURRENCIES[C.cur];
-    function line(label, desc, v) { return '<div class="line"><div><b>' + label + '</b><small>' + esc(desc) + '</small></div><span>' + rp(v) + '</span></div>'; }
+    function line(label, desc, v) { return '<div class="brk"><div><b>' + label + '</b><small>' + esc(desc) + '</small></div><span>' + rp(v) + '</span></div>'; }
     out.innerHTML = line(L('Harga konversi', '환산가'), cur.sym + Number(C.price || 0).toLocaleString('id-ID') + ' × ' + r.qty + ' pcs × kurs ' + C.kurs, r.conv) +
       line('Fee jastip', feeDesc(C.feeGo), r.feeGo) + line('Fee CO', feeDesc(C.feeCo), r.feeCo) +
       line(L('Pajak', '세금'), feeDesc(C.tax), r.tax) + line(L('Biaya tambahan', '추가 비용'), L('total', '합계'), r.extra) +
@@ -239,9 +240,9 @@
     var a = payAmount();
     if (!a.total) { out.innerHTML = '<p class="hint box">' + L('Isi total harga untuk menampilkan nominal pembayaran.', '총 금액을 입력하면 결제 금액이 표시됩니다.') + '</p>'; return; }
     out.innerHTML = '<div class="amount">' +
-      '<div class="line"><div><b>' + L('Total harga', '총 금액') + '</b></div><span>' + rp(a.base) + '</span></div>' +
-      (a.off ? '<div class="line"><div><b>Voucher</b></div><span>−' + rp(a.off) + '</span></div>' : '') +
-      '<div class="line"><div><b>' + L('Kode unik', '고유 코드') + '</b><small>' + L('untuk mencocokkan pembayaran otomatis', '입금 자동 대조용') + '</small></div><span>+' + rp(a.code) + '</span></div>' +
+      '<div class="brk"><div><b>' + L('Total harga', '총 금액') + '</b></div><span>' + rp(a.base) + '</span></div>' +
+      (a.off ? '<div class="brk"><div><b>Voucher</b></div><span>−' + rp(a.off) + '</span></div>' : '') +
+      '<div class="brk"><div><b>' + L('Kode unik', '고유 코드') + '</b><small>' + L('untuk mencocokkan pembayaran otomatis', '입금 자동 대조용') + '</small></div><span>+' + rp(a.code) + '</span></div>' +
       '<div class="total"><span>' + L('Nominal yang dibayar', '결제할 금액') + '</span><b>' + rp(a.total) + '</b></div></div>' +
       (P.method === 'QRIS'
         ? '<div class="qr"><canvas width="400" height="400" id="qrC"></canvas><div><b>' + L('QRIS dinamis', '동적 QRIS') + '</b><p>' + L('Nominal terisi otomatis saat di-scan, tidak perlu ketik harga.', '스캔하면 금액이 자동 입력되어 직접 칠 필요가 없습니다.') + '</p><small>' + L('QR contoh untuk mockup, belum terhubung ke penyedia pembayaran.', '목업용 예시 QR이며 결제사와 연결되어 있지 않습니다.') + '</small></div></div>'

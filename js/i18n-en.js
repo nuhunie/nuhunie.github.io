@@ -72,7 +72,9 @@ GO.EN = {
   'Contoh': 'Example',
 
   // 계산기
-  'Pengali ×': 'Multiplier ×',
+  'Persen': 'Percent',
+  'Nominal per pcs': 'Fixed amount per piece',
+  'Pengali': 'Multiplier',
   'persen dari harga konversi': 'value% of the converted price',
   'nominal × jumlah pcs': 'value × number of pieces',
   'harga konversi × nilai': 'converted price × value',
