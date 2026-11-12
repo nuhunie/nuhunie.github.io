@@ -202,6 +202,18 @@ window.runE2E = async function () {
   if ($('.modal .x')) $('.modal .x').click();
   await GO.remind(); await wait(80);
   check('알림: 취소 안내는 한 번만 뜬다', !$('.modal'));
+  // 이 기기가 확인 대기로 알던 주문이 그 사이 반려됐으면 알린다. 결제 상태가 적히지 않은 예전 목록의 결제 전 주문도 알린다.
+  const od5 = await S.createOrder({ batchId: 'kr-5', buyer: 'ditolak', item: 'Uji ditolak', qty: 1, base: 43000, voucher: '' });
+  Object.assign(S.order(od5.id), { pay: 'rejected', method: 'QRIS', proofName: 'bukti.jpg' });
+  try { localStorage.setItem('nuh-my-orders', JSON.stringify([{ id: od5.id, item: od5.item, batchId: od5.batchId, pay: 'pending', total: od5.total }])); } catch (e) {}
+  await GO.remind(); await wait(80);
+  check('알림: 증빙을 낸 뒤 반려된 주문은 사이트를 열 때 알린다', !!$('.modal .remind') && /ditolak/.test($('.modal').innerText) && $('.modal').innerText.includes(od5.id));
+  if ($('.modal .x')) $('.modal .x').click();
+  const od6 = await S.createOrder({ batchId: 'kr-5', buyer: 'lama', item: 'Uji daftar lama', qty: 1, base: 44000, voucher: '' });
+  try { localStorage.setItem('nuh-my-orders', JSON.stringify([{ id: od6.id, item: od6.item, batchId: od6.batchId }])); } catch (e) {}
+  await GO.remind(); await wait(80);
+  check('알림: 결제 상태가 적히지 않은 예전 목록의 결제 전 주문도 알린다', !!$('.modal .remind') && $('.modal').innerText.includes(od6.id));
+  if ($('.modal .x')) $('.modal .x').click();
   await go('#/pay/kr-5/' + od3.id); await wait(80);
   check('결제 화면: 취소된 접수의 주소를 열면 취소됐다고 알린다', /dibatalkan otomatis/.test($('#app').textContent));
   // 증빙을 낸 주문을 운영자가 미결제로 되돌린 경우: 접수 48시간이 지났어도 지워지지 않고, 기한 안내도 다시 생기지 않는다

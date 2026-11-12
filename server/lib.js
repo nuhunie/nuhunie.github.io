@@ -146,10 +146,13 @@ export const ORDER_SELECT = 'SELECT o.*, f.self AS self, f.late AS late FROM ord
 export const PUBLIC_ORDERS = "FROM orders o LEFT JOIN order_flags f ON f.order_id = o.id WHERE NOT (IFNULL(f.self, 0) = 1 AND o.pay != 'paid')";
 
 /* ── 입금 기한: 고객이 접수한 결제 전 주문 ──
- * 시간은 data.js 의 GO.PAY_HOURS / GO.PURGE_HOURS 를 쓴다. PAY_WINDOW_SEC / PURGE_SEC 가 있으면 그 값(초)으로 바꾼다(검사용).
+ * 시간은 data.js 의 GO.PAY_HOURS / GO.PURGE_HOURS 를 쓴다. 검사 환경에서는 PAY_WINDOW_SEC / PURGE_SEC(초)로 줄여 볼 수 있다.
  * 따로 도는 작업이 없으므로, 새 접수·조회·증빙 제출·관리자 화면 요청이 올 때 지울 때가 된 접수를 지운다. */
-export const payHours = env => (Number(env && env.PAY_WINDOW_SEC) || GO.PAY_HOURS * 3600) / 3600;
-export const purgeHours = env => (Number(env && env.PURGE_SEC) || GO.PURGE_HOURS * 3600) / 3600;
+// 검사용 값은 초기화 스위치(ALLOW_RESET=1)가 켜진 곳에서만 듣고, 0보다 큰 숫자만 받는다.
+// 배포판에는 그 스위치가 없으므로, 실수로 값을 넣어도 기한과 지우는 시각이 바뀌지 않는다.
+const testSec = (env, key) => { const n = canReset(env) ? Number(env[key]) : 0; return n > 0 ? n : 0; };
+export const payHours = env => (testSec(env, 'PAY_WINDOW_SEC') || GO.PAY_HOURS * 3600) / 3600;
+export const purgeHours = env => (testSec(env, 'PURGE_SEC') || GO.PURGE_HOURS * 3600) / 3600;
 // 내보내는 주문에 기한(payBy)을 붙인다. 기한이 없는 주문은 빈 글자.
 export const withDeadline = (o, env) => Object.assign(o, { payBy: X.payBy(o, payHours(env)) });
 // 지울 때가 된 접수인가 (접수 뒤 PURGE_HOURS 가 지나도록 결제 전)
@@ -165,9 +168,14 @@ export async function purgeExpired(db, env) {
     db.prepare("DELETE FROM orders WHERE id = ? AND pay = 'unpaid' AND proof_name = ''").bind(r.id),
     db.prepare('DELETE FROM order_flags WHERE order_id = ? AND NOT EXISTS (SELECT 1 FROM orders WHERE id = ?)').bind(r.id, r.id)
   ));
-  await db.batch(stmts);
-  const ids = rows.map(r => r.id);
-  await db.prepare('INSERT INTO audit (at, ip, action, detail) VALUES (?,?,?,?)').bind(new Date().toISOString(), 'auto', 'order.expire', ids.join(' ').slice(0, 200)).run();
+  const done = await db.batch(stmts);
+  // 실제로 지워진 주문만 적는다(그 사이 증빙을 냈거나, 같은 순간의 다른 요청이 먼저 지웠을 수 있다)
+  const ids = rows.filter((r, i) => done[i * 2] && done[i * 2].meta && done[i * 2].meta.changes).map(r => r.id);
+  if (!ids.length) return [];
+  // 활동 기록 한 줄은 200자까지 보인다. 주문번호가 잘려 빠지지 않게 12개씩 나눠 적는다.
+  const at = new Date().toISOString(), logs = [];
+  for (let i = 0; i < ids.length; i += 12) logs.push(db.prepare('INSERT INTO audit (at, ip, action, detail) VALUES (?,?,?,?)').bind(at, 'auto', 'order.expire', ids.slice(i, i + 12).join(' ')));
+  await db.batch(logs);
   return ids;
 }
 

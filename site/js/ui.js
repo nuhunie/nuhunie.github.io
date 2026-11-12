@@ -769,7 +769,9 @@
   function remindUnpaid() {
     if (remindShown || GO.app !== 'site') return Promise.resolve();
     remindShown = true;
-    var list = myOrders().filter(function (x) { return x.pay === 'unpaid' || x.pay === 'rejected'; }).slice(0, 3);
+    // 끝난 주문(결제 완료, 취소됨)만 빼고 다시 확인한다: 확인 대기로 알던 주문이 그 사이 반려됐을 수 있고,
+    // 예전에 저장된 목록에는 결제 상태가 없다. 목록은 10건까지라 확인 요청도 10건까지이고, 창에는 3건까지 보여 준다.
+    var list = myOrders().filter(function (x) { return x.pay !== 'paid' && x.pay !== 'gone'; });
     if (!list.length) return Promise.resolve();
     return Promise.all(list.map(function (x) {
       // 돌려주는 값: 주문 / { gone } 기한까지 결제되지 않아 지워짐 / { missing } 없는 번호(운영자가 지움) / null 확인하지 못함(다음에 다시 본다)
@@ -783,7 +785,7 @@
         rememberOrder(o);
         if ((o.pay === 'unpaid' || o.pay === 'rejected') && !(r[0] === 'pay' && r[2] === o.id)) due.push(o);   // 지금 그 주문의 결제 화면이면 띄우지 않는다
       });
-      if ((due.length || cancelled.length) && !$('.modal')) showRemind(due, cancelled);
+      if ((due.length || cancelled.length) && !$('.modal')) showRemind(due.slice(0, 3), cancelled);
     });
   }
   function showRemind(due, cancelled) {

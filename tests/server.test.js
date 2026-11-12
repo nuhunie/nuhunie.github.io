@@ -71,13 +71,18 @@ test('새 DB: 배포판에서는 서비스 종류만 넣고 예시 주문은 넣
 test('입금 기한: 서버는 data.js 의 시간을 쓰고, 검사용 환경값이 있으면 그 값으로 바꾼다', async () => {
   const { payHours, purgeHours, expired, withDeadline } = await import('../server/lib.js');
   assert.equal(payHours({}), 24); assert.equal(purgeHours({}), 48); assert.equal(payHours(undefined), 24);
-  assert.equal(payHours({ PAY_WINDOW_SEC: '7200' }), 2); assert.equal(purgeHours({ PURGE_SEC: '10800' }), 3);
+  const T = { ALLOW_RESET: '1' };                                                  // 검사 환경: 초기화 스위치가 켜진 곳
+  assert.equal(payHours(Object.assign({ PAY_WINDOW_SEC: '7200' }, T)), 2); assert.equal(purgeHours(Object.assign({ PURGE_SEC: '10800' }, T)), 3);
+  assert.equal(payHours({ PAY_WINDOW_SEC: '7200' }), 24, '스위치가 없는 곳(배포판)에서는 검사용 값을 듣지 않는다');
+  assert.equal(purgeHours({ PURGE_SEC: '60' }), 48, '배포 설정에 실수로 넣어도 접수가 일찍 지워지지 않는다');
+  assert.equal(payHours(Object.assign({ PAY_WINDOW_SEC: '-60' }, T)), 24); assert.equal(purgeHours(Object.assign({ PURGE_SEC: 'abc' }, T)), 48);   // 0보다 큰 숫자만 받는다
   const now = Date.now(), o = h => ({ self: 1, pay: 'unpaid', createdAt: new Date(now - h * 3600000).toISOString() });
   assert.equal(expired(o(47), {}), false);
   assert.equal(expired(o(49), {}), true);
   assert.equal(expired(Object.assign(o(49), { pay: 'pending' }), {}), false);      // 증빙을 낸 주문은 지우지 않는다
   assert.equal(expired(Object.assign(o(49), { self: 0 }), {}), false);             // 운영자가 넣은 주문은 지우지 않는다
-  assert.equal(expired(o(1), { PURGE_SEC: '1800' }), true);
+  assert.equal(expired(o(1), Object.assign({ PURGE_SEC: '1800' }, T)), true);
+  assert.equal(expired(o(1), { PURGE_SEC: '1800' }), false);
   assert.equal(withDeadline(o(1), {}).payBy, new Date(now - 3600000 + 24 * 3600000).toISOString());
   assert.equal(withDeadline(Object.assign(o(1), { pay: 'paid' }), {}).payBy, '');
 });
@@ -91,4 +96,14 @@ test('입금 기한: 지울 때가 된 접수만, 지우는 순간에도 결제 
   assert.ok(ran.some(s => /INSERT INTO audit/.test(s)));
   const empty = { prepare: sql => ({ bind: () => ({ all: async () => ({ results: [] }) }) }), batch: async () => { throw new Error('지울 것이 없으면 아무것도 쓰지 않는다'); } };
   assert.deepEqual(await purgeExpired(empty, {}), []);
+  // 한꺼번에 30건을 지워도 주문번호가 활동 기록에 모두 남는다 (한 줄에 200자까지만 보이므로 나눠 적는다)
+  const many = Array.from({ length: 30 }, (_, i) => ({ id: 'NUH-' + String(i).padStart(8, 'A') })), notes = [];
+  const st2 = sql => ({ sql, bind: (...a) => ({ sql, a, all: async () => ({ results: /SELECT o\.id/.test(sql) ? many : [] }) }) });
+  const db2 = { prepare: st2, batch: async list => { list.forEach(s => { if (/INSERT INTO audit/.test(s.sql)) notes.push(s.a[3]); }); return list.map(() => ({ meta: { changes: 1 } })); } };
+  assert.equal((await purgeExpired(db2, {})).length, 30);
+  assert.ok(notes.every(n => n.length <= 200), '한 줄이 200자를 넘지 않는다');
+  assert.deepEqual(notes.join(' ').split(' ').sort(), many.map(r => r.id).sort());
+  // 그 사이 증빙을 내서 지워지지 않은 주문은 기록에도, 돌려주는 목록에도 넣지 않는다
+  const db3 = { prepare: st2, batch: async list => list.map((s, i) => ({ meta: { changes: /DELETE FROM orders/.test(s.sql) && i === 0 ? 0 : 1 } })) };
+  assert.equal((await purgeExpired(db3, {})).includes(many[0].id), false);
 });
