@@ -9,7 +9,7 @@
 window.GO = window.GO || {};
 
 // 상호와 주문번호 머리글자. 가게 이름이 정해지면 여기 두 값만 바꾸면 화면·영수증 전체에 반영된다.
-GO.BRAND = { name: 'Nuhunie', orderPrefix: 'NUH' };
+GO.BRAND = { name: 'Nuhunie', orderPrefix: 'NUH', mark: 'assets/mark-b.png' }; // mark: QR 가운데에 얹는 마크 (시안 A는 assets/mark-a.png)
 
 // 배치 진행 단계: 순서가 곧 진행도다 (index가 클수록 뒤 단계)
 GO.STAGES = [

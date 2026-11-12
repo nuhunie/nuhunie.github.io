@@ -218,6 +218,20 @@
       c.fillStyle = '#fff'; c.fillRect((p[0] + 1) * px, (p[1] + 1) * px, 5 * px, 5 * px);
       c.fillStyle = '#111'; c.fillRect((p[0] + 2) * px, (p[1] + 2) * px, 3 * px, 3 * px);
     });
+    drawMark(canvas);
+  }
+  // QR 가운데에 흰 바탕을 깔고 상호 마크를 얹는다. 실제 QR에서는 오류 복원 수준을 높여야 가운데를 가려도 읽힌다.
+  var markImg = null;
+  function drawMark(canvas) {
+    if (!GO.BRAND.mark) return;
+    if (!markImg) { markImg = new Image(); markImg.src = GO.BRAND.mark; }
+    function paint() {
+      if (!canvas.isConnected) return;
+      var c = canvas.getContext('2d'), s = Math.round(canvas.width * 0.3), o = Math.round((canvas.width - s) / 2), pad = Math.round(s * 0.08);
+      c.fillStyle = '#fff'; c.fillRect(o, o, s, s);
+      c.drawImage(markImg, o + pad, o + pad, s - pad * 2, s - pad * 2);
+    }
+    if (markImg.complete && markImg.naturalWidth) paint(); else markImg.addEventListener('load', paint, { once: true });
   }
   function drawPay() {
     var out = $('#payOut'); if (!out) return;
@@ -229,7 +243,7 @@
       '<div class="line"><div><b>' + L('Kode unik', '고유 코드') + '</b><small>' + L('untuk mencocokkan pembayaran otomatis', '입금 자동 대조용') + '</small></div><span>+' + rp(a.code) + '</span></div>' +
       '<div class="total"><span>' + L('Nominal yang dibayar', '결제할 금액') + '</span><b>' + rp(a.total) + '</b></div></div>' +
       (P.method === 'QRIS'
-        ? '<div class="qr"><canvas width="200" height="200" id="qrC"></canvas><div><b>' + L('QRIS dinamis', '동적 QRIS') + '</b><p>' + L('Nominal terisi otomatis saat di-scan, tidak perlu ketik harga.', '스캔하면 금액이 자동 입력되어 직접 칠 필요가 없습니다.') + '</p><small>' + L('QR contoh untuk mockup, belum terhubung ke penyedia pembayaran.', '목업용 예시 QR이며 결제사와 연결되어 있지 않습니다.') + '</small></div></div>'
+        ? '<div class="qr"><canvas width="400" height="400" id="qrC"></canvas><div><b>' + L('QRIS dinamis', '동적 QRIS') + '</b><p>' + L('Nominal terisi otomatis saat di-scan, tidak perlu ketik harga.', '스캔하면 금액이 자동 입력되어 직접 칠 필요가 없습니다.') + '</p><small>' + L('QR contoh untuk mockup, belum terhubung ke penyedia pembayaran.', '목업용 예시 QR이며 결제사와 연결되어 있지 않습니다.') + '</small></div></div>'
         : '<p class="note"><b>BCA 000-000-0000</b> a.n. ' + esc(GO.BRAND.name) + '<br>' + L('Transfer tepat sesuai nominal di atas.', '위 금액과 정확히 같게 이체해 주세요.') + ' <small>(' + L('rekening contoh', '예시 계좌') + ')</small></p>');
     var q = $('#qrC'); if (q) drawQR(q, P.id + a.total);
   }
