@@ -662,13 +662,24 @@
   function vAdmin(tab) {
     if (!S.isAdmin) return vLogin();
     tab = tab || 'guide';
-    var tabs = [['guide', L('Panduan', '사용 안내')], ['batch', L('Batch', '배치')], ['order', L('Input pesanan', '주문 입력')], ['pay', L('Verifikasi pembayaran', '결제 확인')], ['calc', L('Kalkulator', '계산기')], ['shop', L('Pengaturan toko', '가게 설정')], ['log', L('Riwayat', '활동 기록')]];
+    /* 위 탭은 일의 종류로 묶는다(2026-11-12 사용자 결정). 묶음 안의 화면은 탭 아래 작은 메뉴로 고른다.
+     *   판매 설정: 배치 · 쿠폰 · 가게 설정   주문·결제: 주문 입력 · 결제 확인
+     * 주소(#/admin/batch 등)는 화면마다 그대로라서 예전 링크도 그대로 열린다. */
+    var groups = [
+      ['guide', L('Panduan', '사용 안내'), [['guide', L('Panduan', '사용 안내')]]],
+      ['setup', L('Pengaturan jualan', '판매 설정'), [['batch', L('Batch', '배치')], ['voucher', L('Voucher', '쿠폰')], ['shop', L('Pengaturan toko', '가게 설정')]]],
+      ['orders', L('Pesanan & pembayaran', '주문·결제'), [['order', L('Input pesanan', '주문 입력')], ['pay', L('Verifikasi pembayaran', '결제 확인')]]],
+      ['calc', L('Kalkulator', '계산기'), [['calc', L('Kalkulator', '계산기')]]],
+      ['log', L('Riwayat', '활동 기록'), [['log', L('Riwayat', '활동 기록')]]]
+    ];
+    var group = groups.filter(function (g) { return g[2].some(function (x) { return x[0] === tab; }); })[0] || groups[0];
     var pendingN = S.db.orders.filter(function (o) { return o.pay === 'pending'; }).length;
     return '<div class="head"><div><h1>' + L('Admin', '관리자') + '</h1><p class="lead">' + L('Data yang diisi di sini langsung tampil di halaman pelanggan.', '여기서 입력한 내용이 고객 화면에 바로 나타납니다.') + '</p></div><div class="btns"><button class="btn" data-act="export">' + L('Unduh CSV pesanan', '주문 CSV 내려받기') + '</button>' + (S.canReset ? '<button class="btn line" data-act="reset">' + L('Reset data contoh', '예시 데이터로 초기화') + '</button>' : '') + (S.mode === 'server' ? '<button class="btn line" data-act="logout">' + L('Keluar', '로그아웃') + '</button>' : '') + '</div></div>' +
       '<p class="note">' + (S.mode === 'server' ? L('Masuk sebagai admin. Perubahan tersimpan di server dan terlihat di semua perangkat.', '관리자로 로그인했습니다. 변경 내용은 서버에 저장되어 모든 기기에서 보입니다.') : L('Mockup: belum ada login admin dan data hanya tersimpan di browser ini.', '목업: 관리자 로그인이 아직 없고, 데이터는 이 브라우저에만 저장됩니다.')) + '</p>' +
-      '<div class="tabs">' + tabs.map(function (t) { return '<a class="' + (t[0] === tab ? 'on' : '') + '" href="#/admin/' + t[0] + '">' + esc(t[1]) + (t[0] === 'pay' && pendingN ? ' <i class="dot">' + pendingN + '</i>' : '') + '</a>'; }).join('') + '</div>' +
+      '<div class="tabs">' + groups.map(function (g) { var first = g[2][0][0], dot = g[0] === 'orders' && pendingN ? ' <i class="dot">' + pendingN + '</i>' : ''; return '<a class="' + (g === group ? 'on' : '') + '" href="#/admin/' + first + '">' + esc(g[1]) + dot + '</a>'; }).join('') + '</div>' +
+      (group[2].length > 1 ? '<div class="subtabs" role="navigation" aria-label="' + esc(group[1]) + '">' + group[2].map(function (x) { return '<a class="' + (x[0] === tab ? 'on' : '') + '" href="#/admin/' + x[0] + '"' + (x[0] === tab ? ' aria-current="page"' : '') + '>' + esc(x[1]) + (x[0] === 'pay' && pendingN ? ' <i class="dot">' + pendingN + '</i>' : '') + '</a>'; }).join('') + '</div>' : '') +
       (pruneEdits(), '<p class="note unsaved" id="unsaved" role="status"' + (unsavedText() ? '' : ' hidden') + '>' + unsavedText() + '</p>') +
-      ({ guide: aGuide, batch: aBatch, order: aOrder, pay: aPay, calc: vCalc, shop: aShop, log: aLog }[tab] || aGuide)();
+      ({ guide: aGuide, batch: aBatch, order: aOrder, pay: aPay, voucher: aVoucher, calc: vCalc, shop: aShop, log: aLog }[tab] || aGuide)();
   }
   function vLogin() {
     return '<div class="login"><h1>' + L('Admin', '관리자') + '</h1><p class="lead">' + L('Masuk untuk mengelola batch, pesanan, dan pembayaran.', '배치·주문·결제를 관리하려면 로그인하세요.') + '</p>' +
@@ -682,11 +693,12 @@
       [L('Masukkan pesanan', '주문 넣기'), L('Tab Input pesanan → tempel daftar order dari chat. Sistem memisahkan pembeli, item, jumlah, dan harga secara otomatis. Periksa lalu simpan.', '주문 입력 탭에 채팅의 주문 목록을 붙여 넣으면 구매자·품목·수량·가격을 자동으로 나눕니다. 확인 후 저장합니다.'), 'order'],
       [L('Verifikasi pembayaran', '결제 확인'), L('Tab Verifikasi → setujui atau tolak bukti yang dikirim pelanggan.', '결제 확인 탭에서 고객이 보낸 증빙을 승인하거나 반려합니다.'), 'pay'],
       [L('Perbarui status batch', '배치 상태 갱신'), L('Tab Batch → ubah tahap (dibeli, dikirim, tiba, selesai) dan tulis info. Pelanggan melihatnya saat melacak pesanan.', '배치 탭에서 단계(구매·배송·도착·완료)를 바꾸고 안내를 적습니다. 고객이 주문 조회에서 봅니다.'), 'batch'],
+      [L('Buat voucher', '쿠폰 만들기'), L('Tab Voucher → tambah voucher untuk semua orang (dengan batas pakai), atau buat voucher sekali pakai untuk dikirim satu per pelanggan.', '쿠폰 탭에서 누구나 쓰는 쿠폰(사용 한도 지정)을 추가하거나, 한 사람에게 한 장씩 보낼 한 장짜리 쿠폰을 만듭니다.'), 'voucher'],
       [L('Hitung harga', '가격 계산'), L('Tab Kalkulator → simpan rumus fee sebagai default. Harga mata uang asing di Input pesanan dihitung dengan rumus ini.', '계산기 탭에서 수수료 수식을 기본값으로 저장합니다. 주문 입력의 외화 가격은 이 수식으로 환산됩니다.'), null]
     ];
     return '<ol class="how">' + g.map(function (x, i) {
       return '<li><em>' + (i + 1) + '</em><div><b>' + esc(x[0]) + '</b><p>' + esc(x[1]) + '</p>' + (x[2] ? '<a href="#/admin/' + x[2] + '">' + L('Buka', '열기') + ' →</a>' : '<a href="#/admin/calc">' + L('Buka', '열기') + ' →</a>') + '</div></li>';
-    }).join('') + '</ol><p class="hint">Voucher: ' + (S.db.vouchers.map(function (v) { return v.code + ' (−' + rp(v.off) + ')'; }).join(', ') || '-') + ' · <a href="#/admin/shop">' + L('Pengaturan toko', '가게 설정') + ' →</a></p>';
+    }).join('') + '</ol><p class="hint">Voucher: ' + (S.db.vouchers.map(function (v) { return v.code + ' (−' + rp(v.off) + ')'; }).join(', ') || '-') + ' · <a href="#/admin/voucher">' + L('Voucher', '쿠폰') + ' →</a></p>';
   }
   /* 가게 설정 탭: 서비스 종류, 쿠폰, 백업 */
   function aShop() {
@@ -697,14 +709,6 @@
       return '<tr' + (A.edit[key] ? ' class="dirty"' : '') + '><td><b>' + esc(s.id) + '</b></td>' + inp('nameId', GO.LIMITS.svcName) + inp('nameKo', GO.LIMITS.svcName) + inp('descId', GO.LIMITS.svcDesc) + inp('descKo', GO.LIMITS.svcDesc) +
         '<td><select data-svc="' + s.id + '" data-f="cur" aria-label="cur">' + curOpts(d.cur) + '</select></td>' +
         '<td class="acts">' + saveCell('svc-save', s.id, key) + '<button class="link" data-act="svc-del" data-id="' + s.id + '">' + L('Hapus', '삭제') + '</button></td></tr>';
-    }).join('');
-    var vRows = S.db.vouchers.map(function (v) {
-      var used = S.voucherUses(v), key = 'v:' + v.code, note = A.edit[key] ? A.edit[key].note : (v.note || '');
-      var by = S.db.orders.filter(function (o) { return o.voucher === v.code; }).map(function (o) { return o.id; });
-      return '<tr' + (A.edit[key] ? ' class="dirty"' : '') + '><td><b>' + esc(v.code) + '</b>' + (v.max === 1 ? ' <span class="badge">' + L('sekali pakai', '한 장짜리') + '</span>' : '') + '</td><td class="r">−' + rp(v.off) + '</td>' +
-        '<td class="r">' + used + ' / ' + (v.max ? v.max : L('tanpa batas', '무제한')) + (v.max && used >= v.max ? ' <span class="badge">' + L('Habis', '다 씀') + '</span>' : '') + (by.length ? '<small class="vby">' + by.map(esc).join(', ') + '</small>' : '') + '</td>' +
-        '<td><input data-vnote="' + esc(v.code) + '" value="' + esc(note) + '" maxlength="' + GO.LIMITS.note + '" placeholder="' + L('Catatan, mis. untuk siapa', '메모 (예: 누구에게 줬는지)') + '" aria-label="' + L('Catatan', '메모') + '"></td>' +
-        '<td class="acts">' + saveCell('vnote-save', esc(v.code), key) + '<button class="link" data-act="voucher-del" data-id="' + esc(v.code) + '">' + L('Hapus', '삭제') + '</button></td></tr>';
     }).join('');
     return '<div class="panel"><h2>' + L('Layanan', '서비스') + '</h2><p class="lead">' + L('Nama dan keterangan tampil di halaman pelanggan. Layanan yang masih punya batch tidak bisa dihapus.', '이름과 설명은 고객 화면에 나옵니다. 배치가 남아 있는 서비스는 지울 수 없습니다.') + '</p>' +
       '<div class="tbl"><table class="edit"><thead><tr><th>' + L('Kode', '코드') + '</th><th>' + L('Nama (ID)', '이름 (인도네시아어)') + '</th><th>' + L('Nama (KO)', '이름 (한국어)') + '</th><th>' + L('Keterangan (ID)', '설명 (인도네시아어)') + '</th><th>' + L('Keterangan (KO)', '설명 (한국어)') + '</th><th>' + L('Mata uang', '통화') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' + svcRows + '</tbody></table></div>' +
@@ -718,7 +722,20 @@
       '<div class="field"><label>' + L('Mata uang', '통화') + '</label><select name="cur">' + curOpts('IDR') + '</select></div>' +
       '<div class="field"><label>&nbsp;</label><button class="btn">' + L('Tambah', '추가') + '</button></div></form><p class="err" id="svcErr" role="alert"></p></div>' +
 
-      '<div class="panel"><h2>Voucher</h2><p class="lead">' + L('Batas pakai dihitung dari pesanan yang memakai voucher ini (pesanan yang ditolak atau dihapus tidak dihitung). Kosongkan untuk tanpa batas.', '사용 한도는 이 쿠폰을 쓴 주문 수로 셉니다(반려되거나 지워진 주문은 세지 않음). 비워 두면 무제한입니다.') + '</p>' +
+      '<div class="panel"><h2>' + L('Unduh data', '자료 내려받기') + '</h2><p class="lead">' + L('CSV bisa dibuka di Excel atau Google Sheets. Cadangan lengkap (JSON) berisi semua data untuk disimpan; belum ada fitur memulihkan dari file ini.', 'CSV는 엑셀이나 구글 시트에서 열립니다. 전체 백업(JSON)은 모든 자료를 보관용으로 담습니다. 이 파일로 되살리는 기능은 아직 없습니다.') + '</p>' +
+      '<div class="btns"><button class="btn line" data-act="export">' + L('Pesanan (CSV)', '주문 (CSV)') + '</button><button class="btn line" data-act="export-batches">' + L('Batch (CSV)', '배치 (CSV)') + '</button><button class="btn line" data-act="export-vouchers">Voucher (CSV)</button><button class="btn line" data-act="export-backup">' + L('Cadangan lengkap (JSON)', '전체 백업 (JSON)') + '</button></div></div>';
+  }
+  /* 쿠폰 탭: 쿠폰 목록·추가·한 장짜리 여러 장. 서비스 설정과 섞여 헷갈려 따로 뺐다(2026-11-12 사용자 요청) */
+  function aVoucher() {
+    var vRows = S.db.vouchers.map(function (v) {
+      var used = S.voucherUses(v), key = 'v:' + v.code, note = A.edit[key] ? A.edit[key].note : (v.note || '');
+      var by = S.db.orders.filter(function (o) { return o.voucher === v.code; }).map(function (o) { return o.id; });
+      return '<tr' + (A.edit[key] ? ' class="dirty"' : '') + '><td><b>' + esc(v.code) + '</b>' + (v.max === 1 ? ' <span class="badge">' + L('sekali pakai', '한 장짜리') + '</span>' : '') + '</td><td class="r">−' + rp(v.off) + '</td>' +
+        '<td class="r">' + used + ' / ' + (v.max ? v.max : L('tanpa batas', '무제한')) + (v.max && used >= v.max ? ' <span class="badge">' + L('Habis', '다 씀') + '</span>' : '') + (by.length ? '<small class="vby">' + by.map(esc).join(', ') + '</small>' : '') + '</td>' +
+        '<td><input data-vnote="' + esc(v.code) + '" value="' + esc(note) + '" maxlength="' + GO.LIMITS.note + '" placeholder="' + L('Catatan, mis. untuk siapa', '메모 (예: 누구에게 줬는지)') + '" aria-label="' + L('Catatan', '메모') + '"></td>' +
+        '<td class="acts">' + saveCell('vnote-save', esc(v.code), key) + '<button class="link" data-act="voucher-del" data-id="' + esc(v.code) + '">' + L('Hapus', '삭제') + '</button></td></tr>';
+    }).join('');
+    return '<div class="panel"><h2>Voucher</h2><p class="lead">' + L('Batas pakai dihitung dari pesanan yang memakai voucher ini (pesanan yang ditolak atau dihapus tidak dihitung). Kosongkan untuk tanpa batas.', '사용 한도는 이 쿠폰을 쓴 주문 수로 셉니다(반려되거나 지워진 주문은 세지 않음). 비워 두면 무제한입니다.') + '</p>' +
       (vRows ? '<div class="tbl"><table class="edit"><thead><tr><th>' + L('Kode', '코드') + '</th><th class="r">' + L('Potongan', '할인') + '</th><th class="r">' + L('Terpakai / batas', '사용 / 한도') + '</th><th>' + L('Catatan', '메모') + '</th><th><span class="sr">' + L('Aksi', '동작') + '</span></th></tr></thead><tbody>' + vRows + '</tbody></table></div>' : empty(L('Belum ada voucher.', '쿠폰이 없습니다.'))) +
       '<h3 class="sub">' + L('Tambah voucher', '쿠폰 추가') + '</h3><form data-form="voucher" class="grid3">' +
       '<div class="field"><label>' + L('Kode', '코드') + ' (A-Z, 0-9)</label><input name="code" required pattern="[A-Za-z0-9_\-]{3,30}" maxlength="' + GO.LIMITS.voucher + '" placeholder="NUH10K"></div>' +
@@ -732,10 +749,7 @@
       '<div class="field"><label>' + L('Catatan', '메모') + '</label><input name="note" maxlength="' + GO.LIMITS.note + '" placeholder="' + L('mis. pelanggan baru November', '예: 11월 신규 고객') + '"></div>' +
       '<div class="field"><label>&nbsp;</label><button class="btn">' + L('Buat', '만들기') + '</button></div></form><p class="err" id="vbulkErr" role="alert"></p>' +
       (A.newCodes ? '<div class="field"><label for="newCodes">' + L('Kode baru (salin dan kirim satu per pelanggan)', '새로 만든 코드 (복사해서 한 사람에게 한 장씩 보내세요)') + '</label><textarea id="newCodes" rows="' + Math.min(8, A.newCodes.length + 1) + '" readonly>' + esc(A.newCodes.join('\n')) + '</textarea></div>' : '') +
-      '</div>' +
-
-      '<div class="panel"><h2>' + L('Unduh data', '자료 내려받기') + '</h2><p class="lead">' + L('CSV bisa dibuka di Excel atau Google Sheets. Cadangan lengkap (JSON) berisi semua data untuk disimpan; belum ada fitur memulihkan dari file ini.', 'CSV는 엑셀이나 구글 시트에서 열립니다. 전체 백업(JSON)은 모든 자료를 보관용으로 담습니다. 이 파일로 되살리는 기능은 아직 없습니다.') + '</p>' +
-      '<div class="btns"><button class="btn line" data-act="export">' + L('Pesanan (CSV)', '주문 (CSV)') + '</button><button class="btn line" data-act="export-batches">' + L('Batch (CSV)', '배치 (CSV)') + '</button><button class="btn line" data-act="export-vouchers">Voucher (CSV)</button><button class="btn line" data-act="export-backup">' + L('Cadangan lengkap (JSON)', '전체 백업 (JSON)') + '</button></div></div>';
+      '</div>';
   }
   function download(name, text, type) {
     var a = document.createElement('a');
@@ -897,7 +911,7 @@
     var brand = '<div class="foot-brand"><img src="' + ROOT + GO.BRAND.mark + '" alt="" width="40" height="40"><div><b>' + esc(GO.BRAND.name) + '</b><p>' + esc(LL(GO.BRAND.tagline)) + '</p></div></div>';
     if (GO.app === 'admin') {
       return '<div class="foot-grid admin">' + brand + '<div><h3>' + L('Admin', '관리자') + '</h3><ul class="foot-links">' +
-        [['batch', L('Batch', '배치')], ['order', L('Input pesanan', '주문 입력')], ['pay', L('Verifikasi pembayaran', '결제 확인')], ['shop', L('Pengaturan toko', '가게 설정')]].map(function (x) { return '<li><a href="#/admin/' + x[0] + '">' + esc(x[1]) + '</a></li>'; }).join('') +
+        [['batch', L('Batch', '배치')], ['order', L('Input pesanan', '주문 입력')], ['pay', L('Verifikasi pembayaran', '결제 확인')], ['voucher', L('Voucher', '쿠폰')], ['shop', L('Pengaturan toko', '가게 설정')]].map(function (x) { return '<li><a href="#/admin/' + x[0] + '">' + esc(x[1]) + '</a></li>'; }).join('') +
         '<li><a href="' + ROOT + '" target="_blank" rel="noopener">' + L('Lihat situs pelanggan', '고객 사이트 보기') + ' ↗</a></li></ul></div></div>' +
         '<p class="foot-note">© ' + year + ' ' + esc(GO.BRAND.name) + mock + '</p>';
     }

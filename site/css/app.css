@@ -89,6 +89,11 @@ section + section { margin-top: 44px; }
 .tabs a { padding: 10px 0; color: var(--sub); border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
 .tabs a.on { color: var(--text); font-weight: 700; border-bottom-color: var(--line-strong); }
 .tabs + .panel, .tabs + .how, .tabs + .tbl, .tabs + .empty { margin-top: 24px; }
+/* 관리자: 묶음 탭 아래의 작은 메뉴 (판매 설정 → 배치·쿠폰·가게 설정, 주문·결제 → 주문 입력·결제 확인) */
+.subtabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 14px 0 20px; }
+.subtabs a { border: 1px solid var(--line); border-radius: var(--r); padding: 6px 14px; font-size: 13px; color: var(--sub); background: var(--bg); white-space: nowrap; }
+.subtabs a:hover { border-color: var(--line-strong); color: var(--text); }
+.subtabs a.on { border-color: var(--accent); color: var(--accent); font-weight: 700; background: var(--soft); }
 .dot { display: inline-block; min-width: 18px; padding: 0 5px; border-radius: 9px; background: var(--red); color: #fff; font-size: 11px; font-style: normal; text-align: center; line-height: 18px; }
 .panel { border: 1px solid var(--line); border-radius: var(--r); padding: 22px; }
 .panel .lead { margin: -6px 0 14px; font-size: 13px; }

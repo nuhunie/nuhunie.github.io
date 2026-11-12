@@ -138,6 +138,9 @@ window.runE2E = async function () {
   check('가게 설정: 배치가 있는 서비스는 지우지 않는다', !!S.service('kr') && $('#svcDelErr').textContent.length > 0);
   $('[data-act=svc-del][data-id="cn"]').click(); await wait(40);
   check('가게 설정: 배치가 없는 서비스는 지운다', !S.service('cn'));
+  await go('#/admin/voucher');
+  check('관리자: 위 탭은 5개 묶음이고, 판매 설정 아래에 배치·쿠폰·가게 설정이 있다', $$('.tabs a').length === 5 && $('.tabs a.on').getAttribute('href') === '#/admin/batch' && $$('.subtabs a').map(a => a.getAttribute('href')).join() === '#/admin/batch,#/admin/voucher,#/admin/shop' && $('.subtabs a.on').getAttribute('href') === '#/admin/voucher');
+  check('쿠폰 탭: 쿠폰 칸은 쿠폰 탭에 있고 가게 설정에는 없다', !!$('form[data-form=voucher]') && !!$('form[data-form=vbulk]') && !$('form[data-form=svc]'));
   const vf = $('form[data-form=voucher]');
   vf.code.value = 'satu1'; vf.off.value = '2000'; vf.max.value = '1';
   vf.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true })); await wait(60);
@@ -152,7 +155,7 @@ window.runE2E = async function () {
   type('[data-pay=buyer]', 'kupon2'); type('[data-pay=item]', 'Album'); type('[data-pay=base]', '30000');
   type('[data-pay=voucher]', 'satu1'); $('[data-act=pay-voucher]').click(); await wait(40);
   check('쿠폰: 한도를 다 쓰면 적용되지 않고 알린다', !/Voucher/.test($('#payOut').innerText) &&/habis|한도|used up/i.test($('#vMsg').textContent), $('#vMsg').textContent);
-  await go('#/admin/shop');
+  await go('#/admin/voucher');
   $('[data-act=voucher-del][data-id="SATU1"]').click(); await wait(40);
   window.confirm = realConfirm;
   check('가게 설정: 쿠폰을 지우면 표에서 빠지고 쓴 주문 금액은 그대로다', !S.db.vouchers.some(v => v.code === 'SATU1') && S.order(vo.id).total === 28000 + X.uniqueCode(vo.id));
@@ -184,6 +187,7 @@ window.runE2E = async function () {
   window.confirm = realConfirm;
   S.removeOrder(pa.id); S.removeOrder(pb.id); S.removeVoucher('DUAKALI'); ones.forEach(v => S.removeVoucher(v.code));
   await go('#/admin/shop');
+  check('가게 설정: 쿠폰 칸이 없고 서비스·내려받기만 있다', !$('form[data-form=voucher]') && !!$('form[data-form=svc]'));
   check('가게 설정: 내려받기 단추 4개가 있다', ['export', 'export-batches', 'export-vouchers', 'export-backup'].every(a => !!$('[data-act="' + a + '"]')));
   S.removeOrder(vo.id);
 
@@ -252,7 +256,10 @@ window.runE2E = async function () {
   check('조회: 단계를 바꾸면 고객 화면의 현재 칸이 따라 바뀐다', S.batch('kr-5').stage === 3 && lis[3].classList.contains('cur') && lis[2].classList.contains('done') && $('.where b').textContent === GO.STAGES[3][0], $('.where b').textContent);
 
   await go('#/calc');
-  check('계산기: 관리자 탭 안에서 열린다', $('.tabs a.on') && $('.tabs a.on').getAttribute('href') === '#/admin/calc' && !!$('#calcOut .total'));
+  check('계산기: 관리자 탭 안에서 열린다', $('.tabs a.on') && $('.tabs a.on').getAttribute('href') === '#/admin/calc' && !!$('#calcOut .total') && !$('.subtabs'));
+  await go('#/admin/pay');
+  check('관리자: 주문·결제 묶음 아래에 주문 입력·결제 확인이 있다', $('.tabs a.on').getAttribute('href') === '#/admin/order' && $$('.subtabs a').map(a => a.getAttribute('href')).join() === '#/admin/order,#/admin/pay' && $('.subtabs a.on').getAttribute('href') === '#/admin/pay');
+  await go('#/calc');
   type('[data-calc=price]', '2000'); type('[data-calc=qty]', '3'); await wait(40);
   check('계산기: 화면 금액이 계산 함수와 같다', num($('#calcOut .total b').textContent) === X.calcPrice(Object.assign({}, d, { price: 2000, qty: 3 })).total, $('#calcOut .total b').textContent);
 

@@ -379,6 +379,11 @@ GO.EN = {
   'Kode layanan itu sudah ada.': 'That service code already exists.',
   'Periksa kembali data layanan.': 'Check the service fields.',
   // 주문하기 / 결제 확인하기 입구
+  'Voucher': 'Voucher',
+  'Pengaturan jualan': 'Store setup',
+  'Pesanan & pembayaran': 'Orders & payments',
+  'Buat voucher': 'Create vouchers',
+  'Tab Voucher → tambah voucher untuk semua orang (dengan batas pakai), atau buat voucher sekali pakai untuk dikirim satu per pelanggan.': 'Voucher tab → add a voucher for everyone (with a usage limit), or create single-use vouchers to send one per customer.',
   'Sedang menerima order': 'Taking orders now',
   'Pesan': 'Order',
   'Konfirmasi': 'Confirm payment',
