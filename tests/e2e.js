@@ -190,6 +190,14 @@ window.runE2E = async function () {
   window.confirm = realConfirm;
   S.removeOrder(pa.id); S.removeOrder(pb.id); S.removeVoucher('DUAKALI'); ones.forEach(v => S.removeVoucher(v.code));
   await go('#/admin/shop');
+  $('[data-act=order-qr][data-id=""]').click(); await wait(80);
+  check('주문 QR: 가게 전체 QR 은 주문 화면 주소를 담는다', !!$('#orderQrC') && /#\/pay$/.test($('#orderQrLink').textContent), $('#orderQrLink') && $('#orderQrLink').textContent);
+  $('.modal').remove();
+  await go('#/admin/batch');
+  $('[data-act=order-qr][data-id="kr-5"]').click(); await wait(80);
+  check('주문 QR: 배치 QR 은 그 배치가 골라진 주문 화면 주소를 담고, 완료된 배치에는 QR 단추가 없다', $('#orderQrLink').textContent.endsWith('#/pay/kr-5') && !$('[data-act=order-qr][data-id="kr-1"]'), $('#orderQrLink').textContent);
+  $('.modal').remove();
+  await go('#/admin/shop');
   check('가게 설정: 쿠폰 칸이 없고 서비스·내려받기만 있다', !$('form[data-form=voucher]') && !!$('form[data-form=svc]'));
   check('가게 설정: 내려받기 단추 4개가 있다', ['export', 'export-batches', 'export-vouchers', 'export-backup'].every(a => !!$('[data-act="' + a + '"]')));
   S.removeOrder(vo.id);

@@ -430,5 +430,10 @@ GO.EN = {
   'Tidak ada pembayaran yang ditolak.': 'No rejected payments.',
   'Urut dari pesanan terbaru. Untuk mengubah status, buka': 'Newest orders first. To change a status, open',
   'Nominal sebelum dikurangi kode unik': 'Amount before the unique code is taken off',
-  'potongan kecil untuk mencocokkan transfer Anda': 'a small discount used to match your transfer'
+  'potongan kecil untuk mencocokkan transfer Anda': 'a small discount used to match your transfer',
+  'QR pemesanan': 'Order QR',
+  'Pelanggan scan QR ini dan langsung masuk ke halaman pesan. Pakai di Instagram, poster, atau chat, menggantikan Google Form. QR per batch ada di tab Batch (tombol QR).': 'Customers scan this QR and go straight to the order page. Use it on Instagram, posters or chat instead of a Google Form. Each batch has its own QR in the Batch tab (QR button).',
+  'Lihat QR pemesanan': 'Show order QR',
+  'Salin link': 'Copy link',
+  'Link disalin': 'Link copied'
 };

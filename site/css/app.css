@@ -63,6 +63,10 @@ section + section { margin-top: 44px; }
 .foot-note { margin: 22px 0 0; padding-top: 14px; border-top: 1px solid var(--line); font-size: 12px; }
 @media (max-width: 760px) { .foot-grid, .foot-grid.admin { grid-template-columns: 1fr; gap: 20px; } }
 .receipt.photo { max-width: 720px; }
+.receipt.orderqr { max-width: 400px; text-align: center; }
+.receipt.orderqr canvas { display: block; width: 280px; height: 280px; margin: 8px auto 0; }
+.receipt.orderqr .qrlink { word-break: break-all; }
+.receipt.orderqr .btns { justify-content: center; margin-top: 8px; }
 .receipt.photo img { display: block; width: 100%; height: auto; margin-top: 12px; border: 1px solid var(--line); border-radius: var(--r); }
 
 /* 버튼·링크 */

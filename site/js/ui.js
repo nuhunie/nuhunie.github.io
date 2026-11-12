@@ -722,6 +722,9 @@
       '<div class="field"><label>' + L('Mata uang', '통화') + '</label><select name="cur">' + curOpts('IDR') + '</select></div>' +
       '<div class="field"><label>&nbsp;</label><button class="btn">' + L('Tambah', '추가') + '</button></div></form><p class="err" id="svcErr" role="alert"></p></div>' +
 
+      '<div class="panel"><h2>' + L('QR pemesanan', '주문 QR') + '</h2><p class="lead">' + L('Pelanggan scan QR ini dan langsung masuk ke halaman pesan. Pakai di Instagram, poster, atau chat, menggantikan Google Form. QR per batch ada di tab Batch (tombol QR).', '손님이 이 QR을 찍으면 바로 주문 화면으로 갑니다. 구글 폼 대신 인스타그램·포스터·채팅에 쓰세요. 배치별 QR은 배치 화면의 QR 단추에 있습니다.') + '</p>' +
+      '<button class="btn line" data-act="order-qr" data-id="">' + L('Lihat QR pemesanan', '주문 QR 보기') + '</button></div>' +
+
       '<div class="panel"><h2>' + L('Unduh data', '자료 내려받기') + '</h2><p class="lead">' + L('CSV bisa dibuka di Excel atau Google Sheets. Cadangan lengkap (JSON) berisi semua data untuk disimpan; belum ada fitur memulihkan dari file ini.', 'CSV는 엑셀이나 구글 시트에서 열립니다. 전체 백업(JSON)은 모든 자료를 보관용으로 담습니다. 이 파일로 되살리는 기능은 아직 없습니다.') + '</p>' +
       '<div class="btns"><button class="btn line" data-act="export">' + L('Pesanan (CSV)', '주문 (CSV)') + '</button><button class="btn line" data-act="export-batches">' + L('Batch (CSV)', '배치 (CSV)') + '</button><button class="btn line" data-act="export-vouchers">Voucher (CSV)</button><button class="btn line" data-act="export-backup">' + L('Cadangan lengkap (JSON)', '전체 백업 (JSON)') + '</button></div></div>';
   }
@@ -751,6 +754,45 @@
       (A.newCodes ? '<div class="field"><label for="newCodes">' + L('Kode baru (salin dan kirim satu per pelanggan)', '새로 만든 코드 (복사해서 한 사람에게 한 장씩 보내세요)') + '</label><textarea id="newCodes" rows="' + Math.min(8, A.newCodes.length + 1) + '" readonly>' + esc(A.newCodes.join('\n')) + '</textarea></div>' : '') +
       '</div>';
   }
+  /* ── 주문 QR: 찍으면 고객 사이트의 주문 화면으로 간다. batchId 가 있으면 그 배치가 골라진 채로 열린다 ── */
+  function orderLink(batchId) { return new URL(ROOT || './', location.href).href.replace(/#.*$/, '') + '#/pay' + (batchId ? '/' + batchId : ''); }
+  function showOrderQR(batchId) {
+    var b = batchId && S.batch(batchId), link = orderLink(batchId);
+    var title = b ? batchName(b) + ' (' + LL(S.service(b.svc).name) + ')' : GO.BRAND.name;
+    var m = document.createElement('div');
+    m.className = 'modal'; m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true');
+    m.innerHTML = '<div class="receipt orderqr"><button class="x" data-act="modal-close" aria-label="' + L('Tutup', '닫기') + '">×</button>' +
+      '<div class="r-head"><b>' + L('QR pemesanan', '주문 QR') + '</b><small>' + esc(title) + '</small></div>' +
+      '<canvas id="orderQrC" width="400" height="400"></canvas>' +
+      '<p class="hint qrlink" id="orderQrLink">' + esc(link) + '</p>' +
+      '<div class="btns"><button class="btn" data-act="order-qr-save" data-id="' + esc(batchId || '') + '">' + L('Simpan gambar', '이미지로 저장') + '</button><button class="btn line" data-act="order-qr-copy">' + L('Salin link', '링크 복사') + '</button></div></div>';
+    document.body.appendChild(m);
+    drawQR(m.querySelector('#orderQrC'), link);
+    m.querySelector('.x').focus();
+  }
+  // 홍보용 그림: 위에 상호와 배치 이름, 가운데 QR(마크 포함), 아래 "Scan untuk pesan". 손님이 보는 그림이라 인도네시아어로 적는다.
+  function saveOrderQR(batchId) {
+    var src = $('#orderQrC'); if (!src) return;
+    var b = batchId && S.batch(batchId), W = 900, H = 1180, c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    var g = c.getContext('2d');
+    function finish() {
+      g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+      g.strokeStyle = '#e0e0e0'; g.lineWidth = 2; g.strokeRect(20, 20, W - 40, H - 40);
+      g.textAlign = 'center'; g.fillStyle = '#d6336c'; g.font = 'bold 56px Nunito, sans-serif'; g.fillText(GO.BRAND.name, W / 2, 110);
+      g.fillStyle = '#111'; g.font = 'bold 34px Nunito, sans-serif';
+      g.fillText(b ? batchName(b) : 'Jastip Korea · Jepang · Tiket', W / 2, 170);
+      if (b) { g.fillStyle = '#666'; g.font = '26px Nunito, sans-serif'; g.fillText(S.service(b.svc).name[0] + (b.closeDate ? ' · Tutup order ' + b.closeDate : ''), W / 2, 212); }
+      g.drawImage(src, 110, 250, 680, 680);
+      g.fillStyle = '#d6336c'; g.font = 'bold 44px Nunito, sans-serif'; g.fillText('Scan untuk pesan', W / 2, 1010);
+      g.fillStyle = '#666'; g.font = '24px Nunito, sans-serif'; g.fillText(orderLink(batchId).replace(/^https?:\/\//, ''), W / 2, 1060);
+      var a = document.createElement('a');
+      a.download = GO.BRAND.name.toLowerCase() + '-qr-' + (batchId || 'order') + '.png'; a.href = c.toDataURL('image/png'); a.click();
+    }
+    // 가운데 마크가 그려진 뒤에 저장한다
+    var tries = 0;
+    (function wait() { if (src.dataset.mark === '1' || tries++ > 20) finish(); else setTimeout(wait, 50); })();
+  }
   function download(name, text, type) {
     var a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([text], { type: type })); a.download = name; a.click();
@@ -766,7 +808,7 @@
         '<td><select data-bstage="' + b.id + '" aria-label="' + L('Tahap', '단계') + '">' + GO.STAGES.map(function (st, i) { return '<option value="' + i + '"' + (i === d.stage ? ' selected' : '') + '>' + esc(LL(st)) + '</option>'; }).join('') + '</select></td>' +
         '<td><input data-bnote="' + b.id + '" value="' + esc(d.note) + '" placeholder="' + L('Info untuk pelanggan', '고객 안내 문구') + '" aria-label="Info">' +
         '<small class="rowwarn"' + (noteStale(b, d) ? '' : ' hidden') + '>' + L('Tahap diubah. Periksa juga info ini.', '단계를 바꿨습니다. 안내문도 확인하세요.') + '</small></td>' +
-        '<td class="acts">' + saveCell('batch-save', b.id, key) + '<button class="link" data-act="batch-del" data-id="' + b.id + '">' + L('Hapus', '삭제') + '</button></td></tr>';
+        '<td class="acts">' + saveCell('batch-save', b.id, key) + (b.stage < GO.LAST_STAGE ? '<button class="link" data-act="order-qr" data-id="' + b.id + '">QR</button>' : '') + '<button class="link" data-act="batch-del" data-id="' + b.id + '">' + L('Hapus', '삭제') + '</button></td></tr>';
     }).join('');
     return '<div class="panel"><h2>' + L('Tambah batch', '배치 추가') + '</h2><form data-form="batch" class="grid3">' +
       '<div class="field"><label>' + L('Layanan', '서비스') + '</label><select name="svc">' + svcOptions() + '</select></div>' +
@@ -1168,6 +1210,9 @@
     else if (act === 'voucher-del') { if (confirm(L('Hapus voucher ini? Pesanan yang sudah memakainya tidak berubah.', '이 쿠폰을 삭제할까요? 이미 쓴 주문의 금액은 바뀌지 않습니다.'))) { S.removeVoucher(id); render(); } }
     else if (act === 'export-batches') download(GO.BRAND.name.toLowerCase() + '-batches-' + stamp() + '.csv', '\ufeff' + X.toCSV(X.batchRows(S.db)), 'text/csv;charset=utf-8');
     else if (act === 'export-vouchers') download(GO.BRAND.name.toLowerCase() + '-vouchers-' + stamp() + '.csv', '\ufeff' + X.toCSV(X.voucherRows({ vouchers: S.db.vouchers.map(function (v) { return Object.assign({}, v, { used: S.voucherUses(v) }); }) })), 'text/csv;charset=utf-8');
+    else if (act === 'order-qr') showOrderQR(id);
+    else if (act === 'order-qr-save') saveOrderQR(id);
+    else if (act === 'order-qr-copy') { var ql = $('#orderQrLink'); if (ql && navigator.clipboard) navigator.clipboard.writeText(ql.textContent).then(function () { t.textContent = L('Link disalin', '링크를 복사했습니다'); }, function () {}); }
     else if (act === 'export-backup') download(GO.BRAND.name.toLowerCase() + '-backup-' + stamp() + '.json', JSON.stringify(X.backup(S.db), null, 1), 'application/json');
     else if (act === 'row-del') { A.rows.splice(+id, 1); render(); }
     else if (act === 'rows-save') {
