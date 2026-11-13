@@ -413,3 +413,69 @@ window.runE2E = async function () {
   GO.BRAND.qris = keepQris;
   return { total: out.length, passed: out.length - failed.length, failed };
 };
+
+/* 휴대폰 너비 모양 검사 (2026-11-13 사용자 요청: 폰 화면 검수를 사람이 하지 않도록).
+ * 사용법: 브라우저 창을 휴대폰 너비(360·375·412px)로 맞춘 뒤 콘솔에서
+ *   await import('../tests/e2e.js'); await runLayout()
+ * 손님 화면 7곳을 세 언어로 열어, 그 화면 너비에서 모양만 본다(동작은 runE2E 가 본다).
+ *   ① 가로로 넘치는 곳(페이지 전체, 화면 밖으로 나간 요소)  ② 원·네모 안 숫자가 가운데에서 벗어난 것
+ *   ③ 누를 수 있는 것끼리 겹친 것  ④ 높이 40px 보다 작은 단추·입력칸  ⑤ 단추·제목 글자가 칸 밖으로 잘린 것
+ * 가로 스크롤 상자(.tbl 등) 안과 화면에 고정된 이동 단추(#jump)는 빼고 본다. 예시 데이터로 초기화한 뒤 돌고, 끝나면 다시 초기화한다. */
+window.runLayout = async function () {
+  const S = GO.store, W = window.innerWidth, out = [];
+  const $$ = s => [...document.querySelectorAll(s)];
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  // 맨 위에서 본다: 내려간 채로 보면 위에 붙어 있는 메뉴가 글과 겹쳐 보여 잘못 걸린다
+  const go = async h => { GO.app = 'site'; location.hash = h; await wait(80); GO.render(); window.scrollTo(0, 0); await wait(300); $$('.modal').forEach(m => m.remove()); };
+  const shown = e => { const r = e.getBoundingClientRect(), cs = getComputedStyle(e); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && !e.closest('[hidden]'); };
+  const up = (e, test) => { for (let p = e; p && p !== document.body; p = p.parentElement) if (test(getComputedStyle(p), p)) return true; return false; };
+  const inScroller = e => up(e.parentElement || e, cs => /auto|scroll|hidden/.test(cs.overflowX));
+  const fixed = e => up(e, cs => cs.position === 'fixed');
+  const name = e => e.tagName.toLowerCase() + (typeof e.className === 'string' && e.className.trim() ? '.' + e.className.trim().split(/\s+/).join('.') : '') + ' "' + (e.value || e.textContent || e.placeholder || '').trim().replace(/\s+/g, ' ').slice(0, 24) + '"';
+  const list = es => es.slice(0, 4).map(name).join(' / ') + (es.length > 4 ? ' 외 ' + (es.length - 4) : '');
+  const check = (where, what, bad) => out.push({ name: where + ': ' + what, ok: !bad.length, detail: bad.length ? list(bad) : '' });
+  let keep = 'id'; try { keep = localStorage.getItem('go-lang') || 'id'; } catch (e) {}
+  S.reset(); try { sessionStorage.removeItem('nuh-pay-draft'); localStorage.removeItem('nuh-pay-open'); } catch (e) {}
+  const unpaid = S.db.orders.find(o => o.pay === 'unpaid') || S.db.orders[0], paid = S.db.orders.find(o => o.pay === 'paid') || S.db.orders[0];
+  const pages = [['첫 화면', '#/'], ['서비스', '#/s/kr'], ['배치', '#/b/kr-5'], ['주문하기', '#/pay/kr-5'], ['결제 화면', '#/pay/' + unpaid.batchId + '/' + unpaid.id], ['결제 확인하기', '#/confirm'], ['주문 조회', '#/track/' + paid.id]];
+  for (const lg of ['id', 'en', 'ko']) {
+    const lb = document.querySelector('[data-act=lang][data-id="' + lg + '"]'); if (lb) lb.click(); await wait(60);
+    for (const [label, h] of pages) {
+      await go(h);
+      const where = W + 'px ' + lg + ' ' + label;
+      const els = $$('body *').filter(e => !/^(SCRIPT|STYLE|BR)$/.test(e.tagName) && shown(e) && !fixed(e));
+      // ① 가로 넘침: 페이지 전체, 그리고 화면 밖으로 나간 요소(부모도 나갔으면 바깥 것만)
+      const past = els.filter(e => !inScroller(e)).filter(e => { const r = e.getBoundingClientRect(); return r.right > W + 1 || r.left < -1; });
+      const outer = past.filter(e => !past.includes(e.parentElement));
+      check(where, '가로로 넘치지 않는다', (document.documentElement.scrollWidth > W + 1 ? [document.documentElement] : []).concat(outer));
+      // ② 숫자 가운데: 단계 원, 이용 순서 네모
+      // 테두리나 바탕이 그려진 것만 본다(첫 화면 "Cara order" 처럼 그냥 숫자인 것은 왼쪽 위 정렬이 맞다)
+      const drawn = e => { const cs = getComputedStyle(e); return parseFloat(cs.borderTopWidth) > 0 || !/rgba\(0, 0, 0, 0\)|transparent/.test(cs.backgroundColor); };
+      const off = $$('.steps em, .foot-steps em, .how em').filter(e => shown(e) && drawn(e)).filter(e => {
+        const box = e.getBoundingClientRect(), rg = document.createRange(); rg.selectNodeContents(e); const t = rg.getBoundingClientRect();
+        return Math.abs((t.left + t.right) / 2 - (box.left + box.right) / 2) > 1.5 || Math.abs((t.top + t.bottom) / 2 - (box.top + box.bottom) / 2) > 3;
+      });
+      check(where, '원·네모 안 숫자가 가운데', off);
+      // ③ 누를 수 있는 것끼리 겹침
+      const hits = els.filter(e => e.matches('a, button, input, select, textarea'));
+      const lap = [];
+      for (let i = 0; i < hits.length; i++) for (let j = i + 1; j < hits.length; j++) {
+        const a = hits[i], b = hits[j]; if (a.contains(b) || b.contains(a)) continue;
+        const p = a.getBoundingClientRect(), q = b.getBoundingClientRect();
+        const w = Math.min(p.right, q.right) - Math.max(p.left, q.left), hgt = Math.min(p.bottom, q.bottom) - Math.max(p.top, q.top);
+        if (w > 2 && hgt > 2) lap.push(a, b);
+      }
+      check(where, '누를 수 있는 것끼리 겹치지 않는다', lap);
+      // ④ 누르기 좋은 높이 (글자처럼 생긴 .link 단추와 체크 상자는 뺀다)
+      const small = els.filter(e => e.matches('button, .btn, select, input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden])') && !e.classList.contains('link') && e.getBoundingClientRect().height < 39.5);
+      check(where, '단추·입력칸 높이 40px 이상', small);
+      // ⑤ 글자가 칸 밖으로 잘림 (한 줄로 쓰는 단추, 제목)
+      const clip = els.filter(e => e.matches('.btn, button, h1, h2, h3') && e.scrollWidth > e.clientWidth + 1);
+      check(where, '단추·제목 글자가 잘리지 않는다', clip);
+    }
+  }
+  const kb = document.querySelector('[data-act=lang][data-id="' + keep + '"]'); if (kb) kb.click();
+  S.reset(); await go('#/');
+  const failed = out.filter(r => !r.ok);
+  return { width: W, total: out.length, passed: out.length - failed.length, failed };
+};

@@ -314,7 +314,7 @@ input[readonly], select:disabled { background: var(--soft); color: var(--sub); }
 /* 웹 푸시 알림 받기 (조회 카드) */
 .note.push .btn { display: flex; width: fit-content; margin: 10px 0 0; }   /* 글 아래 따로 한 줄 (글 중간에 끼어 잘리지 않게) */
 .note.push .err { display: block; margin-top: 6px; }
-@media (max-width: 760px) { .note.push .btn { width: 100%; } }   /* 휴대폰: 알림 켜기 단추를 한 줄 가득 (누르기 쉽게) */
+@media (max-width: 760px) { .note.push .btn { width: 100%; height: 40px; } }   /* 휴대폰: 알림 켜기 단추를 한 줄 가득 (누르기 쉽게) */
 
 /* 서비스 화면: "이런 사이트에서 사 드려요" 목록 (글자만) */
 .sites { margin: 12px 0 18px; padding: 10px 14px; border: 1px solid var(--line); border-radius: var(--r); font-size: 14px; color: var(--sub); line-height: 1.7; }

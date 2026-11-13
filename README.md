@@ -54,6 +54,10 @@ npm run test:server   서버 API + 공격 검사 (npm run dev 가 떠 있어야 
 여정 검사(목업판): `npm run mock` 으로 띄운 `http://localhost:4173/site/` 의 브라우저 콘솔에서
 `await import('../tests/e2e.js'); await runE2E()`
 
+휴대폰 모양 검사(목업판): 브라우저 창을 360·375·412px 너비로 맞춘 뒤 같은 콘솔에서 `await runLayout()`.
+손님 화면 7곳을 세 언어로 열어 가로 넘침, 숫자 가운데, 겹침, 단추 높이(40px), 잘린 글자를 본다.
+알림 켜기 칸은 서버판에서만 나오므로 이 검사에 들어가지 않는다.
+
 ## 배포
 
 `main` 에 올리면 GitHub Actions가 검사를 돌리고, 통과하면 Cloudflare에 자동으로 배포한다.
