@@ -2,3 +2,4 @@
 node_modules/
 .dev.vars
 site/version.txt
+test-photos/
