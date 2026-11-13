@@ -50,9 +50,10 @@
   }
   function pull() { return api('GET', admin ? '/admin/state' : '/public').then(function (s) { lastPull = Date.now(); setState(s); }); }
   // 관리자 쓰기를 서버에 보낸다. 실패하면 서버 내용을 다시 읽어 화면을 되돌린다.
+  // 서버판에서는 서버 응답을 돌려준다(실패하면 undefined). 대부분은 기다리지 않지만, 배치 저장은 알림 수를 받아 쓴다.
   function push(method, path, data) {
-    if (mode !== 'server') return;
-    api(method, path, data).catch(function (e) {
+    if (mode !== 'server') return Promise.resolve();
+    return api(method, path, data).catch(function (e) {
       if (e.status === 401) admin = false;
       pull().catch(function () {}).then(function () { if (GO.onStoreError) GO.onStoreError(e); });
     });
@@ -241,11 +242,14 @@
       push('POST', '/admin/batch', b);
       return b;
     },
-    updateBatch: function (id, patch) {
+    // done(서버 응답): 서버판에서 저장이 끝나면 부른다. 응답의 notified 는 알림을 보낼 기기 수다.
+    updateBatch: function (id, patch, done) {
       var b = find(db.batches, id);
-      if (b) { Object.assign(b, patch); save(); push('PATCH', '/admin/batch/' + encodeURIComponent(id), patch); }
+      if (b) { Object.assign(b, patch); save(); var p = push('PATCH', '/admin/batch/' + encodeURIComponent(id), patch); if (done) p.then(done); }
       return b;
     },
+    // 남은 알림을 8건 보내고 { sent, gone, failed, left } 를 돌려준다 (서버판에서만)
+    pushDrain: function () { return mode === 'server' ? api('POST', '/admin/push-drain', {}) : Promise.resolve({ left: 0 }); },
     removeBatch: function (id) {
       db.batches = db.batches.filter(function (b) { return b.id !== id; });
       db.orders = db.orders.filter(function (o) { return o.batchId !== id; });

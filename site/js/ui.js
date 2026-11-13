@@ -143,9 +143,13 @@
 
   /* ── 홈 ── */
   function vHome() {
-    var cards = shownServices().map(function (s) {
+    // 고객 화면에 내놓은 서비스가 하나뿐이면(2026-11-13: 한국만) 카드를 한 줄 가득 쓰고, 사 드리는 사이트 목록도 카드 안에 보여 준다
+    var shownSvcs = shownServices(), one = shownSvcs.length === 1;
+    var cards = shownSvcs.map(function (s) {
       var ongoing = S.batchesOf(s.id).filter(function (b) { return b.stage < GO.LAST_STAGE; }).length;
+      var sites = one ? GO.SVC_SITES[s.id] || [] : [];
       return '<a class="svc" href="#/s/' + s.id + '"><h3>' + esc(LL(s.name)) + '</h3><p>' + esc(LL(s.desc)) + '</p>' +
+        (sites.length ? '<p class="svc-sites">' + sites.map(esc).join(' · ') + ' · ' + L('dll.', '등') + '</p>' : '') +
         '<span class="meta">' + L('Batch berjalan', '진행 중 배치') + ' <b>' + ongoing + '</b></span><span class="more">' + L('Lihat batch', '배치 보기') + ' →</span></a>';
     }).join('');
     var how = [
@@ -157,7 +161,7 @@
       .sort(function (a, b) { return a.stage - b.stage || (a.closeDate < b.closeDate ? -1 : 1); })
       .map(function (b) { return batchRow(b, true); }).join('');
     return '<section class="hero"><img src="' + GO.BRAND.mark + '" alt="" width="72" height="72"><div><h1>' + esc(GO.BRAND.name) + '</h1><p>' + esc(LL(GO.BRAND.tagline)) + '</p>' + searchForm('') + '</div></section>' +
-      '<section><h2>' + L('Layanan', '서비스') + '</h2><p class="lead">' + L('Pilih layanan untuk melihat batch bulan ini dan rekapnya.', '서비스를 고르면 이번 달 배치와 집계를 볼 수 있습니다.') + '</p><div class="svc-grid">' + cards + '</div></section>' +
+      '<section><h2>' + L('Layanan', '서비스') + '</h2><p class="lead">' + L('Pilih layanan untuk melihat batch bulan ini dan rekapnya.', '서비스를 고르면 이번 달 배치와 집계를 볼 수 있습니다.') + '</p><div class="svc-grid' + (one ? ' one' : '') + '">' + cards + '</div></section>' +
       '<section><h2>' + L('Batch yang sedang berjalan', '진행 중인 배치') + '</h2>' + (ongoing ? '<div class="rows">' + ongoing + '</div>' : empty(L('Belum ada batch.', '아직 배치가 없습니다.'))) + '</section>' +
       '<section><h2>' + L('Cara order', '이용 방법') + '</h2><ol class="how">' + how + '</ol></section>';
   }
@@ -782,6 +786,18 @@
         ? '<form data-form="login"><div class="field"><label>' + L('Kata sandi admin', '관리자 비밀번호') + '</label><input type="password" name="password" autocomplete="current-password" required></div><p class="err" id="loginErr" role="alert"></p><button class="btn block">' + L('Masuk', '로그인') + '</button></form>'
         : '<p class="note">' + (S.loginWeak ? L('Login admin dimatikan karena kata sandi di server terlalu pendek (minimal 8 karakter).', '서버의 관리자 비밀번호가 너무 짧아(8자 미만) 로그인이 꺼져 있습니다.') : L('Login admin belum diatur di server.', '서버에 관리자 로그인이 아직 설정되지 않았습니다.')) + '</p>') + '</div>';
   }
+  /* 백업 알림 (2026-11-13): 전체 백업(JSON)을 이 기기에서 마지막으로 받은 때를 기억해, 7일이 지났거나 받은 적이 없으면 사용 안내 맨 위에 알린다.
+   * 서버는 Cloudflare D1 의 시점 복구도 있지만, 운영자 손에 파일 하나는 있도록. 서버판(실제 주문)에서만 띄운다. */
+  var BACKUP_KEY = 'nuh-backup-at';
+  function backupNote() {
+    if (S.mode !== 'server') return '';
+    var at = 0; try { at = +localStorage.getItem(BACKUP_KEY) || 0; } catch (e) {}
+    var days = at ? Math.floor((Date.now() - at) / 86400000) : -1;
+    if (days >= 0 && days < 7) return '';
+    return '<p class="note warn" id="backupNote"><b>' + L('Cadangan', '백업') + '</b> ' +
+      (days < 0 ? L('Belum pernah mengunduh cadangan lengkap di perangkat ini.', '이 기기에서 전체 백업을 받은 적이 없습니다.') : L('Cadangan lengkap terakhir', '마지막 전체 백업') + ': ' + days + ' ' + L('hari lalu', '일 전') + '.') +
+      ' ' + L('Unduh seminggu sekali di Pengaturan toko → Cadangan lengkap (JSON).', '일주일에 한 번 가게 설정 → 전체 백업(JSON)을 받아 두세요.') + ' <a href="#/admin/shop">' + L('Buka', '열기') + ' →</a></p>';
+  }
   function aGuide() {
     var g = [
       [L('Buat batch', '배치 만들기'), L('Tab Batch → isi layanan, nomor, nama, bulan, tanggal tutup, kurs. Batch langsung muncul di halaman layanan.', '배치 탭에서 서비스·번호·이름·월·마감일·환율을 입력합니다. 서비스 화면에 바로 나타납니다.'), 'batch'],
@@ -791,7 +807,7 @@
       [L('Buat voucher', '쿠폰 만들기'), L('Tab Voucher → tambah voucher untuk semua orang (dengan batas pakai), atau buat voucher sekali pakai untuk dikirim satu per pelanggan.', '쿠폰 탭에서 누구나 쓰는 쿠폰(사용 한도 지정)을 추가하거나, 한 사람에게 한 장씩 보낼 한 장짜리 쿠폰을 만듭니다.'), 'voucher'],
       [L('Hitung harga', '가격 계산'), L('Tab Kalkulator → simpan rumus fee sebagai default. Harga mata uang asing di Input pesanan dihitung dengan rumus ini.', '계산기 탭에서 수수료 수식을 기본값으로 저장합니다. 주문 입력의 외화 가격은 이 수식으로 환산됩니다.'), null]
     ];
-    return '<ol class="how">' + g.map(function (x, i) {
+    return backupNote() + '<ol class="how">' + g.map(function (x, i) {
       return '<li><em>' + (i + 1) + '</em><div><b>' + esc(x[0]) + '</b><p>' + esc(x[1]) + '</p>' + (x[2] ? '<a href="#/admin/' + x[2] + '">' + L('Buka', '열기') + ' →</a>' : '<a href="#/admin/calc">' + L('Buka', '열기') + ' →</a>') + '</div></li>';
     }).join('') + '</ol><p class="hint">Voucher: ' + (S.db.vouchers.map(function (v) { return v.code + ' (−' + rp(v.off) + ')'; }).join(', ') || '-') + ' · <a href="#/admin/voucher">' + L('Voucher', '쿠폰') + ' →</a></p>';
   }
@@ -1100,6 +1116,57 @@
   // 화면을 그린 뒤에 내용이 늦게 채워져 길어진 화면(주문 조회 결과)에서도 나오도록, 스크롤할 때 숨김 여부를 다시 본다
   window.addEventListener('scroll', function () { showJump(); wakeJump(); }, { passive: true });
 
+  /* 알림 이어 보내기 (2026-11-13 사용자 결정): 배치 단계를 바꾼 요청은 무료 한도 때문에 알림을 8건만 보낸다.
+   * 남은 알림이 있으면 관리자 화면이 2초마다 서버에 "더 보내기"(POST /api/admin/push-drain)를 불러 끝까지 보내고, 아래에 남은 수를 보여 준다.
+   * 도중에 화면을 닫으면 멈추고, 다음에 관리자 화면을 열 때 서버가 이어서 보낸다. 남은 것이 없으면 아무것도 띄우지 않는다. */
+  var draining = false;
+  function drainPush(total) {
+    if (draining) return;
+    draining = true;
+    var tries = 0;
+    function bar(text) {
+      var d = $('#pushprog');
+      if (!d) { d = document.createElement('div'); d.id = 'pushprog'; d.className = 'newver info'; d.setAttribute('role', 'status'); document.body.appendChild(d); }
+      d.innerHTML = '<span>' + esc(text) + '</span>';
+    }
+    function finish(text) {
+      draining = false;
+      if (!$('#pushprog')) return;
+      bar(text);
+      setTimeout(function () { var d = $('#pushprog'); if (d) d.remove(); }, 4000);
+    }
+    (function step() {
+      S.pushDrain().then(function (r) {
+        tries++;
+        var left = (r && r.left) || 0;
+        if (!left) { finish(L('Notifikasi terkirim', '알림을 모두 보냈습니다') + ' (' + total + ')'); return; }
+        if (tries > 300) { finish(L('Sisa notifikasi dikirim saat halaman admin dibuka lagi.', '나머지 알림은 관리자 화면을 다시 열 때 보냅니다.')); return; }
+        bar(L('Mengirim notifikasi…', '알림 보내는 중…') + ' ' + L('sisa', '남은 수') + ' ' + left);
+        setTimeout(step, 2000);
+      }, function () { finish(L('Sisa notifikasi dikirim saat halaman admin dibuka lagi.', '나머지 알림은 관리자 화면을 다시 열 때 보냅니다.')); });
+    })();
+  }
+
+  /* 새 버전 알림 (2026-11-13): 배포 뒤에도 열어 둔 화면(특히 관리자 탭)은 새로 고치기 전까지 옛 파일로 돈다.
+   * 처음 연 때의 version.txt(배포한 커밋 번호)를 기억해 두고, 5분마다·화면으로 돌아올 때 다시 봐서 바뀌었으면 아래에 "새로 고침" 줄을 띄운다.
+   * version.txt 가 없는 곳(목업판, 내 컴퓨터)에서는 아무것도 하지 않는다. */
+  var verAt = '';
+  function checkVersion() {
+    if (!window.fetch || $('#newver')) return;
+    fetch(ROOT + 'version.txt?t=' + Date.now(), { cache: 'no-store' }).then(function (r) { return r.ok ? r.text() : ''; }).then(function (v) {
+      v = (v || '').trim();
+      if (!/^[0-9a-f]{7,40}$/.test(v)) return;
+      if (!verAt) { verAt = v; return; }
+      if (v === verAt || $('#newver')) return;
+      var d = document.createElement('div'); d.id = 'newver'; d.className = 'newver'; d.setAttribute('role', 'status');
+      d.innerHTML = '<span>' + L('Ada versi baru situs ini.', '사이트가 새 버전으로 바뀌었습니다.') + '</span><button type="button" class="btn sm" data-act="reload">' + L('Muat ulang', '새로 고침') + '</button>';
+      document.body.appendChild(d);
+    }).catch(function () {});
+  }
+  checkVersion();
+  setInterval(checkVersion, 5 * 60 * 1000);
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') checkVersion(); });
+
   // 접근성: 화면을 그린 뒤 각 입력칸을 그 위의 제목(label)과 연결한다
   var labelSeq = 0;
   function linkLabels() {
@@ -1263,6 +1330,7 @@
     else if (act === 'receipt') showReceipt(id);
     else if (act === 'push-on') pushOn(id);
     else if (act === 'push-off') pushOff(id);
+    else if (act === 'reload') location.reload();   // 새 버전 알림의 "새로 고침"
     else if (act === 'my-clear') { try { localStorage.removeItem(MY_KEY); } catch (x) {} render(); }
     else if (act === 'modal-close') t.closest('.modal').remove();
     else if (act === 'remind-go') t.closest('.modal').remove();   // 알림 창의 "지금 결제하기": 창을 닫고 그 주문의 결제 화면으로 간다
@@ -1270,7 +1338,7 @@
     else if (act === 'export') exportOrders();
     else if (act === 'reset') { if (confirm(L('Semua data kembali ke contoh awal. Lanjutkan?', '모든 데이터가 처음 예시로 돌아갑니다. 계속할까요?'))) { S.reset().then(function () { A.rows = null; C = null; render(); }); } }
     else if (act === 'logout') S.logout().then(render);
-    else if (act === 'batch-save') { var bd = A.edit['b:' + id]; if (bd) { S.updateBatch(id, { stage: bd.stage, note: bd.note }); saved('b:' + id); } }
+    else if (act === 'batch-save') { var bd = A.edit['b:' + id]; if (bd) { S.updateBatch(id, { stage: bd.stage, note: bd.note }, function (r) { if (r && r.notified) drainPush(r.notified); }); saved('b:' + id); } }
     else if (act === 'order-save') {
       var od = A.edit['o:' + id], cur = S.order(id);
       if (od && od.pay === 'unpaid' && cur && cur.pay !== 'unpaid' && !X.canUnpay(cur)) {
@@ -1323,7 +1391,7 @@
     else if (act === 'order-qr') showOrderQR(id);
     else if (act === 'order-qr-save') saveOrderQR(id);
     else if (act === 'order-qr-copy') { var ql = $('#orderQrLink'); if (ql && navigator.clipboard) navigator.clipboard.writeText(ql.textContent).then(function () { t.textContent = L('Link disalin', '링크를 복사했습니다'); }, function () {}); }
-    else if (act === 'export-backup') download(GO.BRAND.name.toLowerCase() + '-backup-' + stamp() + '.json', JSON.stringify(X.backup(S.db), null, 1), 'application/json');
+    else if (act === 'export-backup') { download(GO.BRAND.name.toLowerCase() + '-backup-' + stamp() + '.json', JSON.stringify(X.backup(S.db), null, 1), 'application/json'); try { localStorage.setItem(BACKUP_KEY, String(Date.now())); } catch (x) {} }
     else if (act === 'row-del') { A.rows.splice(+id, 1); render(); }
     else if (act === 'rows-save') {
       var bad = A.rows.filter(function (r) { return !String(r.buyer).trim() || !String(r.item).trim() || !(Number(r.total) > 0); }).length;

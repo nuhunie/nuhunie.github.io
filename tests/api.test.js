@@ -445,6 +445,13 @@ test('웹 푸시: 공개 열쇠를 주고, 알림 회사 주소와 있는 주문
   assert.equal((await call('POST', '/push/unsubscribe', { endpoint, orderId })).status, 200);
   assert.equal((await call('POST', '/push/unsubscribe', { endpoint: 5 })).status, 400);
 });
+test('알림 이어 보내기: 운영자만 부를 수 있고, 남은 알림 수를 돌려준다', async () => {
+  assert.equal((await call('POST', '/admin/push-drain', {})).status, 401);
+  const r = await admin('POST', '/admin/push-drain', {});
+  assert.equal(r.status, 200);
+  assert.equal(typeof r.json.left, 'number');
+  assert.equal(r.json.left, 0, '알림을 켠 기기가 없으면 남은 것도 없다');
+});
 test('서비스 숨기기: 숨긴 서비스는 공개 목록에 표시되고 새 주문을 받지 않는다. 다시 보이면 받는다', async () => {
   const jp = GO.seed().services.find(s => s.id === 'jp'), body = { nameId: jp.name[0], nameKo: jp.name[1], descId: jp.desc[0], descKo: jp.desc[1], cur: jp.cur };
   const order = { batchId: 'jp-2', buyer: 'jepang', item: 'Merch', qty: 1, base: 20000 };

@@ -464,5 +464,16 @@ globalThis.GO.EN = {
   'Notifikasi diblokir di browser ini. Izinkan notifikasi untuk situs ini di pengaturan browser.': 'Notifications are blocked in this browser. Allow notifications for this site in the browser settings.',
   'Dapatkan notifikasi': 'Get notifications',
   'Kami kabari di HP ini saat batch pindah tahap, misalnya saat tiba di Indonesia.': 'We will notify this phone when the batch moves to the next stage, for example when it arrives in Indonesia.',
-  'Nyalakan notifikasi': 'Turn on notifications'
+  'Nyalakan notifikasi': 'Turn on notifications',
+  'Ada versi baru situs ini.': 'A new version of this site is available.',
+  'Muat ulang': 'Reload',
+  'Notifikasi terkirim': 'Notifications sent',
+  'Sisa notifikasi dikirim saat halaman admin dibuka lagi.': 'The remaining notifications will be sent when the admin page is opened again.',
+  'Mengirim notifikasi…': 'Sending notifications…',
+  'sisa': 'left',
+  'Cadangan': 'Backup',
+  'Belum pernah mengunduh cadangan lengkap di perangkat ini.': 'No full backup has been downloaded on this device yet.',
+  'Cadangan lengkap terakhir': 'Last full backup',
+  'hari lalu': 'days ago',
+  'Unduh seminggu sekali di Pengaturan toko → Cadangan lengkap (JSON).': 'Download one every week from Shop settings → Full backup (JSON).'
 };

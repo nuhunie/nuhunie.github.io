@@ -417,7 +417,7 @@ window.runE2E = async function () {
 /* 휴대폰 너비 모양 검사 (2026-11-13 사용자 요청: 폰 화면 검수를 사람이 하지 않도록).
  * 사용법: 브라우저 창을 휴대폰 너비(360·375·412px)로 맞춘 뒤 콘솔에서
  *   await import('../tests/e2e.js'); await runLayout()
- * 손님 화면 7곳을 세 언어로 열어, 그 화면 너비에서 모양만 본다(동작은 runE2E 가 본다).
+ * 손님 화면 7곳과 관리자 화면 7곳을 세 언어로 열어, 그 화면 너비에서 모양만 본다(동작은 runE2E 가 본다).
  *   ① 가로로 넘치는 곳(페이지 전체, 화면 밖으로 나간 요소)  ② 원·네모 안 숫자가 가운데에서 벗어난 것
  *   ③ 누를 수 있는 것끼리 겹친 것  ④ 높이 40px 보다 작은 단추·입력칸  ⑤ 단추·제목 글자가 칸 밖으로 잘린 것
  * 가로 스크롤 상자(.tbl 등) 안과 화면에 고정된 이동 단추(#jump)는 빼고 본다. 예시 데이터로 초기화한 뒤 돌고, 끝나면 다시 초기화한다. */
@@ -426,7 +426,7 @@ window.runLayout = async function () {
   const $$ = s => [...document.querySelectorAll(s)];
   const wait = ms => new Promise(r => setTimeout(r, ms));
   // 맨 위에서 본다: 내려간 채로 보면 위에 붙어 있는 메뉴가 글과 겹쳐 보여 잘못 걸린다
-  const go = async h => { GO.app = 'site'; location.hash = h; await wait(80); GO.render(); window.scrollTo(0, 0); await wait(300); $$('.modal').forEach(m => m.remove()); };
+  const go = async h => { GO.app = /^#\/(admin|calc)/.test(h) ? 'admin' : 'site'; location.hash = h; await wait(80); GO.render(); window.scrollTo(0, 0); await wait(300); $$('.modal').forEach(m => m.remove()); };
   const shown = e => { const r = e.getBoundingClientRect(), cs = getComputedStyle(e); return r.width > 0 && r.height > 0 && cs.visibility !== 'hidden' && !e.closest('[hidden]'); };
   const up = (e, test) => { for (let p = e; p && p !== document.body; p = p.parentElement) if (test(getComputedStyle(p), p)) return true; return false; };
   const inScroller = e => up(e.parentElement || e, cs => /auto|scroll|hidden/.test(cs.overflowX));
@@ -437,7 +437,9 @@ window.runLayout = async function () {
   let keep = 'id'; try { keep = localStorage.getItem('go-lang') || 'id'; } catch (e) {}
   S.reset(); try { sessionStorage.removeItem('nuh-pay-draft'); localStorage.removeItem('nuh-pay-open'); } catch (e) {}
   const unpaid = S.db.orders.find(o => o.pay === 'unpaid') || S.db.orders[0], paid = S.db.orders.find(o => o.pay === 'paid') || S.db.orders[0];
-  const pages = [['첫 화면', '#/'], ['서비스', '#/s/kr'], ['배치', '#/b/kr-5'], ['주문하기', '#/pay/kr-5'], ['결제 화면', '#/pay/' + unpaid.batchId + '/' + unpaid.id], ['결제 확인하기', '#/confirm'], ['주문 조회', '#/track/' + paid.id]];
+  const pages = [['첫 화면', '#/'], ['서비스', '#/s/kr'], ['배치', '#/b/kr-5'], ['주문하기', '#/pay/kr-5'], ['결제 화면', '#/pay/' + unpaid.batchId + '/' + unpaid.id], ['결제 확인하기', '#/confirm'], ['주문 조회', '#/track/' + paid.id],
+    // 관리자 화면도 휴대폰에서 쓸 수 있게 같은 기준으로 본다(넓은 표는 가로 스크롤 상자 안이라 넘침에서 빠진다)
+    ['관리자 안내', '#/admin/guide'], ['관리자 배치', '#/admin/batch'], ['관리자 쿠폰', '#/admin/voucher'], ['관리자 가게 설정', '#/admin/shop'], ['관리자 주문 입력', '#/admin/order'], ['관리자 결제 확인', '#/admin/pay'], ['계산기', '#/admin/calc']];
   for (const lg of ['id', 'en', 'ko']) {
     const lb = document.querySelector('[data-act=lang][data-id="' + lg + '"]'); if (lb) lb.click(); await wait(60);
     for (const [label, h] of pages) {
@@ -469,6 +471,8 @@ window.runLayout = async function () {
       // ④ 누르기 좋은 높이 (글자처럼 생긴 .link 단추와 체크 상자는 뺀다)
       const small = els.filter(e => e.matches('button, .btn, select, input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=hidden])') && !e.classList.contains('link') && e.getBoundingClientRect().height < 39.5);
       check(where, '단추·입력칸 높이 40px 이상', small);
+      // 언어 단추(ID·EN·KO)는 글자처럼 생겼지만 자주 누르므로 40x40 이상
+      check(where, '언어 단추 40x40 이상', $$('#langs button').filter(e => { const r = e.getBoundingClientRect(); return r.width < 39.5 || r.height < 39.5; }));
       // ⑤ 글자가 칸 밖으로 잘림 (한 줄로 쓰는 단추, 제목)
       const clip = els.filter(e => e.matches('.btn, button, h1, h2, h3') && e.scrollWidth > e.clientWidth + 1);
       check(where, '단추·제목 글자가 잘리지 않는다', clip);

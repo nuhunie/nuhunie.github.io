@@ -302,6 +302,13 @@ export async function onRequest({ request, env, params, waitUntil }) {
     if (!b) return fail('Bad request.');
 
     if (sub === 'GET /state') { sendPush(); return json(await loadState(db, true, env)); }   // 남은 알림이 있으면 이어서 보낸다
+    // 남은 알림 이어 보내기 (2026-11-13 사용자 결정: 8대가 넘으면 관리자 화면이 이 주소를 몇 초마다 불러 끝까지 보낸다).
+    // 요청 한 번에 DRAIN_MAX 건만 보내므로 무료 요금제 한도 안이다. 꺼낼 때 지우므로 같은 알림을 두 번 보내지 않는다.
+    if (sub === 'POST /push-drain') {
+      const r = await Push.drainQueue(db, env, url.origin);
+      const left = await db.prepare('SELECT COUNT(*) AS n FROM push_queue').first();
+      return json(Object.assign({}, r, { left: left ? left.n : 0 }));
+    }
 
     if (sub === 'POST /reset') {
       // 전체 주문을 지우는 기능이라, 켜 둔 곳(내 컴퓨터, 검사 환경)에서만 된다. 배포판에는 ALLOW_RESET 이 없다.

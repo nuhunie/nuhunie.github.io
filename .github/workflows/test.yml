@@ -1,4 +1,4 @@
-# 코드를 올릴 때마다 검사를 돌린다: 계산 로직 → 서버 API → 공격 검사.
+# 코드를 올릴 때마다 검사를 돌린다: 계산 로직 → 화면 여정·휴대폰 모양 → 서버 API → 공격 검사.
 # 서버 검사는 GitHub 쪽 임시 컴퓨터에 서버를 띄워서 한다 (배포된 사이트는 건드리지 않는다).
 name: test
 on:
@@ -17,6 +17,13 @@ jobs:
 
       - name: 계산 로직과 서버 공통 코드
         run: node --test tests/logic.test.js tests/server.test.js tests/push.test.js
+
+      # 화면 여정(컴퓨터 너비)과 휴대폰 모양(360·375·412px)을 목업판에서 브라우저로 돌린다
+      - name: 화면 여정과 휴대폰 모양
+        run: |
+          npm i --no-save playwright@1.49.1
+          npx playwright install --with-deps chromium
+          node tests/browser.js
 
       - name: 서버 띄우기
         run: |

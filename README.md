@@ -49,7 +49,11 @@ npm run mock          목업판 실행  → http://localhost:4173/site/
 ```
 npm test              계산 로직
 npm run test:server   서버 API + 공격 검사 (npm run dev 가 떠 있어야 한다. 데이터를 초기화한다)
+npm run test:screen   화면 여정(컴퓨터 너비) + 휴대폰 모양(360·375·412px). 목업판을 직접 띄워 브라우저로 돈다
+npm run check-live    올린 뒤: 실제 사이트가 이 커밋으로 바뀌었는지 기다렸다가 읽기만 하는 확인
 ```
+
+`test:screen` 은 처음 한 번 `npm i --no-save playwright@1.49.1` 과 `npx playwright install chromium` 이 필요하다.
 
 여정 검사(목업판): `npm run mock` 으로 띄운 `http://localhost:4173/site/` 의 브라우저 콘솔에서
 `await import('../tests/e2e.js'); await runE2E()`
